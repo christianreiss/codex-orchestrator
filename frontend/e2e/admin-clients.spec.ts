@@ -502,6 +502,7 @@ test("attachment-only upload retains an ID through chunking and sends once seale
     await route.fulfill({contentType:'application/json',body:JSON.stringify({id:attachment,uploaded_bytes:path.endsWith('/chunks')?5:0,status:path.endsWith('/seal')?'ready':'uploading'})});
   });
   await open(page);await page.locator(`#client-${CODEX}`).click();
+  await page.getByRole("button", { name: "Add attachments" }).click();
   await page.locator('input[type=file]').first().setInputFiles({name:'test.txt',mimeType:'text/plain',buffer:Buffer.from('hello')});
   await expect(page.getByText('test.txt · ready',{exact:false})).toBeVisible();await page.getByRole('button',{name:'Send',exact:true}).click();
   await expect.poll(()=>state.bodies.some(b=>b.path.endsWith('/messages') && b.body.content==='' && (b.body.metadata as {attachments:string[]}).attachments[0]===attachment)).toBe(true);
@@ -521,6 +522,7 @@ test('switching conversations pauses queued uploads and keeps drafts with their 
   });
   try {
     await open(page); await page.locator(`#client-${CODEX}`).click();
+    await page.getByRole("button", { name: "Add attachments" }).click();
     await page.locator('input[type=file]').first().setInputFiles([
       {name:'first.txt',mimeType:'text/plain',buffer:Buffer.from('first')},
       {name:'queued.txt',mimeType:'text/plain',buffer:Buffer.from('queued')},
@@ -555,25 +557,28 @@ test("native activity changes labels without changing receiver send permission",
   await page.screenshot({path: "/tmp/cxx-native-activity-web.png", fullPage: true});
 });
 
-test("direct chat shares readable messages, quotes, expansion and explicit Send", async ({ page }, info) => {
+test("direct chat shares readable messages, quotes, continuous reading and explicit Send", async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const state = await fixtures(page);
   state.sessions[0].launch_name = "Carla";
   state.events = [
     { cursor: 1, session_id: CODEX, type: "user_message", source: "portal", payload: { text: "Review the delivery chain" }, created_at: new Date(Date.now() - 1000).toISOString() },
-    { cursor: 2, session_id: CODEX, type: "assistant_message", source: "engine", payload: { text: "## Findings\n\n" + "A complete verification paragraph with reproducible evidence.\n\n".repeat(30), reply_to: 1 }, created_at: new Date().toISOString() },
+    { cursor: 2, session_id: CODEX, type: "assistant_message", source: "engine", payload: { text: "## Findings\n\n" + "A complete verification paragraph with reproducible evidence.\n\n".repeat(30) + "1. [Final finding](https://example.org/evidence)", reply_to: 1 }, created_at: new Date().toISOString() },
   ];
   await open(page); await page.locator(`#client-${CODEX}`).click();
   const message = page.getByRole("article", { name: "Message from Carla" });
-  await expect(message.getByRole("button", { name: "Show full message" })).toBeVisible();
+  await expect(message.getByRole("button", { name: "Show full message" })).toHaveCount(0);
   const quote = message.getByRole("button", { name: /Reply to You/ });
   await expect(quote).toContainText("Review the delivery chain");
   await quote.click();
   await expect(page.locator("#session-event-1")).toBeFocused();
-  await message.getByRole("button", { name: "Show full message" }).click();
+  const finalFinding = message.getByRole("link", { name: "Final finding" });
+  await finalFinding.focus();
+  await expect(finalFinding).toBeFocused();
+  await expect(finalFinding).toBeInViewport();
   await page.locator(`#client-${CLAUDE}`).click();
   await page.locator(`#client-${CODEX}`).click();
-  await expect(message.getByRole("button", { name: "Show less" })).toBeVisible();
+  await expect(finalFinding).toBeVisible();
   await message.getByRole("button", { name: "Reply", exact: true }).click();
   await expect(page.getByText("Replying to Carla", { exact: false })).toBeVisible();
   const input = page.getByLabel("Message this agent");

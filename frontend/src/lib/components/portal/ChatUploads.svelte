@@ -1,9 +1,12 @@
 <script lang="ts">
+  import Plus from '@lucide/svelte/icons/plus';
+  import * as Popover from '$lib/components/ui/popover';
   import { onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import { Button, buttonVariants } from '$lib/components/ui/button';
   import { attachmentBase, uploadChatFile, type UploadItem } from '$lib/portal/chat-files';
   let { session, items, onitems, disabled = false }: {session: string; items: UploadItem[]; onitems: (session: string, items: UploadItem[]) => void; disabled?: boolean} = $props();
+  let open = $state(false);
   let error = $state('');
   let closed = false;
   let recording = $state<'audio' | 'video' | null>(null);
@@ -28,6 +31,13 @@
     // Serial uploads keep memory and base64 request size bounded.
     for (const item of next) { if (closed) break; await upload(item); }
   }
+  function chooseFiles(event: Event & { currentTarget: HTMLInputElement }) {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    open = false;
+    if (files.length) void add(files);
+  }
   async function remove(item: UploadItem) { requests.get(item.id)?.abort(); onitems(session, items.filter(i => i.id !== item.id)); await api.delete(`${attachmentBase(session)}/${item.id}`).catch(() => {}); }
   function stop() { if (recorder?.state === 'recording') recorder.stop(); stream?.getTracks().forEach(t => t.stop()); clearTimeout(captureTimer); recording = null; }
   async function record(kind:'audio'|'video') {
@@ -42,13 +52,24 @@
   }
   onDestroy(() => { closed = true; previews.forEach(url => URL.revokeObjectURL(url)); if(recorder) recorder.onstop = null; stop(); requests.forEach(r => r.abort()); onitems(session, items.map(i => i.state === 'uploading' ? {...i,state:'failed',error:'Upload paused; retry to resume.'} : i)); });
 </script>
-<div class="border-t px-4 py-2 text-caption">
-  <div class="flex flex-wrap items-center gap-3">
-    <label class={`${buttonVariants({variant:'outline',size:'sm'})} file-picker cursor-pointer focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2`}>Attach files<input type="file" multiple class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
-    <label class={`${buttonVariants({variant:'outline',size:'sm'})} file-picker cursor-pointer focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2`}>Photo<input type="file" accept="image/*" capture="environment" class="sr-only" disabled={disabled} onchange={e => { void add(Array.from(e.currentTarget.files ?? [])); e.currentTarget.value=''; }} /></label>
-    {#if recording}<Button type="button" variant="outline" size="sm" class="text-destructive" onclick={stop}>Stop {recording} recording</Button>
-    {:else}<Button type="button" variant="outline" size="sm" {disabled} onclick={() => record('audio')}>Record audio</Button><Button type="button" variant="outline" size="sm" {disabled} onclick={() => record('video')}>Record video</Button>{/if}
-  </div>
+<Popover.Root bind:open>
+  <Popover.Trigger>
+    {#snippet child({ props })}
+      <Button {...props} type="button" variant="outline" size="icon" {disabled} aria-label="Add attachments" title="Add attachments"><Plus class="h-4 w-4" /></Button>
+    {/snippet}
+  </Popover.Trigger>
+  <Popover.Content side="top" align="start" class="grid w-48 gap-1">
+    <label class={`${buttonVariants({variant:'outline',size:'sm'})} file-picker cursor-pointer focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2`}>Attach files<input type="file" multiple class="sr-only" disabled={disabled} onchange={chooseFiles} /></label>
+    <label class={`${buttonVariants({variant:'outline',size:'sm'})} file-picker cursor-pointer focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2`}>Photo<input type="file" accept="image/*" capture="environment" class="sr-only" disabled={disabled} onchange={chooseFiles} /></label>
+    {#if !recording}
+      <Button type="button" variant="outline" size="sm" {disabled} onclick={() => { open = false; void record('audio'); }}>Record audio</Button>
+      <Button type="button" variant="outline" size="sm" {disabled} onclick={() => { open = false; void record('video'); }}>Record video</Button>
+    {/if}
+  </Popover.Content>
+</Popover.Root>
+{#if items.length || error || recording}
+<div class="order-first col-span-full max-h-32 overflow-y-auto text-caption">
+  {#if recording}<Button type="button" variant="outline" size="sm" onclick={stop}>Stop {recording} recording</Button>{/if}
   {#if error}<p role="alert" class="mt-1 text-destructive">{error}</p>{/if}
   {#each items as item (item.id)}
     {#if item.file.type.startsWith("image/")}<img src={preview(item.file)} alt={item.file.name} class="mt-2 max-h-20 rounded-md" />{/if}
@@ -59,6 +80,7 @@
     {#if item.error}<p class="text-destructive">{item.error}</p>{/if}
   {/each}
 </div>
+{/if}
 
 <style>
   @media (any-pointer: coarse) {

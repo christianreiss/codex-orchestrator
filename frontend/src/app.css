@@ -69,6 +69,7 @@
     background: hsl(var(--background));
     padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
   }
+  .app-main > div:has(.chat-workspace) { height: 100%; }
   /* Below md the Chatty launcher (52px, right .5rem) docks into the tab bar's
      band, which leaves room for it instead of stacking it above the bar. */
   body:has(.chatty-launcher) .mobile-tabbar > ul { padding-right: 4rem; }

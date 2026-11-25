@@ -436,20 +436,27 @@ test("an empty explicit selection cannot send and unavailable agents stay select
 });
 
 for (const width of [320, 390, 1440]) for (const theme of ["light", "dark"]) {
-  test(`long chat ${width}px ${theme}: readable previews, full copy, preserved expansion`, async ({ page, browserName, context }, info) => {
+  test(`long chat ${width}px ${theme}: continuous reading, keyboard access and full copy`, async ({ page, browserName, context }, info) => {
     if (browserName === "chromium") await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.setViewportSize({ width, height: 1000 });
     await page.emulateMedia({ colorScheme: theme });
     await page.addInitScript(theme => localStorage.setItem("codex.theme", theme), theme);
     const state = await fixture(page);
-    const text = "## Review outcome\n\n" + Array.from({ length: 25 }, (_, i) => `Paragraph ${i + 1}: Authentication and delivery evidence remain independently verifiable.\n\n`).join("") + "```sh\n" + "example-".repeat(80) + "\n```\n\n| Check | Outcome |\n| --- | --- |\n| Auth | Passed |\n\nFinal evidence marker.";
+    const text = "## Review outcome\n\n" + Array.from({ length: 25 }, (_, i) => `Paragraph ${i + 1}: Authentication and delivery evidence remain independently verifiable.\n\n`).join("") + "```sh\n" + "example-".repeat(80) + "\n```\n\n| Check | Outcome |\n| --- | --- |\n| Auth | Passed |\n\n[Final evidence marker](https://example.org/evidence)";
     state.events[0].content = text;
     await page.goto(`/admin/agents?room=${GROUP}`);
     const message = page.getByRole("article", { name: "Message from Liliana" });
-    const expand = message.getByRole("button", { name: "Show full message" });
-    await expect(expand).toBeVisible();
-    await expect(message.locator(".folded")).toHaveCount(1);
-    await expect(message.getByRole("button", { name: "Copy code" })).toHaveCount(0);
+    const history = page.getByRole("region", { name: "Conversation history" });
+    const lastLink = message.getByRole("link", { name: "Final evidence marker" });
+    await expect(message.getByRole("button", { name: "Show full message" })).toHaveCount(0);
+    await history.focus();
+    await history.press("Home");
+    await expect(lastLink).not.toBeInViewport();
+    await history.press("End");
+    await expect(lastLink).toBeInViewport();
+    await lastLink.focus();
+    await expect(lastLink).toBeFocused();
+    expect(await history.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     await message.getByRole("button", { name: "Message actions" }).click();
     await page.getByRole("button", { name: "Copy full message", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "Copied full message" })).toBeVisible();
@@ -459,19 +466,15 @@ for (const width of [320, 390, 1440]) for (const theme of ["light", "dark"]) {
     await page.keyboard.press("Control+v");
     await expect(composer).toHaveValue(text);
     await composer.fill("");
-    await expand.click();
-    await expect(message.getByText("Final evidence marker.", { exact: true })).toBeVisible();
-    await expect(message.getByRole("button", { name: "Copy code" })).toBeVisible();
-    await page.getByRole("button", { name: "Show less" }).click();
-    await expect(expand).toBeVisible();
+    await history.focus();
+    await history.press("Home");
+    await expect(lastLink).not.toBeInViewport();
     await page.screenshot({ path: info.outputPath(`long-chat-${width}-${theme}.png`), fullPage: true });
-    await expand.click();
-    // Room switches remount the conversation, but keep expansion state.
     if (width < 1024) await page.getByRole("button", { name: "Back to conversations" }).click();
     await page.locator(`#room-${CONF}`).click();
     if (width < 1024) await page.getByRole("button", { name: "Back to conversations" }).click();
     await page.locator(`#room-${GROUP}`).click();
-    await expect(page.getByRole("button", { name: "Show less" })).toBeVisible();
+    await expect(lastLink).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const axe = await new AxeBuilder({ page }).include('[aria-label="Shared conversation"]').analyze();
     expect(axe.violations).toEqual([]);
@@ -481,6 +484,7 @@ for (const width of [320, 390, 1440]) for (const theme of ["light", "dark"]) {
 test("new messages retain the reading position, and unresolvable replies explain missing history", async ({ page }) => {
   const state = await fixture(page);
   state.events.push(...Array.from({ length: 12 }, (_, i) => ({ ...state.events[0], id: `event-${i}`, created_at: new Date(Date.now() + i + 1).toISOString(), content: `Review ${i}. ` + "Further evidence. ".repeat(25) })));
+  state.events[0].content = Array.from({length: 45}, (_, i) => `Evidence paragraph ${i + 1}.`).join("\n\n");
   state.events[0].reply_to = "older-event";
   state.events[0].deliveries = [{ address_id: AGENT, status: "unreachable" }];
   await page.goto(`/admin/agents?room=${GROUP}`);
@@ -489,11 +493,18 @@ test("new messages retain the reading position, and unresolvable replies explain
   await expect(page.getByText("Load earlier history", { exact: false })).toBeVisible();
   await expect(page.getByText("Some agents could not be reached")).toBeVisible();
   await expect(page.getByText("Delivery details · 1 recipient")).toBeVisible();
+  const paragraph = history.getByText("Evidence paragraph 24.", { exact: true });
+  await paragraph.evaluate(node => node.scrollIntoView({ block: "center" }));
+  const readingOffset = await paragraph.evaluate(node => node.getBoundingClientRect().top);
   state.events.push({ ...state.events[0], id: "latest-event", reply_to: undefined, deliveries: [], created_at: new Date(Date.now() + 50).toISOString(), content: "A new contribution" });
   await state.update();
   await expect(history).toContainText("A new contribution");
-  expect(await history.evaluate(node => node.scrollTop)).toBeLessThan(10);
-  await expect(page.getByRole("button", { name: "New messages ↓" })).toBeVisible();
+  expect(await paragraph.evaluate(node => node.getBoundingClientRect().top)).toBeCloseTo(readingOffset, 0);
+  await page.getByRole("button", { name: "New messages ↓" }).click();
+  const next = { ...state.events.at(-1), id: "following-event", created_at: new Date(Date.now() + 100).toISOString(), content: "Arrived while reading the latest message" };
+  state.events.push(next);
+  await state.update();
+  await expect(history.getByText(next.content)).toBeInViewport();
 });
 
 test("More keeps reactions and pins reachable by keyboard and copy failures visible", async ({ page }) => {

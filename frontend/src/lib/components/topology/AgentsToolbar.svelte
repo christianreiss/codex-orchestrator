@@ -104,7 +104,7 @@
   {/if}
 {/snippet}
 
-{#if remote}
+{#if agents.view === "live"}
   <Toolbar {filters} {actions} {count} />
 {:else}
   <Toolbar

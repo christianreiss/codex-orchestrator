@@ -190,7 +190,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 | Data workspace | Available width (`PageShell` wide) | Tables, boards, graphs, comparison and editor-with-preview |
 | Standard workspace | 72rem maximum (`PageShell` default) | Mixed task pages |
 | Settings / detail form | 48rem maximum (`PageShell` narrow); the tabbed Settings page uses the standard workspace with its tab content capped at 56rem | Reading labels and completing related fields; label and switch stay within one eye span |
-| Article / long prose | 65ch maximum text measure | A code block/table may be wider within a bounded region |
+| Article / long prose | 65ch maximum text measure (75ch for conversations) | A code block/table may be wider within a bounded region |
 | Auth form / setup | 24rem / 56rem maximum | Narrow sign-in and wider staged setup respectively |
 | Desktop controls | 36 px normal; 32 px compact table/toolbar | Minimum heights; multiline content may grow |
 | Touch targets | At least 44 × 44 CSS px for standalone controls on coarse pointers | Expand hit areas without overlapping adjacent targets; applies on hybrid devices too |
@@ -703,9 +703,9 @@ Agents graph. No design exception.
 
 Settings Rollout includes the global speech input default and per-engine inheritance. Requested policy and native capability limitations are displayed separately. Reuses Section and Select. Applicable rules: VIS-1/3, INT-3/5/6, ACC-1/3/4. No new surface or exception.
 
-### Readable conversations and one Send action (2026-11-16)
+### Readable conversations and one Send action (revised 2026-11-25)
 
-Direct and shared web conversations share MessageFrame, MessageContent, ReplyQuote and MessageActions: neutral blocks, named sender, visible local time with exact zoned accessible timestamp, a 65ch reading measure and 14px body text. Ordinary messages above twenty rendered line heights fold behind Show full message; a plain accessible preview and inert clipped content keep hidden links out of the tab order. Full-message copying retains original text, attachments stay visible, and current questions/approval/error surfaces stay expanded. Reply quotes show source text and focus loaded originals. Secondary actions use More; existing reactions and delivery failures remain visible. Expansion survives chat switches, while background refreshes preserve reading position.
+Direct and shared web conversations share MessageFrame, MessageContent, ReplyQuote and MessageActions: named sender, visible local time with exact zoned accessible timestamp, a 75ch reading measure and 14px body text. Render the full message inline. Separate contributions with spacing and a muted background for the operator. The 16rem desktop directory and the transcript scroll independently. Narrow layouts show either directory or conversation. Attachments and media capture share one composer action. Full-message copying retains original text, attachments stay visible, and current questions/approval/error surfaces stay expanded. Reply quotes show source text and focus loaded originals. Secondary actions use More; existing reactions and delivery failures remain visible. Background refreshes preserve reading position.
 
 Shared composers default to To: Everyone, one Send action, with individual recipients and posting without replies in a labeled selector. Reply chooses an agent author, otherwise Everyone. Direct chats have a fixed visible recipient. Both use Ctrl/⌘+Enter to send and Enter for a newline. No API default changes. Applicable rules: NAV-3, VIS-1/2/3/4, INT-3/5/6/7/8, ACC-1/2/3/4. No exception. Verification evidence and manual acceptance limits are recorded with delivery.
 

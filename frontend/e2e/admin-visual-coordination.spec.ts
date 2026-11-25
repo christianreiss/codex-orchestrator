@@ -3,7 +3,7 @@ import { fixture, installFixtures } from "./admin-fixtures";
 
 for (const width of [320, 1440]) {
   test(`chat file pickers have visible focus and touch targets at ${width}px`, async ({ browser, baseURL }) => {
-    const context = await browser.newContext({ baseURL, viewport: { width, height: 900 }, hasTouch: true });
+    const context = await browser.newContext({ baseURL, viewport: { width, height: 900 }, hasTouch: true, reducedMotion: "reduce" });
     const page = await context.newPage();
     await installFixtures(page, (path) => {
       if (path !== "/admin/agent-sessions") return undefined;
@@ -15,8 +15,11 @@ for (const width of [320, 1440]) {
       return data;
     });
     await page.goto("/admin/agents?session=11111111-1111-4111-8111-111111111111");
+    const picker = page.getByRole("button", { name: "Add attachments" });
     for (const name of ["Attach files", "Photo"]) {
       const input = page.getByLabel(name, { exact: true });
+      await picker.click();
+      await page.getByRole("button", { name: "Record audio" }).focus();
       const label = input.locator("..");
       await expect(input).toBeEnabled();
       const bounds = await label.boundingBox();
@@ -31,6 +34,7 @@ for (const width of [320, 1440]) {
       const chooser = page.waitForEvent("filechooser");
       await input.press("Enter");
       await (await chooser).setFiles([]);
+      await expect(picker).toHaveAttribute("aria-expanded", "false");
     }
     await context.close();
   });

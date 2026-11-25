@@ -1,5 +1,7 @@
 # 2026-11-25
 
+- The Agents chat shows full-length replies in a continuous transcript, with a compact conversation list, inline composer and one attachment picker for direct and shared conversations.
+
 - cxx 0.9.206 marks elapsed time on terminal quota bars. Usage up to the marker is green, usage beyond it is amber, and the fill turns red at the quota limit.
 
 - cxx 0.9.205 resolves RTK from the current session's PATH, identifies safe retries when read-only fleet content calls hit a temporary gateway error, and accepts a writable `--journal-dir` for resumable uploads from a read-only release directory.

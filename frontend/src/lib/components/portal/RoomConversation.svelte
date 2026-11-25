@@ -317,7 +317,7 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col" aria-label="Shared conversation">
-  <header class="flex min-h-16 shrink-0 items-center gap-3 border-b px-4 py-3">
+  <header class="flex shrink-0 items-center gap-2 border-b px-2 py-1.5 sm:px-4">
     <Button
       variant="ghost"
       size="icon"
@@ -328,11 +328,11 @@
     <span class="grid h-9 w-9 shrink-0 place-content-center rounded-md bg-muted"
       ><Users class="h-5 w-5" /></span
     >
-    <div class="min-w-0 flex-1">
+    <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
       <h2
         bind:this={heading}
         tabindex="-1"
-        class="break-words text-body font-semibold focus-visible:ring-2 focus-visible:ring-ring"><!-- slop-ok: programmatic focus target (tabindex=-1) -->
+        class="min-w-0 [overflow-wrap:anywhere] text-body font-semibold focus-visible:ring-2 focus-visible:ring-ring"><!-- slop-ok: programmatic focus target (tabindex=-1) -->
         {room?.title ?? "Conversation"}
       </h2>
       <p class="text-caption text-muted-foreground">
@@ -428,7 +428,7 @@
                 Write a message or share a file. Everyone is asked to answer unless you choose different recipients.
               </p>
             </div>{/if}
-          <div class="mx-auto max-w-[65ch] space-y-4">
+          <div class="mx-auto max-w-[75ch] space-y-4">
             {#each events as event, i (event.id)}
               {#if i === 0 || event.created_at.slice(0, 10) !== events[i - 1].created_at.slice(0, 10)}<p
                   class="py-2 text-center text-caption text-muted-foreground"
@@ -438,7 +438,7 @@
                   })}
                 </p>{/if}
               {#if event.kind === "membership"}
-                <details class="mx-auto max-w-[65ch] text-caption text-muted-foreground"><summary class="min-h-8 cursor-pointer py-2 pointer-coarse:min-h-11">Room update · {event.name}</summary><p class="whitespace-pre-wrap break-words">{event.content}</p></details>
+                <details class="mx-auto max-w-[75ch] text-caption text-muted-foreground"><summary class="min-h-8 cursor-pointer py-2 pointer-coarse:min-h-11">Room update · {event.name}</summary><p class="whitespace-pre-wrap break-words">{event.content}</p></details>
               {:else}
               <MessageFrame id={`room-event-${event.id}`} name={event.name} createdAt={event.created_at} operator={event.actor.startsWith("admin:")}>
                 {#if pinned.includes(event.id)}<p class="mb-2 text-caption text-muted-foreground">Pinned</p>{/if}
@@ -446,7 +446,7 @@
                   {@const original = events.find(e => e.id === event.reply_to)}
                   <ReplyQuote name={original?.name} text={original?.content} onjump={original ? () => jump(original.id) : undefined} />
                 {/if}
-                <MessageContent text={event.content} messageKey={`room:${id}:${event.id}`} collapsible={["chat", "legacy"].includes(event.kind)} />
+                <MessageContent text={event.content} />
                 {#if event.attachments.length}<AttachmentList
                     session={`room:${id}`}
                     ids={event.attachments}
@@ -580,58 +580,41 @@
                   >Cancel reply</button
                 >
               </div>{/if}
-            <ChatUploads
-              session={`room:${id}`}
-              items={draft.uploads}
-              onitems={(_, items) => (draft.uploads = items)}
-              disabled={busy || !!draft.pending}
-            />
             <form
-              class="shrink-0 space-y-2 border-t p-3 sm:p-4"
+              class="shrink-0 border-t px-3 py-2 sm:px-4"
               onsubmit={(e) => {
                 e.preventDefault();
                 void send();
               }}
             >
-              <label for="room-message" class="sr-only"
-                >Message this conversation</label
-              ><textarea
-                id="room-message"
-                bind:this={input}
-                bind:value={draft.text}
-                readonly={!!draft.pending}
-                disabled={busy}
-                rows="3"
-                maxlength="30000"
-                placeholder="Write to the room…"
-                aria-keyshortcuts="Control+Enter Meta+Enter"
-                class="block max-h-44 min-h-20 w-full resize-y rounded border border-input bg-background px-3 py-2 text-body-sm"
-                onkeydown={(e) => {
-                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.isComposing) {
-                    e.preventDefault();
-                    void send();
-                  }
-                }}></textarea>
-              <div class="flex flex-wrap items-center gap-2">
-                <Popover.Root>
-                  <Popover.Trigger>
-                    {#snippet child({ props })}<button {...props} type="button" disabled={busy || !!draft.pending} aria-label="Choose recipients" class="min-h-9 max-w-full rounded border border-input px-3 text-left text-body-sm pointer-coarse:min-h-11">
-                      To: {draft.audience === "note" ? "No reply requested" : draft.audience === "selected" ? selectedNames.join(", ") || "Choose agents" : "Everyone"}
-                    </button>{/snippet}
-                  </Popover.Trigger>
-                  <Popover.Content align="start" class="max-h-80 w-72 overflow-y-auto">
-                    <fieldset disabled={busy || !!draft.pending} class="space-y-2 text-body-sm">
-                      <legend class="mb-2 font-medium">Who should answer?</legend>
-                      <label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11"><input type="radio" name="room-audience" checked={(draft.audience ?? "everyone") === "everyone"} onchange={() => { draft.audience = "everyone"; draft.recipients = []; }} />Everyone</label>
-                      <label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11"><input type="radio" name="room-audience" checked={draft.audience === "selected"} onchange={() => draft.audience = "selected"} />Choose agents</label>
-                      {#if draft.audience === "selected"}<div class="space-y-1 pl-4">{#each room.members as member}<label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11"><input type="checkbox" checked={draft.recipients.includes(member.id)} onchange={e => { if (e.currentTarget.checked) mention(member.id); else draft.recipients = draft.recipients.filter(r => r !== member.id); }} /><span>{member.name}{!member.reachable ? " · unavailable" : ""}</span></label>{/each}</div>{/if}
-                      <label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11 border-t pt-2"><input type="radio" name="room-audience" checked={draft.audience === "note"} onchange={() => { draft.audience = "note"; draft.recipients = []; }} />Post without requesting replies</label>
-                    </fieldset>
-                  </Popover.Content>
-                </Popover.Root>
-                <div class="ml-auto">
+              <div class="mx-auto grid max-w-[75ch] grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-2">
+                <ChatUploads
+                  session={`room:${id}`}
+                  items={draft.uploads}
+                  onitems={(_, items) => (draft.uploads = items)}
+                  disabled={busy || !!draft.pending}
+                />
+                <label for="room-message" class="sr-only"
+                  >Message this conversation</label
+                ><textarea
+                  id="room-message"
+                  bind:this={input}
+                  bind:value={draft.text}
+                  readonly={!!draft.pending}
+                  disabled={busy}
+                  rows="1"
+                  maxlength="30000"
+                  placeholder="Write to the room…"
+                  aria-keyshortcuts="Control+Enter Meta+Enter"
+                  class="block max-h-40 min-h-9 w-full resize-none [field-sizing:content] rounded border border-input bg-background px-3 py-2 text-body-sm"
+                  onkeydown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !e.isComposing) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}></textarea>
                 <Button
-                  type="submit"
+                  type="submit" size="sm"
                   disabled={busy ||
                     (!draft.pending && draft.audience === "selected" && !draft.recipients.length) ||
                     (!draft.text.trim() && !draft.uploads.length) ||
@@ -642,19 +625,32 @@
                       ? "Retry send"
                       : "Send"}</Button
                 >
+                <div class="col-span-full flex flex-wrap items-center gap-2">
+                  <Popover.Root>
+                    <Popover.Trigger>
+                      {#snippet child({ props })}<button {...props} type="button" disabled={busy || !!draft.pending} aria-label="Choose recipients" class="min-h-9 max-w-full rounded border border-input px-3 text-left text-body-sm pointer-coarse:min-h-11">
+                        To: {draft.audience === "note" ? "No reply requested" : draft.audience === "selected" ? selectedNames.join(", ") || "Choose agents" : "Everyone"}
+                      </button>{/snippet}
+                    </Popover.Trigger>
+                    <Popover.Content align="start" class="max-h-80 w-72 overflow-y-auto">
+                      <fieldset disabled={busy || !!draft.pending} class="space-y-2 text-body-sm">
+                        <legend class="mb-2 font-medium">Who should answer?</legend>
+                        <label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11"><input type="radio" name="room-audience" checked={(draft.audience ?? "everyone") === "everyone"} onchange={() => { draft.audience = "everyone"; draft.recipients = []; }} />Everyone</label>
+                        <label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11"><input type="radio" name="room-audience" checked={draft.audience === "selected"} onchange={() => draft.audience = "selected"} />Choose agents</label>
+                        {#if draft.audience === "selected"}<div class="space-y-1 pl-4">{#each room.members as member}<label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11"><input type="checkbox" checked={draft.recipients.includes(member.id)} onchange={e => { if (e.currentTarget.checked) mention(member.id); else draft.recipients = draft.recipients.filter(r => r !== member.id); }} /><span>{member.name}{!member.reachable ? " · unavailable" : ""}</span></label>{/each}</div>{/if}
+                        <label class="flex min-h-9 items-center gap-2 pointer-coarse:min-h-11 border-t pt-2"><input type="radio" name="room-audience" checked={draft.audience === "note"} onchange={() => { draft.audience = "note"; draft.recipients = []; }} />Post without requesting replies</label>
+                      </fieldset>
+                    </Popover.Content>
+                  </Popover.Root>
                 </div>
+                {#if draft.pending || (draft.audience === "selected" && !draft.recipients.length)}
+                <p class="col-span-full text-caption text-muted-foreground">
+                  {draft.pending
+                    ? "Send was not confirmed. Retry keeps the same request."
+                    : "Choose at least one agent."}
+                </p>
+                {/if}
               </div>
-              <p class="text-caption text-muted-foreground">
-                {draft.pending
-                  ? "Send was not confirmed. Retry keeps the same request."
-                  : draft.audience === "selected" && !draft.recipients.length
-                    ? "Choose at least one agent."
-                    : draft.audience === "note"
-                      ? "Posted to the shared history without requesting replies."
-                      : draft.audience === "selected"
-                        ? `One reply requested from ${selectedNames.join(", ")}.`
-                        : "Everyone is asked to reply once."}
-              </p>
             </form>
           {/if}
         {/if}

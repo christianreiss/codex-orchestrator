@@ -52,7 +52,7 @@
          {needsYou ? 'ring-1 ring-inset ring-destructive/20' : ''}"
   {...rest}
 >
-  <EngineAvatar {engine} {presence} {activity} {status} {logo} badge />
+  <EngineAvatar size="sm" {engine} {presence} {activity} {status} {logo} badge />
 
   <span class="min-w-0 flex-1">
     <span class="flex items-baseline gap-2">

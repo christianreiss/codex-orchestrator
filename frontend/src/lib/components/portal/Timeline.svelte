@@ -46,7 +46,7 @@
   <div
     bind:this={scroller}
     onscroll={onScroll}
-    class="h-full overflow-y-auto bg-background px-3 pb-3 pt-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
+    class="h-full overflow-y-auto overscroll-contain px-3 pb-3 pt-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
     tabindex="0"
     role="region"
     aria-label="Session timeline"
@@ -97,6 +97,7 @@
     {/each}
   </div>
 
+  <p role="status" class="sr-only">{portal.missed ? `${portal.missed} new messages` : ""}</p>
   {#if !portal.atBottom}
     <button
       type="button"

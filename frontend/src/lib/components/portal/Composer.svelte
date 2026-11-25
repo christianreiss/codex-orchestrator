@@ -1,9 +1,11 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { Button } from "$lib/components/ui/button";
   import type { Agent, PresenceTimings } from "$lib/portal/types";
   import { presenceView } from "$lib/portal/presence";
 
   let {
+    attachments,
     agent,
     now,
     sending,
@@ -15,6 +17,7 @@
     timings,
     hasAttachments = false,
   }: {
+    attachments: Snippet;
     agent: Agent;
     now: number;
     sending: boolean;
@@ -71,14 +74,15 @@
     {#if disabledReason}
       <p class="pb-1.5 text-center text-caption text-muted-foreground">{disabledReason}</p>
     {:else if !view.canSend}
-      <p class="truncate pb-1.5 text-center text-caption text-muted-foreground" title={view.detail}>
-        <strong class="font-semibold text-foreground">{view.label}.</strong> {view.detail}
+      <p class="pb-1.5 text-center text-caption text-muted-foreground">
+        {view.detail}
       </p>
     {/if}
     <form
-      class="mx-auto flex max-w-[65ch] flex-wrap items-end gap-2"
+      class="mx-auto grid max-w-[75ch] grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-2"
       onsubmit={(event) => { event.preventDefault(); submit(); }}
     >
+      {@render attachments()}
       <label class="sr-only" for="portal-composer">Message this agent</label>
       <textarea
         bind:this={input}
@@ -91,13 +95,12 @@
         aria-keyshortcuts="Control+Enter Meta+Enter"
         aria-describedby="portal-composer-hint"
         onkeydown={onKeydown}
-        class="max-h-40 [field-sizing:content] min-h-20 w-full resize-none rounded border border-input
+        class="max-h-40 [field-sizing:content] min-h-9 w-full resize-none rounded border border-input
                bg-background py-1.5 px-3 text-body-sm leading-6 transition
                ring-offset-background placeholder:text-muted-foreground outline-none focus-visible:border-ring focus-visible:ring-2
                focus-visible:ring-ring focus-visible:ring-offset-2"
       ></textarea>
-      <p class="mr-auto text-caption text-muted-foreground">To: {agent.launch_name || "Agent"}</p>
-      <Button type="submit" disabled={sending || (!draft.trim() && !hasAttachments) || !view.canSend || Boolean(disabledReason)}>{sending ? "Sending…" : "Send"}</Button>
+      <Button type="submit" size="sm" disabled={sending || (!draft.trim() && !hasAttachments) || !view.canSend || Boolean(disabledReason)}>{sending ? "Sending…" : "Send"}</Button>
     </form>
     <p id="portal-composer-hint" class="sr-only">
       Ctrl/⌘+Enter to send, Enter for a new line. Local sandbox and approvals still apply.

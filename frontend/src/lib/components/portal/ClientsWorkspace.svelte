@@ -34,6 +34,7 @@
   import EngineAvatar from "$lib/components/portal/EngineAvatar.svelte";
   import Timeline from "$lib/components/portal/Timeline.svelte";
   import * as Dialog from "$lib/components/ui/dialog";
+  import { Input } from "$lib/components/ui/input";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
   import { CopyButton } from "$lib/components/ui/copy-button";
@@ -92,11 +93,12 @@
   let newRoomOpen = $state(false), messageSearchOpen = $state(false);
   let roomDrafts = $state<Record<string,RoomDraft>>({});
   async function selectRoom(id: string | null) {
+    const previousRoom = selectedRoom;
     selectedId = null;
     const url = new URL(page.url); url.searchParams.delete('session');
     if(id) url.searchParams.set('room',id); else url.searchParams.delete('room');
     await goto(url,{keepFocus:true,noScroll:true});
-    if(!id) await tick().then(()=>document.getElementById('shared-room-heading')?.focus());
+    if(!id) await tick().then(()=>(document.getElementById(`room-${previousRoom}`) ?? document.getElementById('shared-room-heading'))?.focus({preventScroll:true}));
   }
   const daemonHosts = hostDaemonsQuery(() => canRemoteManage);
   let remoteId = $state<string | null>(null);
@@ -327,9 +329,8 @@
   {:else if rows.length === 0 && !$authStore.can("agent_messaging.read")}
     <EmptyState icon={BotIcon} title="No recorded clients" description="A session appears when an agent registers its session. Clients that cannot reach the server may appear after reconnecting." />
   {:else}
-    <!-- One Messages-style card: conversation list on the left, thread on the right. -->
-    <div class="grid h-[calc(75dvh-4rem)] min-h-[28rem] grid-cols-1 overflow-hidden rounded-md border bg-card lg:h-[calc(100dvh-14rem)] lg:grid-cols-[20rem_minmax(0,1fr)]">
-      <section class="min-h-0 min-w-0 flex-col border-r {selected || selectedRoom ? 'hidden lg:flex' : 'flex'}" aria-label="Client directory">
+    <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] bg-card lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <section class="min-h-0 min-w-0 flex-col lg:border-r {selected || selectedRoom ? 'hidden lg:flex' : 'flex'}" aria-label="Client directory">
         <div class="flex items-center justify-between border-b px-3 py-2 text-caption text-muted-foreground">
           <h2 id="shared-room-heading" tabindex="-1" class="font-medium text-foreground">{roomView === 'history' ? 'History' : 'Conversations'}</h2>
           <!-- A filter on this list, not a second view switch. -->
@@ -337,6 +338,7 @@
           {#if $authStore.can('agent_messaging.reveal_content')}<Button variant="ghost" size="icon" class="h-8 w-8" aria-label="Search messages" aria-haspopup="dialog" onclick={()=>messageSearchOpen=true}><SearchIcon class="h-4 w-4"/></Button>{/if}
           {#if canRemoteManage}<Button variant="ghost" size="icon" class="h-8 w-8" aria-label="New conversation" onclick={()=>newRoomOpen=true}><PlusIcon class="h-4 w-4"/></Button>{/if}
         </div>
+        <div class="px-2 pt-2"><Input bind:value={search} aria-label="Find a client" placeholder="Find a conversation" /></div>
         <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
           {#if roomView === 'active'}
           <h3 class="px-3 pb-1 pt-3 text-caption font-medium text-muted-foreground">Direct messages <span class="ml-1 tabular-nums">{visible.length}</span></h3>
@@ -356,7 +358,7 @@
                 {#each rooms as room (room.id)}
                   <button id={`room-${room.id}`} type="button" class="flex w-full items-start gap-3 rounded-md px-3 py-3 text-left transition-colors hover:bg-muted/60 {selectedRoom===room.id?'bg-muted':''}" aria-pressed={selectedRoom===room.id} onclick={()=>selectRoom(room.id)}>
                     <span class="mt-0.5 grid h-9 w-9 shrink-0 place-content-center rounded-md border bg-background">{#if room.kind==='conference'}<MessagesSquareIcon class="h-4 w-4"/>{:else if room.kind==='group'}<UsersIcon class="h-4 w-4"/>{:else}<HashIcon class="h-4 w-4"/>{/if}</span>
-                    <span class="min-w-0 flex-1"><span class="flex items-baseline justify-between gap-2"><span class="break-words text-body-sm font-medium">{room.title}</span>{#if room.unread}<span class="shrink-0 rounded bg-primary px-1.5 text-caption text-primary-foreground" aria-label={`${room.unread} unread messages`}>{room.unread}</span>{/if}</span><span class="mt-0.5 block truncate text-caption text-muted-foreground">{room.members.slice(0,3).map(m=>m.name).join(', ')||'No participants'}{room.members.length>3?` +${room.members.length-3}`:''}</span><span class="mt-1 block text-caption text-muted-foreground">{room.status==='open'?`${room.members.length} participants`:room.status}{#if room.last_activity_at} · {listTime(room.last_activity_at,new Date(serverNow))}{/if}</span></span>
+                    <span class="min-w-0 flex-1"><span class="flex items-baseline justify-between gap-2"><span class="min-w-0 truncate text-body-sm font-medium">{room.title}</span>{#if room.unread}<span class="shrink-0 rounded bg-primary px-1.5 text-caption text-primary-foreground" aria-label={`${room.unread} unread messages`}>{room.unread}</span>{/if}</span><span class="mt-0.5 block truncate text-caption text-muted-foreground">{room.members.slice(0,3).map(m=>m.name).join(', ')||'No participants'}{room.members.length>3?` +${room.members.length-3}`:''}</span><span class="mt-1 block text-caption text-muted-foreground">{room.status==='open'?`${room.members.length} participants`:room.status}{#if room.last_activity_at} · {listTime(room.last_activity_at,new Date(serverNow))}{/if}</span></span>
                   </button>
                 {/each}
               {/if}
@@ -392,19 +394,15 @@
                 <Button variant="ghost" size="icon" class="h-8 w-8 shrink-0" aria-expanded={detailsOpen} aria-controls="client-info" aria-label="Session details" onclick={() => detailsOpen = !detailsOpen}><InfoIcon class="h-4 w-4" /></Button>
               </div>
             {:else}
-            <header class="grid shrink-0 grid-cols-[5.5rem_1fr_5.5rem] items-center border-b px-2 py-1.5">
-              <div><Button variant="ghost" size="sm" class="-ml-1 px-1.5 text-primary lg:hidden" onclick={closeDetail}><ChevronLeftIcon class="h-5 w-5" /> Agents</Button></div>
-              <div class="flex min-w-0 flex-col items-center text-center">
-                <EngineAvatar engine={selected.engine} presence={selectedView.presence} activity={liveActivity(selected, serverNow)} status={selectedView.label} size="xs" badge logo />
-                <h2 bind:this={detailHeading} tabindex="-1" class="mt-0.5 max-w-full truncate text-caption font-semibold focus-visible:ring-2 focus-visible:ring-ring">{agentName(selected)}</h2><!-- slop-ok: programmatic focus target (tabindex=-1) -->
-                <p class="max-w-full truncate text-caption text-muted-foreground" title={selected.cwd}>{selected.cwd}</p>
-                <p class="max-w-full truncate text-caption text-muted-foreground">
-                  {engineLabel(selected.engine)} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}{#if selected.activity || selectedView.presence !== "listening"}{" · "}<span title={selectedView.detail}>{selectedView.detail}</span>{/if}{#if canReadTranscript}{" · "}<span>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</span>{/if}
-                </p>
+            <header class="flex shrink-0 items-center gap-2 border-b px-2 py-1.5 sm:px-4">
+              <Button variant="ghost" size="icon" class="lg:hidden" aria-label="Agents" onclick={closeDetail}><ChevronLeftIcon class="h-5 w-5" /></Button>
+              <EngineAvatar engine={selected.engine} presence={selectedView.presence} size="xs" logo />
+              <div class="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+                <h2 bind:this={detailHeading} tabindex="-1" class="min-w-0 break-words text-body font-semibold focus-visible:ring-2 focus-visible:ring-ring">{agentName(selected)}</h2><!-- slop-ok: programmatic focus target (tabindex=-1) -->
+                <span class="text-caption text-muted-foreground">{engineLabel(selected.engine)} · {selectedView.label}{selected.read_only ? " · Read-only" : ""}</span>
+                {#if canReadTranscript && feedState === "reconnecting"}<span class="text-caption text-warning">Live updates reconnecting</span>{/if}
               </div>
-              <div class="flex justify-end">
-                <Button variant="ghost" size="icon" class="h-8 w-8 rounded-full {detailsOpen ? 'text-primary' : 'text-muted-foreground'}" aria-expanded={detailsOpen} aria-controls="client-info" aria-label="Session details" title="Session details" onclick={() => (detailsOpen = !detailsOpen)}><InfoIcon class="h-4 w-4" /></Button>
-              </div>
+              <Button variant="ghost" size="icon" aria-expanded={detailsOpen} aria-controls="client-info" aria-label="Session details" onclick={() => detailsOpen = !detailsOpen}><InfoIcon class="h-4 w-4" /></Button>
             </header>
             {/if}
             {#if selected.reboot}
@@ -421,6 +419,7 @@
               <div id="client-info" class="max-h-[50%] shrink-0 overflow-y-auto border-b bg-muted/20 px-4 py-3 text-caption">
                 <p class="leading-relaxed text-muted-foreground">{selectedView.detail}</p>
                 <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+                  {#if canReadTranscript}<dt class="text-muted-foreground">Timeline</dt><dd>{feedState === "live" ? "Live timeline updates" : feedState === "connecting" ? "Connecting to live updates…" : "Live updates reconnecting"}</dd>{/if}
                   <dt class="text-muted-foreground">Heartbeat</dt><dd title={exactTime(selected.heartbeat_at)}>{age(selected.heartbeat_at)} ago</dd>
                   <dt class="text-muted-foreground">Host</dt><dd>{selected.username} on {selected.host ?? `host ${selected.host_id}`}</dd>
                   <dt class="text-muted-foreground">Summary</dt><dd>{preview(selected, selectedView.presence === "ended")}</dd>
@@ -461,8 +460,17 @@
               {:else}<div class="flex-1"></div>{/if}
               <AttentionCard agent={selected} now={serverNow} {timings} {onreply} busy={$send.isPending} readonly={!canManage || actionsUnavailable || (!!remoteControls && !remoteLive)} />
               {#if !remoteControls || remoteLive}{#if canManage}{#if retryingDraft}<p class="border-t bg-warning-muted px-4 py-1.5 text-caption text-muted-foreground">A previous send was not confirmed. Sending this draft again retries the same request.</p>{/if}{#if replyTargets[selected.id]}{@const original = timelineSource.timeline.find(e => e.cursor === replyTargets[selected.id])}<p class="px-4 py-1 text-caption">Replying to {original?.type === "user_message" ? "You" : selected.launch_name || "Agent"}<span class="block line-clamp-2 break-words">{original ? eventText(original) : "Earlier message"}</span> <button type="button" onclick={() => replyTargets = {...replyTargets,[selected.id]:undefined}}>Cancel</button></p>{/if}
-                {#key selected.id}<ChatUploads session={selected.id} items={uploads[selected.id] ?? []} onitems={(id, items) => uploads = {...uploads,[id]:items}} disabled={$send.isPending} />{/key}
-                {#if selected.pending_prompt?.answer_mode !== 'buttons'}<Composer hasAttachments={Boolean(uploads[selected.id]?.length)} agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />{/if}{/if}{/if}
+                {#snippet attachmentPicker()}
+                  {#key selected.id}
+                    <ChatUploads session={selected.id} items={uploads[selected.id] ?? []}
+                      onitems={(id, items) => uploads = {...uploads, [id]: items}} disabled={$send.isPending} />
+                  {/key}
+                {/snippet}
+                {#if selected.pending_prompt?.answer_mode === 'buttons'}
+                  <div class="grid justify-items-start gap-2 px-3 py-2">{@render attachmentPicker()}</div>
+                {:else}
+                  <Composer attachments={attachmentPicker} hasAttachments={Boolean(uploads[selected.id]?.length)} agent={selected} now={serverNow} {timings} sending={$send.isPending} {draft} {disabledReason} ondraft={(text) => (drafts = { ...drafts, [selected.id]: text })} onsend={submit} bind:input={composerInput} />
+                {/if}{/if}{/if}
             {/if}
             {#if remoteControls}{@render remoteControls()}{/if}
           </div>

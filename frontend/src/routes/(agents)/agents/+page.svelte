@@ -17,23 +17,24 @@
     ...(summary.stale > 0 ? [{ label: "link quiet", value: summary.stale, tone: "warning" as const }] : []),
     { label: "parent unknown", value: summary.unattributed, hint: "No current communicator evidence; includes retained offline sessions, not proof of direct connections" },
   ]);
+  const chats = $derived(agents.view === "live" && agents.workspace === "agents");
   // On a phone an open conversation takes the whole screen.
   const conversationOpen = $derived(agents.view === "live" && (agents.liveSelectedId !== null || page.url.searchParams.has("room")));
 </script>
 
 <PageShell
   title="Agents"
-  description={agents.view === "live" ? "Conversations with agents and the people coordinating them." : "Who is running, what they are working on, and how each one connects to the server."}
-  class={conversationOpen ? "max-lg:[&>header_p]:hidden" : ""}
+  description={chats ? undefined : agents.view === "live" ? "Manage remote sessions." : "Who is running, what they are working on, and how each one connects to the server."}
+  class={cn(chats && "chat-workspace h-full gap-2", conversationOpen && "max-lg:[&>header]:sr-only")}
   width="wide"
 >
   <div class={conversationOpen ? "max-lg:hidden" : ""}>
     <AgentsToolbar {agents} />
   </div>
 
-  <div class="lg:flex lg:items-start lg:gap-4">
+  <div class={cn("lg:flex lg:gap-4", chats ? "flex min-h-0 flex-1" : "lg:items-start")}>
     <!-- Below lg the inspector is a fixed bottom card (max 55dvh): reserve room so content can scroll clear of it. -->
-    <div class={cn("min-w-0 flex-1 space-y-4", agents.selectedItem && "max-lg:pb-[55dvh]")}>
+    <div class={cn("min-w-0 flex-1", chats ? "flex min-h-0 flex-col" : "space-y-4", agents.selectedItem && "max-lg:pb-[55dvh]")}>
       {#if agents.view === "graph"}
         <StatStrip items={stats} />
         <GraphView {agents} />
