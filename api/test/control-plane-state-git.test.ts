@@ -576,6 +576,52 @@ describe('Git Director feedback sweep (registration state, remotes, nesting, lis
     expect(h.state.snapshot().table('gitWorktrees').all().filter((row) => row.status === 'active')).toHaveLength(2);
   });
 
+  it.each(['codex', 'claude', 'grok', 'kimi'] as const)(
+    '%s registers a claimed same-clone linked worktree without rebinding the parent',
+    async (engine) => {
+      const h = setup(engine);
+      await withWorkspace(h);
+      const parent = await as(h, () => h.git.register({ ...base, engine }, h.host));
+      const child = { ...base, engine, worktree_path: '/repo-task', repo_root: '/repo-task', branch: 'child-task' };
+      const register = (args = child) => as(h, () => h.git.register(args, h.host));
+
+      await expect(register()).rejects.toMatchObject({ code: 'git_director_owner_required' });
+      await h.service.claims.acquire(h.sessionId, h.token, {
+        client_request_id: randomUUID(),
+        purpose: 'isolated native child',
+        resources: [
+          { kind: 'path', host_id: 1, path: child.worktree_path },
+          { kind: 'git', host_id: 1, common_dir: child.clone_dir, branch: child.branch },
+        ],
+      });
+      await expect(register({ ...child, branch: 'unclaimed' })).rejects.toMatchObject({
+        code: 'git_director_owner_required',
+      });
+      await expect(register({ ...child, clone_dir: '/other/.git' })).rejects.toMatchObject({
+        code: 'git_director_owner_required',
+      });
+      const supplemental = await register();
+      expect(supplemental).toMatchObject({ registered: true, agent_address_bound: true });
+      expect(supplemental.clone).toMatchObject({ clone_dir: child.clone_dir, repo_root: '/repo' });
+      expect(supplemental.worktree_id).not.toBe(parent.worktree_id);
+      await expect(as(h, () => h.git.join({
+        worktree_path: child.worktree_path, target_branch: 'main', paths: ['src/a.ts'],
+      }, h.host))).resolves.toMatchObject({ joined: true });
+      const request = () => as(h, () => h.git.requestMerge({
+        worktree_path: child.worktree_path, target_branch: 'main', changed_paths: ['src/a.ts'],
+        client_request_id: randomUUID(),
+      }, h.host));
+      await expect(request()).rejects.toMatchObject({ code: 'resource_claim_required' });
+      await claimRepo(h, child.worktree_path);
+      expect((await request()).verdict).toBe('allow');
+
+      expect(h.state.snapshot().sessions.get(h.sessionId)?.workspace).toMatchObject({
+        cwd: '/repo', git_root: '/repo', git_common_dir: '/repo/.git', branch: 'work',
+      });
+      expect(h.state.snapshot().table('gitWorktrees').get(String(parent.worktree_id))?.status).toBe('active');
+    },
+  );
+
   it('filters git_list by remote_url and clone_dir (ee7397de)', async () => {
     const h = setup();
     await withWorkspace(h);

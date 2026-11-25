@@ -584,8 +584,8 @@ grants no commit, push or deploy.`;
     context.gitDirector,
     `## Git Director
 
-The MCP Director tracks who works in each clone and arbitrates shared-branch merges. Run git yourself.
-Git does not enforce Director verdicts: honor them; report suspected errors instead of bypassing them.
+The Director tracks worktrees and arbitrates shared-branch merges. Run git yourself.
+Honor Director verdicts and report suspected errors.
 
 **Before you start work in a repository.** Call \`git_list\`, then record
 \`git rev-parse --path-format=absolute --show-toplevel --git-common-dir\`, \`git branch --show-current\`,
@@ -600,11 +600,10 @@ HEAD (task slug plus your agent UUID) and work only there; never copy, stash, re
 pre-existing changes. When free, work in place. Read-only tasks create no worktree, branch or commit.
 ${delivery}
 
-**Register, then join.** \`git_register\` with the absolute checkout and common dir, branch, HEAD,
-origin and engine; \`git_join\` with task, target branch and expected paths. Never register over a
-peer's path. Polling \`git_list(worktree_path: ...)\` keeps you registered; on
-\`git_director_worktree_ambiguous\` re-register with correct clone facts. Never bypass a live lease on
-an older mapping.
+**Register, then join.** Report absolute checkout and common dir, branch, HEAD, origin and engine
+to \`git_register\`. Keep the parent binding for a linked child and claim its exact path and task branch.
+Pass task, target branch and paths to \`git_join\`. Keep registration live with \`git_list(worktree_path: ...)\`.
+On \`git_director_worktree_ambiguous\`, re-register with correct clone facts. Respect peer paths and live leases.
 
 **Completion.** Run checks, inspect diff and index, stage only task-owned paths.
 ${commitRule} A direct commit on a shared branch

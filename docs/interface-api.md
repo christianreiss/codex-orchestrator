@@ -1050,15 +1050,15 @@ All four engine config GET/store routes share the revision contract: `revision` 
   registration, `username` means the authenticated OS account, not the agent's
   launch/display name. A supplied mismatch is refused with
   `409 git_director_username_mismatch`; omit it to use the authenticated account.
-  This does not change workspace or native ownership proof requirements. The address must also
-  match the worktree directory (session `workspace.git_root`/`cwd`), so an agent
-  that launched in the original checkout binds a linked worktree only after
-  `agent_context_update` moves its scope there. One exception keeps a parent
-  binding: a separate repository nested inside the session's
-  `workspace.git_root` (a submodule or vendored clone) registers directly when
-  `clone_dir` is passed explicitly and names neither the parent's
-  `workspace.git_common_dir` nor the nested toplevel itself; a linked worktree
-  of the parent, or any path outside it, still needs `agent_context_update`
+  The address normally matches the worktree directory (session
+  `workspace.git_root`/`cwd`). A native session or a child that shares its
+  binding can register a linked worktree of the same clone alongside the parent.
+  Pass the bound clone's explicit `clone_dir` and the linked worktree's task
+  branch. The original native instance must hold live claims for the exact
+  linked worktree path and that branch. Registration leaves the parent binding
+  and registration intact. A separate repository nested inside the bound
+  checkout (a submodule or vendored clone) registers directly with its own
+  explicit `clone_dir`. For other workspaces, use `agent_context_update`
   (`git_director_owner_required`). Native registration refusals identify the
   differing `host_id`, `engine` or `worktree_path` in `mismatch_fields`; an already
   matching checked-in workspace requires no additional context update. Field names
