@@ -37,6 +37,35 @@ asyncio.set_event_loop(asyncio.new_event_loop())
 
 
 class RunnerAppTest(unittest.TestCase):
+    def test_codex_exec_reports_stop_only_for_completed_native_reply(self):
+        payload = runner_app.ExecRequest(
+            auth_json={"tokens": {"access_token": "test-token"}}, prompt="Reply PONG.", timeout_seconds=2,
+        )
+        started = '{"type":"thread.started","thread_id":"test"}\n{"type":"turn.started"}'
+        progress = '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Working..."}}'
+        answer = '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"PONG"}}'
+        complete = '{"type":"turn.completed","usage":{"input_tokens":4,"output_tokens":2}}'
+        failed = '{"type":"turn.failed","error":{"message":"Native response was interrupted"}}'
+        cases = (
+            ("completed", 0, [started, progress, answer, complete], "ok", "PONG", "stop"),
+            ("no terminal", 0, [started, answer], "ok", "PONG", None),
+            ("no message", 0, [started, complete], "ok", "", None),
+            ("native failure", 0, [started, answer, failed], "fail", "", None),
+            ("nonzero exit", 1, [started, answer, complete], "fail", "", None),
+            ("invalid stream", 0, [started, answer, "logging text", complete], "fail", "", None),
+        )
+        for label, code, events, status, output, reason in cases:
+            with self.subTest(case=label):
+                proc = subprocess.CompletedProcess([], code, stdout="\n".join(events), stderr="")
+                with patch.object(runner_app, "run_prompt_process", return_value=proc) as launch:
+                    result = runner_app._exec_prompt(payload)
+                self.assertIn("--json", launch.call_args.args[0])
+                self.assertEqual(status, result["status"])
+                self.assertEqual(output, result["output"])
+                self.assertEqual(reason, result.get("finish_reason"))
+                if label == "native failure":
+                    self.assertEqual("Native response was interrupted", result["error"])
+
     def test_codex_exec_failure_keeps_provider_error_after_long_banner(self):
         payload = runner_app.ExecRequest(
             auth_json={"tokens": {"access_token": "test-token"}},
@@ -1437,7 +1466,11 @@ class RunnerResponseContractTest(unittest.TestCase):
     def test_exec_body_carries_every_key_the_api_reads(self):
         def ok(env):
             _write_credentials(_codex_auth_path(env), self.ROTATED_CODEX_AUTH)
-            return _FakeCompletedProcess(0, stdout="Banana")
+            return _FakeCompletedProcess(0, stdout="\n".join((
+                '{"type":"turn.started"}',
+                '{"type":"item.completed","item":{"type":"agent_message","text":"Banana"}}',
+                '{"type":"turn.completed","usage":{"input_tokens":4,"output_tokens":2}}',
+            )))
 
         def failed(env):
             return _FakeCompletedProcess(1, stderr="codex exec failed")
@@ -1446,7 +1479,7 @@ class RunnerResponseContractTest(unittest.TestCase):
             raise subprocess.TimeoutExpired("codex", 2.0)
 
         for label, on_exec, expected, status_code in (
-            ("ok", ok, self.EXEC_OK_KEYS, 200),
+            ("ok", ok, self.EXEC_OK_KEYS | {"finish_reason"}, 200),
             ("non-zero exit", failed, self.EXEC_FAILED_KEYS, 200),
             ("timeout", timed_out, self.EXEC_TIMEOUT_KEYS, 504),
         ):

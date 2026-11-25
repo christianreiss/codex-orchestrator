@@ -1290,8 +1290,55 @@ def _materialize_exec_images(images: list[ExecImageInput], home_dir: str) -> lis
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-def _build_codex_exec_cmd(prompt: str, model: Optional[str], image_paths: Optional[list[str]] = None) -> list[str]:
+def _parse_codex_json_result(stdout: str) -> Optional[dict]:
+    """Read the final agent message and explicit terminal event from native JSONL."""
+    output = ""
+    started = False
+    terminal = None
+    error = ""
+    for line in stdout.split("\n"):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except (ValueError, RecursionError):
+            return None
+        if not isinstance(event, dict) or not isinstance(event.get("type"), str):
+            return None
+        kind = event["type"]
+        if kind == "turn.started":
+            if started or terminal:
+                return None
+            started = True
+        elif kind == "item.completed" and started and terminal is None:
+            item = event.get("item")
+            if isinstance(item, dict) and item.get("type") == "agent_message" and isinstance(item.get("text"), str):
+                output = item["text"].strip()
+        elif kind in ("turn.completed", "turn.failed"):
+            if not started or terminal:
+                return None
+            terminal = kind
+            detail = event.get("error")
+            if isinstance(detail, dict) and isinstance(detail.get("message"), str):
+                error = detail["message"]
+        elif kind == "error" and isinstance(event.get("message"), str):
+            error = event["message"]
+    if not started and not error:
+        return None
+    return {
+        "output": output,
+        "finish_reason": "stop" if terminal == "turn.completed" and output else None,
+        "failed": terminal == "turn.failed" or (terminal is None and bool(error)),
+        "error": error,
+    }
+
+
+def _build_codex_exec_cmd(
+    prompt: str, model: Optional[str], image_paths: Optional[list[str]] = None, *, json_output: bool = False,
+) -> list[str]:
     cmd = ["/usr/local/bin/codex", "exec"]
+    if json_output:
+        cmd.append("--json")
     if isinstance(model, str) and model.strip():
         cmd.extend(["--model", model.strip()])
     for image_path in image_paths or []:
@@ -1343,7 +1390,7 @@ def _exec_prompt(payload: ExecRequest, cancelled: Optional[threading.Event] = No
         elif engine in ("grok", "kimi"):
             cmd = (grok if engine == "grok" else kimi).build_command(prompt, home_dir, payload.model, payload.system)
         elif engine == "codex":
-            cmd = _build_codex_exec_cmd(prompt, payload.model, image_paths)
+            cmd = _build_codex_exec_cmd(prompt, payload.model, image_paths, json_output=True)
         start = time.perf_counter()
         proc = run_prompt_process(
             cmd,
@@ -1366,16 +1413,21 @@ def _exec_prompt(payload: ExecRequest, cancelled: Optional[threading.Event] = No
 
         parsed = (_parse_claude_json_result(stdout) if engine == "claude" else
                   grok.parse_result(stdout) if engine == "grok" else
-                  kimi.parse_result(stdout) if engine == "kimi" else None)
+                  kimi.parse_result(stdout) if engine == "kimi" else _parse_codex_json_result(stdout))
 
         if proc.returncode != 0:
             result["status"] = "fail"
-            parts = [p for p in [stderr, stdout] if p]
-            message = "\n".join(parts).strip()
             result["output"] = ""
-            # `--output-format json` can still carry a usable error message.
-            if parsed is not None and parsed["output"]:
-                message = parsed["output"]
+            if engine == "codex":
+                # JSONL may contain reasoning and tool events. Only the
+                # engine's diagnostic fields may be returned as errors.
+                parts = [stderr, parsed["error"] if parsed is not None else ""]
+                message = "\n".join(p for p in parts if p).strip()
+            else:
+                message = "\n".join(p for p in (stderr, stdout) if p).strip()
+                # `--output-format json` can still carry a usable error message.
+                if parsed is not None and parsed["output"]:
+                    message = parsed["output"]
             # Native CLI banners can fill the field before the provider's
             # actual error appears. Keep the diagnostic tail, like probes do.
             result["error"] = message[-500:] if message else f"{engine} exec failed"
@@ -1418,8 +1470,12 @@ def _exec_prompt(payload: ExecRequest, cancelled: Optional[threading.Event] = No
             result.update(parsed, status="ok")
             return result
 
-        result["status"] = "ok"
-        result["output"] = stdout
+        if parsed is None:
+            result.update(status="fail", output="", error="codex exec returned an unexpected output format")
+        elif parsed["failed"]:
+            result.update(status="fail", output="", error=(parsed["error"] or "codex exec failed")[-500:])
+        else:
+            result.update(status="ok", output=parsed["output"], finish_reason=parsed["finish_reason"])
         return result
     finally:
         shutil.rmtree(home_dir, ignore_errors=True)

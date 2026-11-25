@@ -519,6 +519,13 @@ Readiness probe for the one-shot prompt path:
 
 Run a single prompt through the engine CLI. This is the route the API uses to serve OpenAI/Anthropic-style completions from a host's stored credentials.
 
+The Codex gateway path uses `codex exec --json`. It returns the last native agent
+message and reports `finish_reason: "stop"` when an explicit successful turn
+completion follows that message. Without completion or reply evidence, the
+reason stays null. Failed, timed-out and unparseable executions do not report
+a stop reason. Credential probes and drafting commands continue to accept
+native plain-text output.
+
 On successful Claude calls the runner forwards native token buckets, optional thinking tokens and the native stop reason. Missing counters stay null and incomplete usage sets `usage_known: false`. An SDK error or nonzero process exit returns `status: fail`, including a refusal the native CLI classifies as a failure.
 
 Native credential probes and native skill and project draft calls also own their

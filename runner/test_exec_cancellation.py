@@ -307,7 +307,7 @@ with open(sys.argv[1], 'a') as count:
 os.write(2, b'synthetic-private-text' * 3)
 """
     cmd = [sys.executable, "-c", code, str(runs)]
-    monkeypatch.setattr(app, "_build_codex_exec_cmd", lambda *args: cmd)
+    monkeypatch.setattr(app, "_build_codex_exec_cmd", lambda *args, **kwargs: cmd)
     payload = {"auth_json": {"tokens": {"access_token": "fixture-token"}}, "timeout_seconds": 3}
     if path != "/verify":
         payload["prompt"] = "fixture"
