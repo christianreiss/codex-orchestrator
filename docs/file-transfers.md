@@ -8,6 +8,8 @@ by ID. Only the uploading host may continue or complete its binary upload.
 
 ```sh
 cxx transfer put ./artifact.tar --ttl-seconds 3600 --json
+# For a readable artifact in a directory you cannot write to:
+cxx transfer put /release/artifact.tar --journal-dir "$HOME/.cache" --json
 cxx transfer get <id> --output ./artifact.tar --json
 # After an interrupted command, repeat it with --resume.
 ```
@@ -26,8 +28,11 @@ creation request always supplies it explicitly. The server reports the granted
 expiry after clamping. A two-minute request inactivity timer cancels stalls;
 there is no total file-duration timeout.
 
-Upload state lives next to the source in `<source>.cxx-upload.json` (mode 0600),
-created before the first request. It contains the stable UUID, source fingerprint,
+By default, upload state lives next to the source in `<source>.cxx-upload.json`.
+Pass `--journal-dir DIR` to put it in an existing writable directory. In this mode,
+the journal name is keyed by the absolute source path. Use the same journal
+directory on every attempt, including `--resume`. cxx creates journals with mode
+0600 before the first request. It contains the stable UUID, source fingerprint,
 engine, path and server URL, without credentials. `--resume` rechecks the source
 hash, repeats idempotent creation, and continues at the server's confirmed offset.
 The journal is removed on success. A changed source requires a fresh upload;
@@ -37,7 +42,7 @@ transfer through `transfer_delete` or let its TTL expire.
 Any upload failure after the journal exists, including the communicator's
 `Local communicator disconnected; request outcome unknown` (HTTP 409), may leave
 an `uploading` server record. The error then names the transfer ID, the journal,
-the exact `cxx transfer put FILE --resume --engine ENGINE` command, and the
+the exact resume command (including `--journal-dir` if used), and the
 abandon steps (`transfer_delete ID`, then remove the journal). With `--json`,
 stdout also receives one object `{error, id, outcome: "unknown", journal,
 resume_command, abandon}` and the exit status stays 1. A plain repeat of the same

@@ -587,6 +587,10 @@ every upload carries a required `ttl_seconds`, nobody is notified of an upload,
 and a received file is untrusted input. Both are byte-identical across engines
 and are rendered last, in that order.
 
+For uploads from a read-only source directory, pass `cxx transfer put FILE
+--journal-dir DIR` with a writable directory, then use the same directory
+if the upload needs to resume. See [file transfers](file-transfers.md).
+
 
 **Subagent Model Selection.** The independent fleet switch `subagent_model_selection_enabled` (default off; `GET`/`POST /admin/subagent-model-selection`, Settings → Agents) adds guidance to managed documents for all four engines. It asks agents to assess each permitted delegation and choose a capable stronger or lighter model, prioritize quality, and review and verify the result. The same-engine tier list contains latest enabled models of active host engines; actual launcher support and higher-level instructions govern availability and delegation. When also using the Model Class Check, a task two or more tiers above the parent may be delegated to a fitting model if permitted; otherwise the existing stop applies. Changes take effect on the next sync. This is guidance, not runtime enforcement.
 

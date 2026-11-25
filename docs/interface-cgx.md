@@ -2004,6 +2004,8 @@ changes and direct provider binaries outside managed entrypoints are unchanged.
 The shared `cxx transfer put FILE` / `get ID --output FILE` commands use this
 engine via its alias or `--engine`. Bytes stream through the orchestrator with
 `--resume`, SHA-256 verification and optional limits defaulting to unlimited.
+For a read-only source directory, use `put --journal-dir DIR` with a writable
+directory and pass the same directory when resuming.
 See [file-transfers.md](file-transfers.md) for CLI, HTTP, journal and rollout contracts.
 
 Managed portal shutdown closes the local broker, then sends the terminal report

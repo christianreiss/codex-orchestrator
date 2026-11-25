@@ -263,7 +263,16 @@ func TestCommandOptions(t *testing.T) {
 			t.Fatalf("%s: %+v %v", engine, o, err)
 		}
 	}
-	for _, args := range [][]string{{"put"}, {"get", "id"}, {"put", "file", "--ttl-seconds", "-1"}, {"get", "id", "--output", "file", "--engine", "other"}} {
+	put, err := parse([]string{"put", "file", "--journal-dir", "state dir", "--resume"}, "codex")
+	if err != nil || put.journalDir != "state dir" || !put.resume {
+		t.Fatalf("upload journal flags: %+v %v", put, err)
+	}
+	for _, args := range [][]string{
+		{"put"}, {"get", "id"}, {"put", "file", "--ttl-seconds", "-1"},
+		{"get", "id", "--output", "file", "--engine", "other"},
+		{"get", "id", "--output", "file", "--journal-dir", "state"},
+		{"put", "file", "--journal-dir"}, {"put", "file", "--journal-dir", ""},
+	} {
 		if _, err := parse(args, ""); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
@@ -418,5 +427,64 @@ func TestShellQuote(t *testing.T) {
 		if got := shellQuote(in); got != want {
 			t.Fatalf("shellQuote(%q) = %s, want %s", in, got, want)
 		}
+	}
+}
+
+func TestUploadFromReadOnlyDirectoryWithExternalJournal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write to a mode-0555 directory")
+	}
+	c, data := fixture(t)
+	path := source(t)
+	dir := filepath.Dir(path)
+	if err := os.Chmod(dir, 0555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0755) })
+	c.UploadJournalDir = filepath.Join(t.TempDir(), "upload state")
+	if err := os.Mkdir(c.UploadJournalDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Lose the first chunk acknowledgement after the server commits the bytes.
+	real := c.HTTP.Transport
+	if real == nil {
+		real = http.DefaultTransport
+	}
+	lost := false
+	c.HTTP.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
+		resp, err := real.RoundTrip(r)
+		if err == nil && r.Method == "PUT" && !lost {
+			lost = true
+			resp.Body.Close()
+			return nil, errors.New("lost chunk acknowledgement")
+		}
+		return resp, err
+	})
+	ctx := context.Background()
+	_, err := c.Put(ctx, path, 3600, false)
+	var put *PutError
+	if !errors.As(err, &put) || filepath.Dir(put.Journal) != c.UploadJournalDir || len(*data) != 4 {
+		t.Fatalf("upload did not create a resumable external journal: %v", err)
+	}
+	if !strings.HasSuffix(put.ResumeCommand(), " --journal-dir "+shellQuote(c.UploadJournalDir)) {
+		t.Fatalf("resume command lost journal directory: %s", put.ResumeCommand())
+	}
+	info, err := os.Stat(put.Journal)
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatalf("invalid external journal: %v %v", info, err)
+	}
+	if _, err = c.Put(ctx, path, 3600, false); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("plain retry did not refuse an existing journal: %v", err)
+	}
+	tr, err := c.Put(ctx, path, 3600, true)
+	if err != nil || tr.ID != put.ID {
+		t.Fatalf("resume did not finish the original upload: %+v %v", tr, err)
+	}
+	original, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(*data, original) {
+		t.Fatalf("uploaded bytes differ: %v", err)
+	}
+	if _, err = os.Stat(put.Journal); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("external journal kept after success: %v", err)
 	}
 }
