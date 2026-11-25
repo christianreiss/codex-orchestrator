@@ -165,9 +165,9 @@ class RunnerDocsEnvTest(unittest.TestCase):
         line = _probe_command_line()
         tokens = _command_tokens(line)
 
-        # `--image` is reachable only from /exec; the step says so rather than
-        # putting it in the probe invocation itself.
-        missing = sorted(_codex_exec_flags() - tokens)
+        # These flags apply only to /exec. The credential probe stays on the
+        # plain-text path and does not attach images.
+        missing = sorted(_codex_exec_flags() - tokens - {"--image", "--json"})
 
         self.assertEqual(
             [],
