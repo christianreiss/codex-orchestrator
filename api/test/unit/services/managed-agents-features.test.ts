@@ -417,9 +417,10 @@ describe('served document byte invariance', () => {
     //             agent_room_read no longer carries the shared-chat workaround.
     // 2026-11-21: fresh-start requires an authenticated operator or admin action.
     // 2026-11-22: one-line project changelog hint in the Projects section.
-    expect(out.features_sha256).toBe('036513f8786d3f6fd3ba4d89667807e8b924a5a3ed610d030f165406dcca58aa');
-    expect(out.managed_sha256).toBe('e145bcde5428d5a8319a0aaa0b8664f59f286dbfad425604632a736324479d25');
-    expect(sha256(out.body)).toBe('be110f794cc1edabafee77340045f753f94b236d930fcde36fb7c9fdc7859522');
+    // 2026-11-25: documented the Slop review path for unbound workspaces.
+    expect(out.features_sha256).toBe('f5ebe8dae7493f9b6347133fea3eb8b51c16dcef2913d8f6d50ab522108f4f04');
+    expect(out.managed_sha256).toBe('173fc939996cc4436e9a3a17bdf6b904ccbba8952b6367558778b701f15536f0');
+    expect(sha256(out.body)).toBe('ad73d651ede167f2b283a599134fa6184ad1a3abaeffe044802a341d9352788b');
   });
 });
 
@@ -437,6 +438,7 @@ describe('renderManagedAgentFeatures', () => {
       context(ENGINE_CLAUDE, { projects: enabled(), slopJobs: { enabled: false, reason: 'slop_jobs_disabled' } }),
     );
     expect(on.body).toContain('`slop_job_create`');
+    expect(on.body).toContain('Use an existing CoCo project or review UI work locally and report the gap');
     expect(off.body).not.toContain('slop_job_');
     expect(off.body).toContain('`project_summary`');
   });

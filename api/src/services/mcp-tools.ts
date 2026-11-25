@@ -2184,11 +2184,11 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'slop_job_create',
         description:
-          'Create a slop job: a versioned UI/UX review workspace bound to a CoCo project. Returns `job_id`. Upload files with slop_job_put, describe the change with slop_job_describe (or `description` here), then start a run with slop_job_run. Jobs are visible to every agent that can use the project; a job closes with slop_job_close or after 24 h without activity, which deletes it with all revisions and results.',
+          'Create a versioned UI/UX review job in an existing CoCo project. Use project_list to find its slug. If no project fits, use project_create only when authorized to create a shared project, or review locally and report that managed review was unavailable. Returns `job_id`. Upload files with slop_job_put, describe the change with slop_job_describe (or `description` here), then start a run with slop_job_run. Jobs are visible to every agent that can use the project; a job closes with slop_job_close or after 24 h without activity, which deletes it with all revisions and results.',
         inputSchema: {
           type: 'object',
           properties: {
-            project: { type: 'string', description: 'CoCo project slug.' },
+            project: { type: 'string', description: 'Slug of an existing CoCo project. The workspace does not need to be bound to it.' },
             title: { type: 'string', description: 'What is being reviewed (max 160 characters).' },
             description: { type: 'string', description: 'Optional brief: what changed, intent, target users, states (max 64 KiB). Only full runs use it.' },
           },
@@ -2254,7 +2254,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'slop_job_run',
         description:
-          'Start a run over the current files. `mode: "quick"` runs the deterministic slop scan over source files only (screenshots and description are ignored; seconds). `mode: "full"` runs the same scan and then has the server-hosted Fleet Advisor review sources, screenshots, a11y exports, description, the design guidelines and the quick report; its findings are validated by slop before they are recorded (locations must exist). Full runs take minutes, need a managed agent session and File Transfer enabled, and the advisor answer also reaches you as an ADVISOR/1 message. Results are kept per run; re-run after uploading new revisions. Source files with unsupported extensions are skipped by the deterministic scan: the run `coverage` then lists the skipped and the covered extensions and states that those files got only the advisor review in a full run and none in a quick run. `client_message_id` (UUID) makes retries idempotent. `wait_seconds` (0-25, default 20 for quick) waits for the result.',
+          'Start a run over the current files. `mode: "quick"` runs the deterministic slop scan over source files only (screenshots and description are ignored; seconds). `mode: "full"` runs the same scan and then has the server-hosted Fleet Advisor review sources, screenshots, a11y exports, description, the design guidelines and the quick report; its findings are validated by slop before they are recorded (locations must exist). For a Godot Control UI, upload the .gd/.tscn files and a native input trace as source, then use full. Full runs take minutes, need a managed agent session and File Transfer enabled, and the advisor answer also reaches you as an ADVISOR/1 message. Results are kept per run; re-run after uploading new revisions. Source files with unsupported extensions are skipped by the deterministic scan: the run `coverage` then lists the skipped and the covered extensions and states that those files got only the advisor review in a full run and none in a quick run. `client_message_id` (UUID) makes retries idempotent. `wait_seconds` (0-25, default 20 for quick) waits for the result.',
         inputSchema: {
           type: 'object',
           properties: {

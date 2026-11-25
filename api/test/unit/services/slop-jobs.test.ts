@@ -185,6 +185,9 @@ describe('slop review protocol', () => {
     expect(q).toContain('PTY transcript/text evidence under tree/');
     expect(q).toContain('Do not execute uploaded programs or replay transcripts');
     expect(q).toContain('needs_info, never a coverage pass');
+    expect(q).toContain('For a Godot Control UI, read the .gd/.tscn files and the native input trace in tree/');
+    expect(q).toContain('focused Control before and after each event');
+    expect(q).toContain('Return needs_info when the native trace is missing');
   });
 });
 

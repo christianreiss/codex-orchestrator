@@ -329,10 +329,10 @@ function memorySection(context: ManagedAgentFeatureContext): RenderedSection | n
 
 const SLOP_GUIDANCE = `
 
-**Slop jobs.** Review UI work before reporting it done: \`slop_job_create\` → \`slop_job_put\` (sources,
-DESIGN.md, screenshots) → \`slop_job_describe\` → \`slop_job_run\` (\`quick\` scan, \`full\` adds the
-Fleet Advisor) → \`slop_job_result\`. Fix, re-upload, re-run, compare with \`slop_job_diff\`; report open
-findings as incomplete. \`slop_job_close\` when done.`;
+**Slop jobs.** Use an existing CoCo project or review UI work locally and report the gap.
+\`slop_job_create\` → \`slop_job_put\` (sources, DESIGN.md, screenshots) → \`slop_job_describe\` →
+\`slop_job_run\` (quick scan or full with Advisor) → \`slop_job_result\`. Fix, re-upload, re-run, check
+\`slop_job_diff\` and report open findings as incomplete. \`slop_job_close\`.`;
 
 const CHANGELOG_GUIDANCE = `
 Log meaningful work with \`project_changelog_append\` (why, +\`card_id\`); read

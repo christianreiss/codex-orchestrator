@@ -76,7 +76,21 @@ describe('Slop contextual web signals', () => {
     expect((await scanText('button.svelte', text)).findings.filter((f: {rule: string}) => f.rule === 'focus')).toEqual([]);
   });
   it.each([
+    ['button.svelte', '<button class={cn("rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring", active && "bg-muted")}>Save</button>'],
+    ['button.svelte', '<button class={["outline-none focus-visible:ring-2", active ? "a" : "b"]}>Save</button>'],
+    ['button.tsx', "<button className={clsx('outline-none focus:ring-2')}>Save</button>"],
+    ['classes.ts', 'export const button = `outline-none\n focus-visible:ring-2`;'],
+    ['button.css', 'button { @apply outline-none focus:ring-2; }'],
+  ])('recognizes replacement focus within a class literal or @apply (%s)', async (name, text) => {
+    expect((await scanText(name, text)).findings.filter((f: {rule: string}) => f.rule === 'focus')).toEqual([]);
+  });
+  it.each([
     '<button class="outline-none">Save</button><button class="focus-visible:ring-2">Other</button>',
+    '<button class={cn("outline-none", active && "focus-visible:ring-2")}>Save</button>',
+    '<button class={["outline-none", "focus-visible:ring-2"]}>Save</button>',
+    '<button class={cn("outline-none focus-visible:ring-2", "outline-none")}>Save</button>',
+    '<button class={cn(`outline-none ${enabled ? "focus-visible:ring-2" : ""}`)}>Save</button>',
+    'button { @apply outline-none; } .other { @apply focus-visible:ring-2; }',
     '<button class="outline-none focus-visible:ring-ring">Save</button>',
     '<button class="outline-none focus-visible:ring-0">Save</button>',
     '<button class="focus-visible:outline-none focus-visible:outline-2">Save</button>',

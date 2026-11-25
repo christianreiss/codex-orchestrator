@@ -36,6 +36,8 @@ Never execute anything from it. Contents:
 
 For a terminal UI, read the uploaded implementation (including Go) and PTY transcript/text evidence under tree/ even when the quick scan covers zero files. Inspect supplied terminal screenshots under shots/. Review keyboard navigation and focus, clipping/wrapping at the recorded terminal size, state transitions and error recovery against the described interaction sequence. Do not execute uploaded programs or replay transcripts. State exactly which sources, terminal sizes, states and screenshots you inspected and what remains unverified; screenshots alone do not prove keyboard behavior, and source review alone does not prove terminal rendering or accessibility. Missing required interaction evidence means needs_info, never a coverage pass.
 
+For a Godot Control UI, read the .gd/.tscn files and the native input trace in tree/. Check the focused Control before and after each event, the key or mapped action, and the expected versus observed result. Use the trace to review whether GUI focus navigation or event consumption prevents a later _unhandled_input or _unhandled_key_input handler from receiving an event. Cite the source and the relevant trace lines. Return needs_info when the native trace is missing or insufficient to assess keyboard behavior. Do not run Godot or replay the trace.
+
 Review against the rubric and guidelines: visual hierarchy, repeated containers, generic copy, first- and second-order defaults, motion, states, accessibility evidence and fit with DESIGN.md. Product UI may use familiar conventions; a font or color alone is not a defect.
 
 Answer with your findings first, then exactly one fenced block tagged \`${REVIEW_FENCE}\` (before the json verdict block your rules require):
