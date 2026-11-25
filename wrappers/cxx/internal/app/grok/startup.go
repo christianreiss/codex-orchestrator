@@ -41,8 +41,11 @@ type grokUsageReading struct {
 	UsedPercent *float64 `json:"used_percent"`
 	// Pointers: the API sends JSON null for an untyped period or a missing reset.
 	// A plain string would reject the whole /auth body.
-	Period   *string `json:"period"`
-	ResetsAt *string `json:"resets_at"`
+	Period    *string `json:"period"`
+	StartsAt  *string `json:"starts_at"`
+	ResetsAt  *string `json:"resets_at"`
+	FetchedAt *string `json:"fetched_at"`
+	Stale     bool    `json:"stale"`
 }
 
 type startupHost struct {
@@ -126,7 +129,17 @@ func grokQuotaRow(usage *grokUsageReading, now time.Time) (terminalui.QuotaRow, 
 	if usage.Period != nil && (*usage.Period == "weekly" || *usage.Period == "monthly") {
 		label = *usage.Period
 	}
-	return terminalui.QuotaRow{Label: label, Used: int(math.Round(used)), ResetAfter: resetAt.Sub(now)}, true
+	row := terminalui.QuotaRow{Label: label, Used: int(math.Round(used)), ResetAfter: resetAt.Sub(now), Stale: usage.Stale}
+	if usage.FetchedAt != nil {
+		fetched, err := time.Parse(time.RFC3339, *usage.FetchedAt)
+		row.Stale = row.Stale || err != nil || now.Sub(fetched) > 10*time.Minute
+	}
+	if usage.StartsAt != nil {
+		if startAt, err := time.Parse(time.RFC3339, strings.TrimSpace(*usage.StartsAt)); err == nil && !startAt.After(now) {
+			row.WindowDuration = resetAt.Sub(startAt)
+		}
+	}
+	return row, true
 }
 
 func startupScreen(in startupInput) terminalui.ScreenInput {

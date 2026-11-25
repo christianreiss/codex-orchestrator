@@ -316,6 +316,9 @@ remain bound to the same logical Android conversation.
 
 ## Primary use cases
 
+Wrapper quota bars mark elapsed time in fresh windows with known timing.
+The fill shows usage, with amber for usage beyond the elapsed share.
+
 Dashboard provider accounts use a shared card and quota-meter layout for ChatGPT,
 Claude and Grok, with three columns on desktop, two on tablets and one on mobile.
 Each card shows its last observation and marks retained stale readings. ChatGPT

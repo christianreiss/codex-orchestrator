@@ -343,7 +343,7 @@ func TestBuildQuotaDerivesLabelsFromProviderWindowDuration(t *testing.T) {
 			PrimaryResetAfter: &resetAfter,
 		},
 	})
-	if len(rows) != 1 || rows[0].Label != "weekly" {
+	if len(rows) != 1 || rows[0].Label != "weekly" || rows[0].WindowDuration != 168*time.Hour {
 		t.Fatalf("quota rows = %+v, want provider-derived weekly label", rows)
 	}
 }

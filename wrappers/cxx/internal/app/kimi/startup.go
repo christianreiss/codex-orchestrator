@@ -42,6 +42,7 @@ type kimiUsageReading struct {
 	FetchedAt *string           `json:"fetched_at"`
 	CheckedAt string            `json:"checked_at"`
 	ErrorCode *string           `json:"error_code"`
+	Stale     bool              `json:"stale"`
 }
 type kimiUsageWindow struct {
 	Kind        string   `json:"kind"`
@@ -92,6 +93,11 @@ func kimiQuotaRows(usage *kimiUsageReading, now time.Time) []terminalui.QuotaRow
 	if usage == nil || usage.ErrorCode != nil {
 		return rows
 	}
+	stale := usage.Stale
+	if usage.FetchedAt != nil {
+		fetched, err := time.Parse(time.RFC3339, *usage.FetchedAt)
+		stale = stale || err != nil || now.Sub(fetched) > 10*time.Minute
+	}
 	for _, w := range usage.Windows {
 		if w.UsedPercent == nil || w.ResetsAt == nil {
 			continue
@@ -108,7 +114,14 @@ func kimiQuotaRows(usage *kimiUsageReading, now time.Time) []terminalui.QuotaRow
 		if label == "" {
 			continue
 		}
-		rows = append(rows, terminalui.QuotaRow{Label: label, Used: int(math.Round(used)), ResetAfter: reset.Sub(now)})
+		row := terminalui.QuotaRow{Label: label, Used: int(math.Round(used)), ResetAfter: reset.Sub(now), Stale: stale}
+		switch w.Kind {
+		case "five_hour":
+			row.WindowDuration = 5 * time.Hour
+		case "weekly":
+			row.WindowDuration = 7 * 24 * time.Hour
+		}
+		rows = append(rows, row)
 	}
 	return rows
 }

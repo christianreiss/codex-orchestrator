@@ -411,6 +411,8 @@ than 30 minutes, invalid timestamps, and expired windows are last-known context
 and do not produce forecasts. Fresh usage and forecasts are **advisory**; Claude
 has no quota-based launch refusal. Codex's active-lane quota gate is unchanged.
 Quota warnings still reach stderr when the boot screen is suppressed.
+Fresh 5-hour and 7-day quota bars mark elapsed time and color usage beyond
+that share amber.
 
 Health markers are evidence-based: a successful unchanged resource check is
 green, an actual local write adds the updated marker, a failed best-effort

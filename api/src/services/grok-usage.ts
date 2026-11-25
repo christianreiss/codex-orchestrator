@@ -94,11 +94,7 @@ export function grokUsageAuthFields(
   reading: {
     fetched_at: string | null;
     stale: boolean;
-    current_window: {
-      used_percent: number;
-      period: 'weekly' | 'monthly' | null;
-      resets_at: string | null;
-    } | null;
+    current_window: Pick<GrokUsageWindow, 'used_percent' | 'period' | 'starts_at' | 'resets_at'> | null;
   } | null,
 ): Record<string, unknown> {
   const window = reading?.current_window;
@@ -107,6 +103,7 @@ export function grokUsageAuthFields(
     status: 'ok',
     used_percent: window.used_percent,
     period: window.period,
+    ...(window.starts_at ? { starts_at: window.starts_at } : {}),
     resets_at: window.resets_at,
     fetched_at: reading.fetched_at,
     stale: reading.stale,

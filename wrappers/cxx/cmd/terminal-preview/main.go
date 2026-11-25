@@ -306,8 +306,8 @@ func preview(engine, scene string, minimal bool) {
 			{Name: "config", Tone: cdx.ToneOK}, {Name: "skills", Tone: cdx.ToneOK},
 		},
 		QuotaRows: []cdx.QuotaRow{
-			{Label: "5h", Used: 32, ResetAfter: 2*time.Hour + 18*time.Minute},
-			{Label: "weekly", Used: 61, ResetAfter: 3*24*time.Hour + 4*time.Hour},
+			{Label: "5h", Used: 32, ResetAfter: 2*time.Hour + 18*time.Minute, WindowDuration: 5 * time.Hour},
+			{Label: "weekly", Used: 64, ResetAfter: 84 * time.Hour, WindowDuration: 168 * time.Hour},
 		},
 		SessionRows: []cdx.SessionRow{{Label: "local procs", Count: 1}, {Label: "hosts 30m", Count: 8}, {Label: "syncs UTC day", Count: 143}},
 		ResultLabel: "Managed state is current. Ready to launch " + strings.ToUpper(engine[:1]) + engine[1:] + ".", ResultTone: cdx.ToneOK,

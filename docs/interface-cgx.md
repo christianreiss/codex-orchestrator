@@ -767,8 +767,10 @@ unknown, never 0%. Monthly or untyped periods are not labelled weekly. cgx
 startup, status, and doctor print that stored reading when `grok_usage.resets_at`
 is still in the future, as the same bar-and-reset row cdx and clx use
 (`weekly  38%  ━━━━──────  reset 20 days`; plain output `quota | weekly=38% |
-reset=20 days`). A day or more is whole days; under a day the row keeps hours and
-minutes. A missing percent falls back to the text note (`weekly; resets in 20
+reset=20 days`). With a fresh reading and `grok_usage.starts_at`, the bar
+also marks elapsed time and colors usage beyond it amber. A day or more is
+shown in whole days. Under a day the row keeps hours and minutes. A missing
+percent falls back to the text note (`weekly; resets in 20
 days`) instead of printing 0%. A missing,
 unparseable, or already passed reset keeps `Subscription quota usage is
 unavailable.` This does not enable quota hard-fail, account balancing by Grok

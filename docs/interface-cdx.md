@@ -2272,6 +2272,12 @@ Daily quota rows use the observed weekly delta for the current UTC day and a
 5-day or 7-day allowance, with the same advisory/hard-fail policy. Missing or stale
 daily usage remains visibly unavailable; no zero-use reading is invented.
 
+The vertical tick on a terminal quota bar marks the elapsed fraction of a
+fresh window with a known duration and reset. The fill shows usage. Green
+cells are within the elapsed share, amber cells are beyond it, and the whole
+fill turns red at the bar's quota limit. Plain output reports `elapsed=…%`.
+The daily tick measures elapsed time since UTC midnight.
+
 ## Orchestrator Feedback
 
 With Skills enabled, managed Skills guidance automatically invokes the shared stored

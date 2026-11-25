@@ -367,6 +367,8 @@ and reject controls requiring exact telemetry instead of inventing values.
 - Account usage for `engine = "kimi"` (Accounts, Dashboard, `/quota`):
   `{"plan_name": string|null, "windows": [{"kind": "five_hour"|"weekly"|"month_total"|"month_code", "used_percent": number, "resets_at": string|null}], "fetched_at": string|null, "checked_at": string, "error_code": string|null}`.
   `five_hour` maps to the short quota window and `weekly` to the long one.
+  Fresh 5-hour and weekly terminal quota bars mark elapsed time and color usage
+  beyond that share amber. Monthly windows show usage and the reset countdown.
 
 ## Intentional deltas
 

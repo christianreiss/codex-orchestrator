@@ -95,18 +95,20 @@ describe('Grok provider billing normalization', () => {
 });
 
 describe('Grok usage on /auth', () => {
-  it('maps a stored window and does not invent a reading', async () => {
+  it.each([true, false])('maps a stored window with period start present=%s', async (hasStart) => {
     const now = new Date().toISOString();
+    const startsAt = hasStart ? now : null;
     const resetsAt = new Date(Date.now() + 20 * 86_400_000).toISOString();
     const db = createDbFake();
     db.tables.set(grokUsageSnapshots, [{
       accountId: 7, planName: 'SuperGrok', planFetchedAt: now, planErrorCode: null,
-      usedPercent: 38, periodType: 'weekly', periodStartsAt: null, periodResetsAt: resetsAt,
+      usedPercent: 38, periodType: 'weekly', periodStartsAt: startsAt, periodResetsAt: resetsAt,
       shared: 1, fetchedAt: now, checkedAt: now, errorCode: null,
     }]);
     const reading = await readGrokUsage(db as never, 7);
     expect(grokUsageAuthFields(reading)).toEqual({
       status: 'ok', used_percent: 38, period: 'weekly', resets_at: resetsAt, fetched_at: now, stale: false,
+      ...(hasStart ? { starts_at: now } : {}),
     });
     expect(grokUsageAuthFields(await readGrokUsage(db as never, 8))).toEqual({ status: 'unavailable' });
     expect(grokUsageAuthFields(null)).toEqual({ status: 'unavailable' });

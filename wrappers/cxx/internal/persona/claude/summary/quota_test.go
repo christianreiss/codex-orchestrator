@@ -18,7 +18,7 @@ func TestClaudeQuotaDecodesCanonicalAuthPayloadAndPreservesSparseZero(t *testing
 		t.Fatal(err)
 	}
 	rows, warning := buildQuota(&auth, now)
-	if warning != "" || len(rows) != 1 || rows[0].Used != 0 || rows[0].Label != "5h" || rows[0].ResetAfter != time.Hour || rows[0].Projection != "" || rows[0].Lane != "" || rows[0].Stale {
+	if warning != "" || len(rows) != 1 || rows[0].Used != 0 || rows[0].Label != "5h" || rows[0].ResetAfter != time.Hour || rows[0].WindowDuration != 5*time.Hour || rows[0].Projection != "" || rows[0].Lane != "" || rows[0].Stale {
 		t.Fatalf("canonical sparse report = rows %+v, warning %q", rows, warning)
 	}
 	for _, wire := range []string{`{"status":"valid"}`, `{"status":"valid","claude_usage":null}`} {

@@ -1,10 +1,75 @@
 package terminalui
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestPacedQuotaBar(t *testing.T) {
+	caps := barCaps()
+	caps.Palette = Palette{Green: "\x1b[32m", Orange: "\x1b[33m", Red: "\x1b[31m", Reset: "\x1b[0m"}
+	for _, tc := range []struct {
+		name                     string
+		used                     int
+		atLimit                  bool
+		cells, green, amber, red string
+	}{
+		{"over pace", 64, false, "###############|####------------", "###############", "####", ""},
+		{"under pace", 25, false, "########-------|----------------", "########", "", ""},
+		{"at pace", 50, false, "###############|----------------", "###############", "", ""},
+		{"at limit", 100, true, "###############|################", "", "", "###############"},
+		{"zero usage", 0, false, "---------------|----------------", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bar := buildPacedBar(caps, tc.used, 32, 0.5, tc.atLimit)
+			if StripANSI(bar) != tc.cells {
+				t.Fatalf("got %q, want %q", StripANSI(bar), tc.cells)
+			}
+			for color, cells := range map[string]string{caps.Palette.Green: tc.green, caps.Palette.Orange: tc.amber, caps.Palette.Red: tc.red} {
+				if (cells == "" && strings.Contains(bar, color+"#")) || (cells != "" && !strings.Contains(bar, color+cells+caps.Palette.Reset)) {
+					t.Fatalf("bar %q has wrong span %q for %q", bar, cells, color)
+				}
+			}
+			if tc.atLimit && !strings.Contains(bar, caps.Palette.Red+"################"+caps.Palette.Reset) {
+				t.Fatalf("bar %q has uncolored cells beyond the marker", bar)
+			}
+		})
+	}
+}
+
+func TestQuotaElapsedRendering(t *testing.T) {
+	for _, tc := range []struct {
+		name                            string
+		window, remaining               time.Duration
+		stale, resetUnknown, showMarker bool
+	}{
+		{"half week", 168 * time.Hour, 84 * time.Hour, false, false, true},
+		{"UTC midday", 24 * time.Hour, 12 * time.Hour, false, false, true},
+		{"stale", 168 * time.Hour, 84 * time.Hour, true, false, false},
+		{"expired", 168 * time.Hour, 0, false, false, false},
+		{"out of range", 168 * time.Hour, 169 * time.Hour, false, false, false},
+		{"unknown reset", 168 * time.Hour, 0, false, true, false},
+		{"unknown duration", 0, 84 * time.Hour, false, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row := QuotaRow{Label: "quota", Used: 64, ResetAfter: tc.remaining, WindowDuration: tc.window, Stale: tc.stale, ResetUnknown: tc.resetUnknown}
+			caps := screenCaps(34)
+			lines := formatQuotaLines(caps, row, caps.Columns)
+			if strings.Contains(lines[0], "│") != tc.showMarker {
+				t.Fatalf("wrong tick state: %q", lines)
+			}
+			assertScreenLinesFit(t, strings.Join(lines, "\n"), caps.Columns)
+			var out bytes.Buffer
+			printMinimalScreen(&out, ScreenInput{QuotaRows: []QuotaRow{row}}, caps)
+			if strings.Contains(out.String(), "elapsed=50%") != tc.showMarker {
+				t.Fatalf("wrong elapsed text: %q", out.String())
+			}
+			assertASCIIOutput(t, out.String())
+		})
+	}
+}
 
 // barCaps renders bars with unambiguous ASCII glyphs and no escapes so a test
 // can count fill cells directly.

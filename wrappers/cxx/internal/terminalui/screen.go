@@ -460,7 +460,11 @@ func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
 		if row.Projection != "" {
 			forecast = " | forecast=" + PlainInline(row.Projection)
 		}
-		printPlainLine(w, caps, fmt.Sprintf("quota | %s=%d%%%s%s%s", PlainInline(row.Label), clampPct(row.Used), reset, forecast, quotaFreshness(row)))
+		line := fmt.Sprintf("quota | %s=%d%%%s%s%s", PlainInline(row.Label), clampPct(row.Used), reset, forecast, quotaFreshness(row))
+		if elapsed, ok := row.elapsedFraction(); ok {
+			line += fmt.Sprintf(" | elapsed=%.0f%%", 100*elapsed)
+		}
+		printPlainLine(w, caps, line)
 	}
 	if in.QuotaNote != "" {
 		printPlainLine(w, caps, "quota | "+PlainInline(in.QuotaNote))

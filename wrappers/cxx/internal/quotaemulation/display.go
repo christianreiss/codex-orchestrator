@@ -46,6 +46,9 @@ func Display(s *Snapshot, now time.Time) ([]terminalui.QuotaRow, string) {
 		return nil, "Emulated quota unavailable; work allowed."
 	}
 	row := terminalui.QuotaRow{Label: fmt.Sprintf("emulated %dh", w.LimitSeconds/3600), Used: int(math.Round(w.UsedPercent)), ResetUnknown: w.ResetsAt == ""}
+	if w.LimitSeconds > 0 && w.LimitSeconds <= int64(math.MaxInt64/time.Second) {
+		row.WindowDuration = time.Duration(w.LimitSeconds) * time.Second
+	}
 	if s.Policy.ShortWarnPercent != nil {
 		row.WarnAtPct = *s.Policy.ShortWarnPercent
 	}

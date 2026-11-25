@@ -38,7 +38,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse, now time.Time) ([]ui.Qu
 			}
 			return
 		}
-		row := ui.QuotaRow{Label: label, Used: *used, WarnAtPct: warnAt, BlockAtPct: limit}
+		row := ui.QuotaRow{Label: label, Used: *used, WindowDuration: window, WarnAtPct: warnAt, BlockAtPct: limit}
 		current := freshnessWarning == ""
 		resetAt, resetErr := time.Parse(time.RFC3339, strings.TrimSpace(resetAtText))
 		switch {

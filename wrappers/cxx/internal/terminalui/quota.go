@@ -3,6 +3,7 @@ package terminalui
 import (
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"time"
 )
@@ -16,13 +17,21 @@ type QuotaRow struct {
 	Label          string // "5h", "weekly", "⚡ 5h", …
 	Used           int    // 0..100
 	ResetAfter     time.Duration
-	ResetUnknown   bool   // The reset time was not reported; shown in the reset column instead of a note line.
-	Lane           string // "normal" | "spark"  (informational)
-	Note           string // free-form trailing dim text
-	Projection     string // pre-rendered " ~100% in ~2d 5h, before reset" (red) when set
-	ProjectionTone Tone   // dim for benign projections, warn/fail when thresholds are crossed
-	WarnAtPct      int    // default 80
-	BlockAtPct     int    // default 95
+	WindowDuration time.Duration // Zero when the full reset window is unknown.
+	ResetUnknown   bool          // The reset time was not reported; shown in the reset column instead of a note line.
+	Lane           string        // "normal" | "spark"  (informational)
+	Note           string        // free-form trailing dim text
+	Projection     string        // pre-rendered " ~100% in ~2d 5h, before reset" (red) when set
+	ProjectionTone Tone          // dim for benign projections, warn/fail when thresholds are crossed
+	WarnAtPct      int           // default 80
+	BlockAtPct     int           // default 95
+}
+
+func (row QuotaRow) elapsedFraction() (float64, bool) {
+	if row.Stale || row.ResetUnknown || row.ResetAfter <= 0 || row.ResetAfter > row.WindowDuration {
+		return 0, false
+	}
+	return float64(row.WindowDuration-row.ResetAfter) / float64(row.WindowDuration), true
 }
 
 // PrintQuotaRow renders one responsive quota row. Forecast/detail text stays
@@ -71,14 +80,13 @@ func formatQuotaLines(caps Caps, row QuotaRow, width int) []string {
 	} else if row.ResetUnknown {
 		resetTxt = "  " + caps.Palette.Dim + "reset unknown" + caps.Palette.Reset
 	}
-	barWidth := width - labelWidth - VisibleWidth(pct) - VisibleWidth(resetTxt) - 5
-	if barWidth > 42 {
-		barWidth = 42
+	barWidth := min(42, max(1, width-labelWidth-VisibleWidth(pct)-VisibleWidth(resetTxt)-4))
+	var bar string
+	if elapsed, ok := row.elapsedFraction(); ok {
+		bar = buildPacedBar(caps, row.Used, barWidth, elapsed, tone == ToneFail)
+	} else {
+		bar = buildBar(caps, row.Used, barWidth, row.WarnAtPct, row.BlockAtPct)
 	}
-	if barWidth < 6 {
-		barWidth = 6
-	}
-	bar := buildBar(caps, row.Used, barWidth, row.WarnAtPct, row.BlockAtPct)
 	line := fmt.Sprintf("%s  %s%s%s  %s%s",
 		label,
 		pctCol, pct, caps.Palette.Reset,
@@ -155,6 +163,42 @@ func buildBar(caps Caps, pct, width, warnAt, blockAt int) string {
 	col := tonePalette(caps, tone)
 	return col + strings.Repeat(caps.BannerSym.BarFill, filled) + caps.Palette.Reset +
 		caps.Palette.Dim + strings.Repeat(caps.BannerSym.BarEmpty, width-filled) + caps.Palette.Reset
+}
+
+func buildPacedBar(caps Caps, pct, width int, elapsed float64, atLimit bool) string {
+	filled := (clampPct(pct)*width + 50) / 100
+	target := int(math.Round(elapsed * float64(width)))
+	// Place the tick at the end of the target segment so it leaves the
+	// first amber cell visible when the fill is just beyond the target.
+	tickAt := max(0, target-1)
+	tick := "|"
+	if caps.UTF8 && !caps.Dumb {
+		tick = "│"
+	}
+	var bar strings.Builder
+	start := 0
+	appendCells := func(end int, glyph, color string) {
+		if end <= start {
+			return
+		}
+		if tickAt >= start && tickAt < end {
+			bar.WriteString(color + strings.Repeat(glyph, tickAt-start) + caps.Palette.Reset)
+			bar.WriteString(caps.Palette.Bold + tick + caps.Palette.Reset)
+			start = tickAt + 1
+		}
+		if end > start {
+			bar.WriteString(color + strings.Repeat(glyph, end-start) + caps.Palette.Reset)
+		}
+		start = end
+	}
+	if atLimit {
+		appendCells(filled, caps.BannerSym.BarFill, tonePalette(caps, ToneFail))
+	} else {
+		appendCells(min(target, filled), caps.BannerSym.BarFill, tonePalette(caps, ToneOK))
+		appendCells(filled, caps.BannerSym.BarFill, tonePalette(caps, ToneWarn))
+	}
+	appendCells(width, caps.BannerSym.BarEmpty, caps.Palette.Dim)
+	return bar.String()
 }
 
 // QuotaReasonRow prints a ⚠ or ⛔ note line in yellow/red.

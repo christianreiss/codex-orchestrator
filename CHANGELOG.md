@@ -1,5 +1,7 @@
 # 2026-11-25
 
+- cxx 0.9.206 marks elapsed time on terminal quota bars. Usage up to the marker is green, usage beyond it is amber, and the fill turns red at the quota limit.
+
 - cxx 0.9.205 resolves RTK from the current session's PATH, identifies safe retries when read-only fleet content calls hit a temporary gateway error, and accepts a writable `--journal-dir` for resumable uploads from a read-only release directory.
 
 - Claim conflicts reach supported Codex, Claude and Grok receivers during the current turn. Receivers without the new capability get a regular queued notice. The task supervisor rejects attempts to reopen a completed task key.

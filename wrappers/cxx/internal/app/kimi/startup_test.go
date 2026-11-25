@@ -385,7 +385,8 @@ func TestServerUsageWireShapes(t *testing.T) {
 		t.Fatalf("server auth/admin shape lost: %+v", auth.KimiUsage)
 	}
 	rows := kimiQuotaRows(auth.KimiUsage, now)
-	if len(rows) != 3 || rows[0].Used != 38 || rows[1].Used != 63 || rows[2].Label != "month total" {
+	if len(rows) != 3 || rows[0].Used != 38 || rows[1].Used != 63 || rows[2].Label != "month total" ||
+		rows[0].WindowDuration != 5*time.Hour || rows[1].WindowDuration != 168*time.Hour || rows[2].WindowDuration != 0 {
 		t.Fatalf("server quota rows: %+v", rows)
 	}
 	raw, err = os.ReadFile("../../kimi/testdata/server-lease.json")

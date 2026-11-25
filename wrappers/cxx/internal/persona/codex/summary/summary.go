@@ -524,6 +524,9 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 		if lim != nil {
 			limSec = *lim
 		}
+		if limSec > 0 && limSec <= int64((1<<63-1)/time.Second) {
+			row.WindowDuration = time.Duration(limSec) * time.Second
+		}
 		if !row.Stale {
 			row.Projection = quotaProjectionNoteAt(*used, limSec, resetSec, int64(row.ResetAfter/time.Second))
 		}
@@ -582,7 +585,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 			}
 			tomorrow := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day()+1, 0, 0, 0, 0, time.UTC)
 			note := fmt.Sprintf("%d%% of allowance; today used %d%% of week; allowance %.2f%%/day", used, *daily, 100.0/float64(partition))
-			rows = append(rows, ui.QuotaRow{Label: "daily", Used: min(100, used), Lane: "normal", ResetAfter: tomorrow.Sub(now), Note: note, Stale: stale, WarnAtPct: warnAt, BlockAtPct: limitPct})
+			rows = append(rows, ui.QuotaRow{Label: "daily", Used: min(100, used), Lane: "normal", ResetAfter: tomorrow.Sub(now), WindowDuration: 24 * time.Hour, Note: note, Stale: stale, WarnAtPct: warnAt, BlockAtPct: limitPct})
 			if !stale && activeLane == "normal" {
 				if used >= limitPct && blockText == "" {
 					blockText = fmt.Sprintf("daily allowance reached (%d%% of allowance; resets at UTC midnight)", used)

@@ -88,6 +88,30 @@ func TestStartupScreenReportsFutureGrokResetInDays(t *testing.T) {
 	}
 }
 
+func TestGrokQuotaPaceUsesReportedPeriodStart(t *testing.T) {
+	now := time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC)
+	used, monthly := 64.0, "monthly"
+	start := now.Add(-16 * 24 * time.Hour).Format(time.RFC3339)
+	reset := now.Add(15 * 24 * time.Hour).Format(time.RFC3339)
+	wouldStartLater := now.Add(time.Hour).Format(time.RFC3339)
+	oldReport := now.Add(-11 * time.Minute).Format(time.RFC3339)
+	for _, tc := range []struct {
+		start, fetched *string
+		duration       time.Duration
+		stale          bool
+	}{
+		{&start, nil, 31 * 24 * time.Hour, false},
+		{nil, nil, 0, false},
+		{&wouldStartLater, nil, 0, false},
+		{&start, &oldReport, 31 * 24 * time.Hour, true},
+	} {
+		row, ok := grokQuotaRow(&grokUsageReading{Status: "ok", UsedPercent: &used, Period: &monthly, StartsAt: tc.start, ResetsAt: &reset, FetchedAt: tc.fetched}, now)
+		if !ok || row.WindowDuration != tc.duration || row.ResetAfter != 15*24*time.Hour || row.Stale != tc.stale {
+			t.Fatalf("quota row with timing %+v: %+v, ok=%v", tc, row, ok)
+		}
+	}
+}
+
 func TestGrokUsageNullResetDoesNotRejectAuth(t *testing.T) {
 	raw := []byte(`{"status":"valid","grok_usage":{"status":"ok","used_percent":10,"period":null,"resets_at":null,"fetched_at":null,"stale":true}}`)
 	var auth startupAuth

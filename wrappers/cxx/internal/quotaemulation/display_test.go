@@ -16,7 +16,7 @@ func TestEmulatedDisplay(t *testing.T) {
 			t.Fatal(err)
 		}
 		rows, note := Display(&s, now)
-		if len(rows) != 1 || rows[0].Label != "emulated 8h" || rows[0].Used != 110 || rows[0].Stale || note == "" {
+		if len(rows) != 1 || rows[0].Label != "emulated 8h" || rows[0].Used != 110 || rows[0].WindowDuration != 8*time.Hour || rows[0].Stale || note == "" {
 			t.Fatalf("%s: %+v %q", action, rows, note)
 		}
 		if action == "suggest_ignore" && !strings.Contains(note, "suggest ignore") {

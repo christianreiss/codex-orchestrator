@@ -32,6 +32,9 @@ func TestDailyPartitionDecodesAndEnforcesSamePolicy(t *testing.T) {
 		for _, row := range got.QuotaRows {
 			if row.Label == "daily" {
 				found = row.Used
+				if row.WindowDuration != 24*time.Hour || row.ResetAfter <= 0 || row.ResetAfter > row.WindowDuration {
+					t.Fatalf("daily allowance has invalid UTC timing: %+v", row)
+				}
 			}
 		}
 		if found != tc.want {
