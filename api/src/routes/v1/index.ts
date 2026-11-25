@@ -124,22 +124,7 @@ export async function registerOpenAiCompatRoutes(
           param: 'messages',
         });
       }
-      // This backend cannot emit tool_calls. Silently returning plain text when
-      // the client FORCED a tool call (tool_choice:'required'/named function,
-      // or a named legacy function_call) is a wire lie that hangs agentic
-      // loops, so fail closed. tool_choice:'auto'/'none'/absent still returns
-      // text, which is wire-legal upstream.
-      if (toolChoiceForcesCall(payload)) {
-        throw new ApiError(
-          'Tool calling is not supported by this backend; a forced tool call (tool_choice "required" or a named function) cannot be fulfilled. Remove tool_choice or set it to "auto".',
-          {
-            status: 400,
-            code: 'tools_not_supported',
-            type: 'invalid_request_error',
-            param: 'tool_choice',
-          },
-        );
-      }
+      assertToolChoiceSupported(payload);
       const model = await resolveRequested(backend, payload.model);
       const params = extractParams(payload, { capKeys: ['max_completion_tokens', 'max_tokens'] });
       const result = await adapter.chatCompletions(messages, model, params, signal);
@@ -172,6 +157,7 @@ export async function registerOpenAiCompatRoutes(
           param: 'input',
         });
       }
+      assertToolChoiceSupported(payload);
       const model = await resolveRequested(backend, payload.model);
       const params = extractParams(payload, { capKeys: ['max_output_tokens'] });
       if (payload.stream === true) {
@@ -364,21 +350,22 @@ function wantsUsageChunk(payload: Record<string, unknown>): boolean {
 }
 
 /**
- * True when the request forces a tool call the backend can't fulfill:
+ * Reject a request that forces a tool call the backend can't fulfill:
  * `tool_choice:"required"`, a named `tool_choice:{type:"function"|"tool", ...}`,
  * or a named legacy `function_call`. `auto`/`none`/absent do NOT force a call.
  */
-function toolChoiceForcesCall(payload: Record<string, unknown>): boolean {
+function assertToolChoiceSupported(payload: Record<string, unknown>): void {
   const tc = payload.tool_choice;
-  if (tc === 'required') return true;
-  if (tc && typeof tc === 'object') {
-    const type = (tc as Record<string, unknown>).type;
-    if (type === 'function' || type === 'tool') return true;
-  }
+  const choice = tc && typeof tc === 'object' ? tc as Record<string, unknown> : undefined;
   const fc = payload.function_call;
-  if (fc === 'required') return true;
-  if (fc && typeof fc === 'object') return true; // { name: "..." } forces the named function
-  return false;
+  if (tc === 'required' || choice?.type === 'function' || choice?.type === 'tool' ||
+      (choice?.type === 'allowed_tools' && choice.mode === 'required') ||
+      fc === 'required' || (fc && typeof fc === 'object')) {
+    throw new ApiError(
+      'This backend cannot fulfill a forced tool call. Remove tool_choice or set it to "auto".',
+      { status: 400, code: 'tools_not_supported', type: 'invalid_request_error', param: 'tool_choice' },
+    );
+  }
 }
 
 async function* asyncIter<T>(items: Iterable<T>): AsyncIterable<T> {

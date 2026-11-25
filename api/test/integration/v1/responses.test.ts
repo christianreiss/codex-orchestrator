@@ -145,6 +145,26 @@ describe('/v1/responses', () => {
     });
   });
 
+  it.each(['required', { type: 'function', name: 'lookup' }])(
+    'rejects a forced function call (%j) instead of returning ordinary text',
+    async (toolChoice) => {
+      const r = await app.inject({
+        method: 'POST',
+        url: '/v1/responses',
+        headers: { authorization: `Bearer ${key}` },
+        payload: {
+          input: 'Look it up.',
+          tools: [{ type: 'function', name: 'lookup', parameters: { type: 'object', properties: {} } }],
+          tool_choice: toolChoice,
+        },
+      });
+      expect(r.statusCode).toBe(400);
+      expect(JSON.parse(r.payload)).toMatchObject({
+        error: { code: 'tools_not_supported', param: 'tool_choice' },
+      });
+    },
+  );
+
   it('refuses streaming for /v1/responses', async () => {
     const r = await app.inject({
       method: 'POST',
