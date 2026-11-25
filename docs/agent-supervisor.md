@@ -18,6 +18,8 @@ derives it from `message_id` as `message:<id>`; a `waiting_agent` report without
 `task_key` continues the current task of the same native session. A wait needs an
 agent or a work message. Only participants can reference a work message. Task keys
 identify actual tasks; keep them stable during recovery and use a new key for new work.
+Reporting a live state for the currently completed task key returns
+`409 agent_work_state_task_completed` and leaves the completed state intact.
 
 Native children sharing a fleet binding leave task-state reports to their parent.
 Reporting state is idempotent for an unchanged body. It is not a work-result receipt.

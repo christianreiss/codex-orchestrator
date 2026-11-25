@@ -235,6 +235,11 @@ export class AgentSupervisor {
           return null;
         if (input.version !== undefined && old?.version !== input.version)
           throw new ConflictError('Work state changed');
+        if (sameTask && old.state === 'completed' && WORK_LIVE.includes(input.state))
+          throw new ConflictError(
+            'This task key is completed. Use a new task key for new work.',
+            'agent_work_state_task_completed',
+          );
         if (!sameTask && old?.watchdogId) {
           const previous = ctx.draft.table('agentWatchdogs').get(old.watchdogId);
           if (previous && WATCHDOG_LIVE.includes(previous.status))

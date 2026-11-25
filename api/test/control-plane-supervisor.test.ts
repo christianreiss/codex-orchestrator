@@ -470,6 +470,13 @@ it('never rearms a completed custom task until a proven new native turn starts',
   await f.service.report(a.id, f.token, { task_key: 'custom-task', state: 'completed' });
   await f.service.tick();
   expect(f.service.list(`agent:${a.addressId}`).states[0]!.state).toBe('completed');
+  const completed = f.service.list(`agent:${a.addressId}`).states[0]!;
+  await expect(f.service.report(a.id, f.token, {
+    task_key: 'custom-task', state: 'working', version: completed.version,
+  })).rejects.toMatchObject({ code: 'agent_work_state_task_completed' });
+  expect(f.service.list(`agent:${a.addressId}`).states[0]).toMatchObject({
+    state: 'completed', version: completed.version, watchdogId: completed.watchdogId,
+  });
   expect(
     f.state
       .snapshot()
