@@ -12,6 +12,34 @@ import (
 	"time"
 )
 
+func TestConferenceOpenAdvertisesChairInCapacity(t *testing.T) {
+	var catalog []struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		InputSchema struct {
+			Properties map[string]struct {
+				Maximum     int    `json:"maximum"`
+				Description string `json:"description"`
+			} `json:"properties"`
+		} `json:"inputSchema"`
+	}
+	if err := json.Unmarshal(toolCatalogJSON(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range catalog {
+		if tool.Name != "agent_conf_open" {
+			continue
+		}
+		members := tool.InputSchema.Properties["max_members"]
+		if members.Maximum != 8 || !strings.Contains(tool.Description, "including the chair") ||
+			!strings.Contains(members.Description, "including the chair") {
+			t.Fatalf("conference open hides chair-inclusive capacity: %+v", tool)
+		}
+		return
+	}
+	t.Fatal("agent_conf_open is missing from the tool catalog")
+}
+
 func TestConferenceToolsDoNotReleaseHeldWork(t *testing.T) {
 	for _, tool := range []string{"agent_conf_join", "agent_conf_say"} {
 		t.Run(tool, func(t *testing.T) {

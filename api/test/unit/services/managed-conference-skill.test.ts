@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { buildManagedConferenceSkill } from '../../../src/services/managed-conference-skill.js';
 
 describe('conference collaboration guidance', () => {
+  it('states room capacity and counts the chair before the open step', () => {
+    const { manifest } = buildManagedConferenceSkill('2026-10-08T00:00:00Z');
+    const chair = manifest.split('## `#conference chair [topic]`')[1]?.split('## ')[0];
+    expect(chair).toContain('8 people, including the chair');
+  });
+
   it('allows chair delegation within operator authorization and keeps permission boundaries', () => {
     const { manifest } = buildManagedConferenceSkill('2026-10-08T00:00:00Z');
     expect(manifest).toContain('authenticated fleet agent');

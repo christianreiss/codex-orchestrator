@@ -2027,7 +2027,7 @@ metadata; omitted metadata preserves the existing value. Old sessions remain val
 - `POST /host/agent-sessions/{id}/agent-messaging/conf/open` — open a conference
   (`ttl_seconds` 300..21600 default 3600, `max_members` 2..8 default 8), mint a
   room PIN valid to the room's deadline, and return the caller's address as
-  `self`. One open conference per owner; re-opening returns it with `reused`.
+  `self`. `max_members` counts the chair. One open conference per owner; re-opening returns it with `reused`.
   Optional `join_existing: true` (default false; requires `topic`, else a
   validation error) makes the call an atomic **open-or-join** for agents that
   were given the same prompt and cannot see each other's rooms. In one
