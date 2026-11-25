@@ -356,6 +356,45 @@ describe('owner canonical content metadata', () => {
     await service.delete({ slug: 'owner.document' });
     expect(h.state.snapshot().table('sharedMemories').get(row.id)?.deletedAt).toBeTruthy();
   });
+  it('fences project memory replacements against concurrent writes and preserves metadata', async () => {
+    const now = new Date().toISOString();
+    const h = setup({ coordProjects: [{
+      id: 42, slug: 'owner-project', aboutJson: { title: 'Owner' }, rosterMarkdown: '',
+      latestEventSeq: 0, createdAt: now, updatedAt: now, archivedAt: null,
+    }] });
+    const projects = new HostProjectsService(h.db), host = { id: 1 } as Host;
+    const slug = 'owner-project';
+    const content = 'Version old\nRepeated aaa';
+    await projects.upsertMemory(slug, {
+      key: 'release', content, tags: ['Release'], metadata: { area: 'api' },
+    }, host);
+    const get = () => projects.getMemory(slug, 'release', host);
+    const initial = await get();
+    expect(initial).toMatchObject({ memory: { sha256: sha256(content) } });
+    const replace = (old_text: string, new_text: string, expected_sha256 = sha256(content)) =>
+      projects.replaceMemory(slug, { key: 'release', old_text, new_text, expected_sha256 }, host);
+
+    await expect(replace('missing', 'ignored')).rejects.toMatchObject({ code: 'validation_failed' });
+    await expect(replace('aa', 'x')).rejects.toMatchObject({ code: 'validation_failed' });
+    await expect(replace('old', 'old')).resolves.toMatchObject({ status: 'unchanged' });
+    expect(h.state.snapshot().table('coordProjects').get(42)?.latestEventSeq).toBe(1);
+
+    const outcomes = await Promise.allSettled([replace('old', '$& literal'), replace('Repeated ', '')]);
+    const succeeded = outcomes.find(result => result.status === 'fulfilled');
+    const conflict = outcomes.find(result => result.status === 'rejected');
+    expect(succeeded).toBeDefined();
+    expect(conflict?.reason).toMatchObject({ code: 'project_memory_conflict' });
+    const winner = (await get()).memory!;
+    expect(['Version $& literal\nRepeated aaa', 'Version old\naaa']).toContain(winner.content);
+    expect(winner.tags).toEqual(['Release']);
+    expect(winner.metadata).toEqual({ area: 'api' });
+    expect(succeeded?.value).toEqual({
+      project: slug, id: 'release', status: 'updated', replacements: 1, sha256: sha256(winner.content),
+    });
+    expect(h.state.snapshot().table('coordProjects').get(42)?.latestEventSeq).toBe(2);
+    expect(h.select).not.toHaveBeenCalled();
+  });
+
   it('creates board todos and dependency metadata in one owner command', async () => {
     const now = new Date().toISOString(),
       h = setup({

@@ -108,6 +108,9 @@ const stubProjects = {
     id: payload['key'],
     memory: null,
   }),
+  replaceMemory: async (slug: string, args: Record<string, unknown>) => ({
+    project: slug, id: args['key'], status: 'updated', replacements: 1, sha256: 'a'.repeat(64),
+  }),
   deleteMemory: async (slug: string, key: string) => ({ project: slug, status: 'deleted', id: key }),
   searchMemories: async (slug: string, payload: Record<string, unknown>) => {
     memorySearchCalls.push({ slug, payload });
@@ -443,6 +446,18 @@ describe('McpToolsRegistry', () => {
   it('requires key and content on project_memory_upsert', async () => {
     const res = await registry.dispatch('project_memory_upsert', { slug: 'demo' }, host);
     expect(res).toMatchObject({ isError: true });
+  });
+
+  it('accepts empty replacement text and returns a compact project memory receipt', async () => {
+    const out = await registry.dispatch('project_memory_replace', {
+      slug: 'demo', key: 'release', old_text: 'obsolete', new_text: '', expected_sha256: '0'.repeat(64),
+    }, host, 'host');
+    expect(out.isError).toBe(false);
+    expect(Array.isArray(out.content)).toBe(true);
+    const [receipt] = out.content as Array<{ text: string }>;
+    expect(JSON.parse(receipt!.text)).toEqual({
+      project: 'demo', id: 'release', status: 'updated', replacements: 1, sha256: 'a'.repeat(64),
+    });
   });
 
   it('advertises all accepted project feedback types', () => {

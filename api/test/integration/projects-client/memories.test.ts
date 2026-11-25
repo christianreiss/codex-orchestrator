@@ -145,6 +145,27 @@ describe.skipIf(!handle)('project memories against a real database', () => {
     expect(Number(rows[0]!['c'])).toBe(1);
   });
 
+  it('serializes competing exact replacements and attributes the winning memory event', async () => {
+    const key = 'exact-replace';
+    await svc.upsertMemory(SLUG, { key, content: 'Initial content', tags: ['test'], metadata: { original: true } }, hostA);
+    const before = await svc.getMemory(SLUG, key, hostA);
+    const replace = (new_text: string) => svc.replaceMemory(SLUG, {
+      key, old_text: 'Initial', new_text, expected_sha256: before.memory!.sha256,
+    }, hostB);
+    const [a, b] = await Promise.allSettled([replace('First'), replace('Second')]);
+    const saved = (await svc.getMemory(SLUG, key, hostA)).memory!;
+    expect([a, b].filter(outcome => outcome.status === 'fulfilled')).toHaveLength(1);
+    expect([a, b].find(outcome => outcome.status === 'rejected')?.reason).toMatchObject({ code: 'project_memory_conflict' });
+    expect(saved).toMatchObject({ tags: ['test'], metadata: { original: true }, source_host_id: hostB.id });
+    expect(['First content', 'Second content']).toContain(saved.content);
+    const events = rowsOf(await db.execute(sql`SELECT action, source_host_id FROM coord_project_events
+      WHERE project_id = ${saved.project_id} AND event_type = 'memory' AND entity_id = ${String(saved.id)} ORDER BY seq`));
+    expect(events).toEqual([
+      { action: 'create', source_host_id: hostA.id },
+      { action: 'update', source_host_id: hostB.id },
+    ]);
+  });
+
   it('returns scored full-text matches without leaking across projects', async () => {
     await svc.upsertMemory(SLUG, {
       key: 'deploy.crane',

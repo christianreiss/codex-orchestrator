@@ -802,6 +802,7 @@ describe('client-config: memory curation permissions', () => {
       'mcp__clx__shared_memory_replace',
       'mcp__clx__shared_memory_delete',
       'mcp__clx__project_memory_upsert',
+      'mcp__clx__project_memory_replace',
       'mcp__clx__project_memory_delete',
     ]));
     expect(owned_paths).toContain('permissions.allow');

@@ -26,6 +26,7 @@ import type { AgentMessagingService } from './agent-messaging.js';
 import type { SchedulesService } from './schedules.js';
 import type { Host } from '../db/schema.js';
 import type { McpMemoriesService } from './mcp-memories.js';
+import { MEMORY_MAX_CONTENT } from './memory-validation.js';
 import type { SharedMemoriesService } from './shared-memories.js';
 import type { HostProjectsService } from './host-projects.js';
 import type { HostSkillsService } from './host-skills.js';
@@ -448,7 +449,7 @@ function validateAgainstSchema(
     if (typeof key !== 'string') continue;
     const value = args[key];
     // An explicit `minLength: 0` marks a required string that may be empty
-    // (shared_memory_replace.new_text deletes text by replacing it with '').
+    // (for example, new_text can delete the selected memory text).
     const mayBeEmpty = value === '' && (properties[key]?.minLength === 0 || key === emptyStringField);
     if (value === undefined || value === null || (value === '' && !mayBeEmpty)) {
       return "'" + key + "' is required";
@@ -1375,7 +1376,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   inputs.push({
     definition: {
       name: 'project_memory_get',
-      description: 'Read one project memory by key (returns full content, tags, and metadata)',
+      description: 'Read one project memory by key (returns full content, tags, metadata, and memory.sha256 for an exact replacement)',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1393,7 +1394,7 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
     definition: {
       name: 'project_memory_upsert',
       description:
-        'Create or update a durable project memory by key (add + update). Upserting an existing key is how you correct a fact whose reality has moved — prefer that over inventing a near-duplicate key beside it. Idempotent: returns status created, updated, or unchanged.',
+        'Create or update a durable project memory by key (add + update). Use project_memory_replace for an exact single-text correction on the same key. Idempotent: returns status created, updated, or unchanged.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -1414,9 +1415,28 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
   });
   inputs.push({
     definition: {
+      name: 'project_memory_replace',
+      description: 'Correct one fact within an existing project memory. Replaces exactly one occurrence of old_text with new_text (may be empty). Pass expected_sha256 from project_memory_get; a changed body is a conflict, so re-read before retrying. Tags and metadata are preserved. Returns the new digest and status without the memory body.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: { type: 'string' },
+          key: { type: 'string' },
+          old_text: { type: 'string', minLength: 1, maxLength: MEMORY_MAX_CONTENT },
+          new_text: { type: 'string', minLength: 0, maxLength: MEMORY_MAX_CONTENT },
+          expected_sha256: { type: 'string', pattern: '^[0-9a-fA-F]{64}$' },
+        },
+        additionalProperties: false,
+        required: ['slug', 'key', 'old_text', 'new_text', 'expected_sha256'],
+      },
+    },
+    handler: async (args, host) => deps.projects.replaceMemory(String(args['slug'] ?? ''), args, host),
+  });
+  inputs.push({
+    definition: {
       name: 'project_memory_delete',
       description:
-        'Retire a project memory whose fact is superseded or was proven wrong. Deleting is part of curating a workstream: a stale fact the next agent cannot identify as stale is worse than a missing one. To correct a fact that still belongs, use project_memory_upsert on the same key instead.',
+        'Retire a project memory whose fact is superseded or was proven wrong. Deleting is part of curating a workstream: a stale fact the next agent cannot identify as stale is worse than a missing one. To correct a fact that still belongs, use project_memory_replace on the same key.',
       inputSchema: {
         type: 'object',
         properties: {

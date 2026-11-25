@@ -33,7 +33,7 @@ import { ValidationError, NotFoundError, ConflictError } from '../http/errors.js
 import { nowIso } from '../util/timestamp.js';
 import { wsPublisher } from '../ws/publisher.js';
 import type { Host } from '../db/schema.js';
-import { createHash } from 'node:crypto';
+import { sha256 } from '../security/hash.js';
 import {
   isProjectFeedbackStatus,
   isProjectFeedbackType,
@@ -42,7 +42,7 @@ import {
 } from './project-feedback-types.js';
 import { managedCocoBootstrapGuidance } from './managed-coco-skill.js';
 import { parseTags, sortedLowercase, sortedAssoc } from './memory-tags.js';
-import { checkMemoryContent, checkMemoryKey, checkMemoryMetadata, checkMemoryTags, type Checked } from './memory-validation.js';
+import { checkMemoryContent, checkMemoryKey, checkMemoryMetadata, checkMemoryTags, MEMORY_MAX_CONTENT, type Checked } from './memory-validation.js';
 import {
   STORED_NAME_TOO_LONG_MESSAGE,
   acceptFileBody,
@@ -1320,12 +1320,103 @@ export class HostProjectsService {
     };
   }
 
-  async getMemory(slug: string, key: string, host: Host): Promise<unknown> {
+  async getMemory(slug: string, key: string, host: Host) {
     const project = await this.requireProject(slug);
     const memoryKey = this.normalizeMemoryKey(key);
     const memory = await this.fetchMemoryByKey(project.id, memoryKey);
-    const status = memory ? 'found' : 'missing';
-    return { project: project.slug, status, id: memoryKey, memory };
+    return {
+      project: project.slug, status: memory ? 'found' : 'missing', id: memoryKey,
+      memory: memory && { ...memory, sha256: sha256(memory.content) },
+    };
+  }
+
+  async replaceMemory(slug: string, payload: Record<string, unknown>, host: Host) {
+    const project = await this.requireProject(slug);
+    const key = this.normalizeMemoryKey(payload['key']);
+    const { old_text: oldText, new_text: newText, expected_sha256: expected } = payload;
+    if (typeof oldText !== 'string' || oldText.length === 0 || oldText.length > MEMORY_MAX_CONTENT)
+      throw new ValidationError('old_text must be a non-empty string of at most 32,000 characters', { param: 'old_text' });
+    if (typeof newText !== 'string' || newText.length > MEMORY_MAX_CONTENT)
+      throw new ValidationError('new_text must be a string of at most 32,000 characters', { param: 'new_text' });
+    if (typeof expected !== 'string' || !/^[a-f0-9]{64}$/i.test(expected))
+      throw new ValidationError('Pass memory.sha256 from project_memory_get as expected_sha256', { param: 'expected_sha256' });
+
+    const prepare = (before: string) => {
+      const digest = sha256(before);
+      if (digest !== expected.toLowerCase())
+        throw new ConflictError('Project memory changed. Read it again before replacing text.', 'project_memory_conflict');
+      const first = before.indexOf(oldText);
+      if (first === -1 || before.indexOf(oldText, first + 1) !== -1)
+        throw new ValidationError(
+          first === -1 ? 'old_text does not occur in the project memory' : 'old_text occurs more than once',
+          { param: 'old_text' },
+        );
+      const content = before.slice(0, first) + newText + before.slice(first + oldText.length);
+      const status = content === before ? 'unchanged' : 'updated';
+      if (status === 'updated') {
+        // Validate the new body without trimming away untouched boundary bytes.
+        memoryField('content', checkMemoryContent(content));
+        if (content.length > MEMORY_MAX_CONTENT)
+          throw new ValidationError('Project memory content must be at most 32,000 characters', { param: 'content' });
+      }
+      return {
+        content,
+        result: { project: project.slug, id: key, status, replacements: 1, sha256: sha256(content) },
+      };
+    };
+    const event = (row: Pick<typeof coordProjectMemories.$inferSelect, 'id' | 'tags'>, content: string, now: string) => ({
+      id: row.id, key, tags: parseTags(row.tags), content_length: content.length,
+      preview: content.slice(0, MEMORY_PREVIEW_CHARS), updated_at: now,
+    });
+    const audit = (tx: ProjectEventTx, content: string, now: string) => persistAuditLog(tx, {
+      hostId: host.id, action: 'project.memory.updated',
+      details: JSON.stringify({ slug: project.slug, key, content_length: content.length }),
+      createdAt: now, engine: null,
+    });
+    const owner = ownerRuntimeFor(this.db);
+    if (owner) {
+      const result = await mutateOwnerState(owner, {
+        kind: 'project.memory.replace',
+        payload: { projectId: project.id, key },
+        prepare: (ctx) => {
+          const row = ctx.snapshot.table('coordProjectMemories').by('projectId', project.id)
+            .find(memory => memory.memoryKey === key);
+          if (!row) throw new NotFoundError('Project memory not found', 'project_memory_not_found');
+          const { content, result } = prepare(this.currentBody(ctx.snapshot, 'coordProjectMemories', row.id, 'content'));
+          if (result.status === 'updated') {
+            const now = nowIso();
+            stageUpdate(ctx, 'coordProjectMemories', row.id, { content, sourceHostId: host.id, updatedAt: now });
+            stageProjectEvent(ctx, project.id, 'memory', 'update', 'memory', row.id, event(row, content, now), host.id);
+            ctx.write(tx => audit(tx, content, now));
+          }
+          return result;
+        },
+      }) as ReturnType<typeof prepare>['result'];
+      if (result.status === 'updated') wsPublisher.publish('project.memory.updated', { slug: project.slug, key, source_host_id: host.id });
+      return result;
+    }
+
+    const { result, seq } = await this.db.transaction(async tx => {
+      // Take the project lock before the memory row, as other project writers do.
+      await tx.select({ id: coordProjects.id }).from(coordProjects).where(eq(coordProjects.id, project.id)).for('update');
+      const [row] = await tx.select().from(coordProjectMemories)
+        .where(and(eq(coordProjectMemories.projectId, project.id), eq(coordProjectMemories.memoryKey, key)))
+        .for('update');
+      if (!row) throw new NotFoundError('Project memory not found', 'project_memory_not_found');
+      const { content, result } = prepare(row.content);
+      if (result.status === 'unchanged') return { result, seq: null };
+      const now = nowIso();
+      await tx.update(coordProjectMemories).set({ content, sourceHostId: host.id, updatedAt: now })
+        .where(eq(coordProjectMemories.id, row.id));
+      const seq = await this._recordEventTx(tx, project, 'memory', 'update', 'memory', String(row.id), event(row, content, now), host.id, now);
+      await audit(tx, content, now);
+      return { result, seq };
+    });
+    if (seq !== null) {
+      this._publishProjectChanged(project, seq, 'memory', 'update', host.id);
+      wsPublisher.publish('project.memory.updated', { slug: project.slug, key, source_host_id: host.id });
+    }
+    return result;
   }
 
   /**
