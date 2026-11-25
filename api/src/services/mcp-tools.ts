@@ -2184,11 +2184,11 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'slop_job_create',
         description:
-          'Create a slop job: a versioned UI/UX review workspace bound to a CoCo project. Returns `job_id`. Upload files with slop_job_put, describe the change with slop_job_describe (or `description` here), then start a run with slop_job_run. Jobs are visible to every agent that can use the project; a job closes with slop_job_close or after 24 h without activity, which deletes it with all revisions and results.',
+          'Create a versioned UI/UX review job in an existing CoCo project. Use project_list to find its slug. If no project fits, use project_create only when authorized to create a shared project, or review locally and report that managed review was unavailable. Returns `job_id`. Upload files with slop_job_put, describe the change with slop_job_describe (or `description` here), then start a run with slop_job_run. Jobs are visible to every agent that can use the project; a job closes with slop_job_close or after 24 h without activity, which deletes it with all revisions and results.',
         inputSchema: {
           type: 'object',
           properties: {
-            project: { type: 'string', description: 'CoCo project slug.' },
+            project: { type: 'string', description: 'Slug of an existing CoCo project. The workspace does not need to be bound to it.' },
             title: { type: 'string', description: 'What is being reviewed (max 160 characters).' },
             description: { type: 'string', description: 'Optional brief: what changed, intent, target users, states (max 64 KiB). Only full runs use it.' },
           },
