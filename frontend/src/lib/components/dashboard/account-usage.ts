@@ -35,3 +35,61 @@ export function accountQuotaRows(account: Pick<ProviderAccount, "engine" | "usag
       return { ...window, value: Math.round(window.value * 10) / 10, label: emulated && window.key === "short" ? `Emulated ${label.toLowerCase()}` : label };
     });
 }
+
+/** One window of an engine pool, drawn like an account's own meter. */
+export interface PoolQuotaRow {
+  key: string;
+  label: string;
+  /** Mean of the accounts reporting this window, rounded to one decimal. */
+  value: number;
+  /** Mean of their elapsed period (0-100), so the average reads against time like one account; null without a period. */
+  elapsed: number | null;
+  /** The next reset in the pool: when capacity comes back first. */
+  reset: string | null;
+  /** Accounts behind the mean, and the accounts asked. */
+  reporting: number;
+  of: number;
+}
+
+/**
+ * The pool's windows for a collapsed engine group: the mean of each window over the given (usable)
+ * accounts. A reading whose reset has passed is no longer current and is left out, as in the
+ * server's pool score; an unmeasured account is never counted as zero.
+ */
+export function poolQuotaRows(
+  accounts: readonly Pick<ProviderAccount, "engine" | "usage" | "quota_snapshot">[],
+  /** `periodElapsedPercent`, passed in so this module stays import-free for `node --test`. */
+  elapsedOf: (reset: string | null | undefined, period: { startsAt?: string | null; limitSeconds?: number | null }, now: number) => number | null,
+  now = Date.now(),
+): PoolQuotaRow[] {
+  const windows = new Map<string, { label: string; values: number[]; elapsed: number[]; resets: number[] }>();
+  for (const account of accounts) {
+    if (account.usage.supported === false) continue;
+    // Grok reports one current period (its rows draw it through GrokUsage, with these labels).
+    const grok = account.engine === "grok" ? account.usage.current_window : null;
+    const rows = account.engine === "grok"
+      ? grok ? [{ key: "current", label: grok.period === "weekly" ? "Weekly usage" : grok.period === "monthly" ? "Monthly usage" : "Current period", value: grok.used_percent, reset: grok.resets_at, seconds: undefined as number | undefined, starts: grok.starts_at }] : []
+      : accountQuotaRows(account).map((row) => ({ ...row, starts: null as string | null }));
+    for (const row of rows) {
+      if (typeof row.value !== "number" || !Number.isFinite(row.value)) continue;
+      const end = row.reset ? new Date(row.reset).getTime() : NaN;
+      if (Number.isFinite(end) && end <= now) continue;
+      const slot = windows.get(row.key) ?? { label: row.label, values: [], elapsed: [], resets: [] };
+      slot.values.push(row.value);
+      const elapsed = elapsedOf(row.reset, { startsAt: row.starts, limitSeconds: row.seconds }, now);
+      if (elapsed !== null) slot.elapsed.push(elapsed);
+      if (Number.isFinite(end)) slot.resets.push(end);
+      windows.set(row.key, slot);
+    }
+  }
+  const mean = (values: number[]) => values.reduce((sum, value) => sum + value, 0) / values.length;
+  return [...windows.entries()].map(([key, slot]) => ({
+    key,
+    label: slot.label,
+    value: Math.round(mean(slot.values) * 10) / 10,
+    elapsed: slot.elapsed.length ? mean(slot.elapsed) : null,
+    reset: slot.resets.length ? new Date(Math.min(...slot.resets)).toISOString() : null,
+    reporting: slot.values.length,
+    of: accounts.length,
+  }));
+}

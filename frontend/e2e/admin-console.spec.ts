@@ -565,9 +565,13 @@ test("Overview lists what needs you, counted like the owning pages and linked to
   // Provider usage groups the two Claude accounts under one pool header, collapsed by default.
   const group = page.getByTestId("account-group");
   await expect(group).toHaveCount(1);
-  await expect(group).toContainText("Claude 2 accounts");
+  await expect(group).toContainText("2 accounts");
   await expect(group).toContainText("OK");
-  await expect(group).toContainText("Least used: claude-3 (10%) · average short 51%, weekly 25% (2 of 2 reporting)");
+  // Collapsed, the pool is drawn like an account row: one meter per window, the mean of its accounts.
+  await expect(group.getByRole("meter", { name: "5-hour window" })).toHaveAttribute("aria-valuenow", "51");
+  await expect(group.getByRole("meter", { name: "Weekly window" })).toHaveAttribute("aria-valuenow", "25");
+  // Both accounts report both windows: no coverage note, and the details wait for the expanded rows.
+  await expect(group.getByTestId("pool-coverage")).toHaveCount(0);
   await expect(page.getByRole("row", { name: /claude-2/ })).toHaveCount(0);
   await expect(page.getByText("Nothing needs you right now.")).toHaveCount(0);
   // A waiting request opens its own triage box; dismissed, the row still leads to the access panel.
@@ -1506,10 +1510,11 @@ test("accounts lists every provider with an always-visible engine filter", async
         short_resets_at: null, weekly_used_percent: null, weekly_resets_at: null },
     })),
   } : undefined);
-  const rows = page.getByRole("row", { name: /Subscription/ });
+  // Account rows only: each engine here has two accounts, so it is a group, opened through the URL.
+  const rows = page.getByRole("row", { name: /Subscription/ }).and(page.locator(":not([data-testid=account-group])"));
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto("/admin/accounts");
+    await page.goto("/admin/accounts?open=codex,claude,grok");
     await expect(rows).toHaveCount(6);
     await expect(page.getByRole("button", { name: "Codex", exact: true })).toBeVisible();
     await expect(rows.filter({ hasText: "Subscription 2" })).toContainText("Claude");

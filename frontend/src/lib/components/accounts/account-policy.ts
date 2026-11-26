@@ -28,6 +28,13 @@ export const STRATEGY_OPTIONS: ReadonlyArray<{ value: PolicyStrategyName; label:
   },
 ];
 
+/** The policy in a few words for group headers: "Manual" or "Automatic, Expiring first". */
+export function policySummary(policy: { mode: string; strategy: string } | null | undefined): string {
+  if (policy?.mode === "manual") return "Manual";
+  if (policy?.mode !== "auto") return "";
+  return `Automatic, ${STRATEGY_OPTIONS.find((option) => option.value === policy.strategy)?.label ?? "Balanced"}`;
+}
+
 /** Strategies that fill accounts to the soft and hard limit; Balanced uses the band instead. */
 export const usesCeilings = (strategy: PolicyStrategyName): boolean => strategy !== "balanced";
 

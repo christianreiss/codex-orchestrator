@@ -20,9 +20,9 @@
   import KimiUsage from "./KimiUsage.svelte";
   import GrokUsage from "./GrokUsage.svelte";
   import UsageMeter from "./UsageMeter.svelte";
-  import { accountQuotaRows } from "./account-usage";
+  import { accountQuotaRows, poolQuotaRows } from "./account-usage";
   import AccountGroupRow from "$lib/components/accounts/AccountGroupRow.svelte";
-  import { accountEntries, displayName, entryKey, parseOpen, toggleOpen } from "$lib/components/accounts/account-state";
+  import { accountEntries, displayName, entryKey, parseOpen, toggleOpen, type EnginePool } from "$lib/components/accounts/account-state";
 
   type Props = {
     accounts: ProviderAccount[] | undefined;
@@ -51,6 +51,19 @@
     if (account.state === "removing") return { label: "Removing", variant: "secondary" };
     if (account.verification_state !== "verified") return { label: "Not verified yet", variant: "warning" };
     return { label: "Active", variant: "success" };
+  }
+
+  /** Named only when some usable account has no current reading: an unmeasured account is not zero. */
+  function poolCoverage(rows: ReturnType<typeof poolQuotaRows>): string | null {
+    const partial = rows.filter((row) => row.reporting < row.of);
+    return partial.length ? `Average of ${partial.map((row) => `${row.reporting} of ${row.of} accounts (${row.label.toLowerCase()})`).join(", ")}` : null;
+  }
+
+  /** The oldest reading behind the pool meters: the average is only as current as that. */
+  function poolUpdated(pool: EnginePool): { at: string | null; stale: boolean } {
+    const read = pool.usable.filter((account) => account.usage.fetched_at);
+    const oldest = read.map((account) => account.usage.fetched_at!).sort()[0] ?? null;
+    return { at: oldest, stale: read.some((account) => account.usage.stale) };
   }
 
   /** One line per quota window for the "Reset in" column; unknown stays unknown. */
@@ -93,7 +106,7 @@
   {#snippet row(entry)}
     {#if entry.kind === "group"}
       {@const open = openGroups.has(entry.pool.engine)}
-      <AccountGroupRow pool={entry.pool} columns={5} {open} onToggle={() => toggle(entry.pool.engine)} />
+      <AccountGroupRow pool={entry.pool} columns={5} {open} onToggle={() => toggle(entry.pool.engine)} trailing={poolCells} />
       {#if open}
         {#each entry.rows as account (account.id)}{@render accountRow(account, true)}{/each}
       {/if}
@@ -103,6 +116,41 @@
   {/snippet}
 </DataTable>
 {/if}
+
+{#snippet poolCells(pool: EnginePool)}
+    {@const rows = poolQuotaRows(pool.usable, periodElapsedPercent)}
+    {@const updated = poolUpdated(pool)}
+    <Table.Cell>
+      {#if rows.length}
+        <div class="space-y-1">
+          {#each rows as quota (quota.key)}
+            <UsageMeter inline label={quota.label} usedPercent={quota.value} valueLabel={`${Math.round(quota.value)}% avg`} elapsedPercent={quota.elapsed} />
+          {/each}
+        </div>
+        {@const coverage = poolCoverage(rows)}
+        {#if coverage}<p class="mt-1 text-caption text-muted-foreground" data-testid="pool-coverage">{coverage}</p>{/if}
+      {:else}
+        <span class="text-body-sm text-muted-foreground">{!pool.usable.length ? "No usable account" : pool.usable.every((account) => account.usage.supported === false) ? "Subscription quota unavailable" : "Waiting for usage data"}</span>
+      {/if}
+    </Table.Cell>
+    <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground" data-testid="reset-in">
+      {#if rows.some((row) => row.reset)}
+        <span class="text-caption sm:hidden">Next reset in</span>
+        <div class="space-y-1">
+          {#each rows as quota (quota.key)}
+            {@const when = resetsIn(quota.reset)}
+            <p title="The first reset among the pool's accounts">{#if rows.length > 1}<span class="mr-1 text-caption">{quota.label}:</span>{/if}<time datetime={quota.reset ?? undefined}>{quota.reset ? when === "passed" ? "Reset passed" : when || "Unknown" : "Unknown"}</time></p>
+          {/each}
+        </div>
+      {:else}<span aria-label="No reset time">—</span>{/if}
+    </Table.Cell>
+    <Table.Cell class={cn("whitespace-nowrap text-body-sm", updated.stale ? "text-warning" : "text-muted-foreground")}
+      title={updated.stale ? "At least one account's reading is the last reported one. Refresh to check for newer readings." : "The oldest reading behind the average"}>
+      {#if updated.at}
+        <span class="sm:hidden">Updated&nbsp;</span><Timestamp value={updated.at} />
+      {:else}No reading yet{/if}
+    </Table.Cell>
+{/snippet}
 
 {#snippet accountRow(account: ProviderAccount, nested: boolean)}
     {@const rows = accountQuotaRows(account)}

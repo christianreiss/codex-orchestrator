@@ -1,1 +1,0 @@
-import{Vt as e}from"./D6Zcd1Pp.js";import"./sOWWp5Lu.js";var{subscribe:t,set:n}=e(`disabled`),r={subscribe:t};function i(e){n(e)}export{r as n,i as t};

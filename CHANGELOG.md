@@ -1,5 +1,11 @@
 # 2026-11-26
 
+- Overview, Provider usage: a collapsed engine group is laid out like an account row and shows the pool's usage as the same meters (5-hour and weekly window, the mean of its usable accounts, with the period marker and the account colour thresholds), the next reset and the oldest reading behind it. A coverage note appears only when an account has no current reading. Expanding it lists each account as before. The group header on Accounts also names the "Expiring first" strategy instead of calling it Balanced.
+
+- Admin console: segmented controls (such as Mode, Strategy and Band in the distribution policy) keep their own width with a framed track and a raised active option, instead of an empty grey bar across the form. The Minimum dwell hint no longer wraps in a narrow column.
+
+- Fix: a filtered list URL whose value was spelled differently from how the console writes it, for example `/admin/accounts?open=codex,claude` with two engine groups open, left the page stuck on "Loading". Filters are now compared by value, so such a link opens normally.
+
 - Accounts: new distribution strategy "Expiring first" (`reset_aware`). It uses the account closest to its weekly reset first and saves freshly reset ones, within the soft and hard limits of Exhaust. Running Claude scopes move to an account whose reset comes at least an hour earlier, after the dwell. Unknown or passed resets are never treated as expiring. Example: with resets on Wednesday, Thursday and Sunday, Tuesday's work goes to Wednesday's account first instead of the one reset yesterday.
 
 - Fix: communicator owners that had received an account switch were disconnected about every 15 s. Their heartbeat reports the new `switch_signal` counter, which the server's strict heartbeat schema did not know. The server accepts it now, and a unit test checks every auth-state field of the wrapper against the schema.

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 const mod: string = "./account-policy.ts";
-const { policyIssues, switchTargets, usesCeilings, SPREAD_POINTS, STRATEGY_OPTIONS } = (await import(mod)) as typeof import("./account-policy");
+const { policyIssues, policySummary, switchTargets, usesCeilings, SPREAD_POINTS, STRATEGY_OPTIONS } = (await import(mod)) as typeof import("./account-policy");
 
 const base = { mode: "auto", strategy: "exhaust", soft_ceiling: 90, hard_ceiling: 99, min_dwell_minutes: 15 } as const;
 
@@ -42,5 +42,17 @@ describe("switch targets", () => {
   it("offers only enabled, verified accounts of the engine other than the current one", () => {
     const options = switchTargets([acc(1), acc(2), acc(3, { state: "paused" }), acc(4, { verification_state: "failed" }), acc(5, { engine: "codex" }), acc(6, { email: "six@x.de" })], "claude", 1);
     assert.deepEqual(options, [{ value: "2", label: "A2" }, { value: "6", label: "A6 (six@x.de)" }]);
+  });
+});
+
+describe("policy summary for group headers", () => {
+  it("names every strategy by its form label", () => {
+    assert.equal(policySummary({ mode: "auto", strategy: "balanced" }), "Automatic, Balanced");
+    assert.equal(policySummary({ mode: "auto", strategy: "exhaust" }), "Automatic, Exhaust");
+    assert.equal(policySummary({ mode: "auto", strategy: "reset_aware" }), "Automatic, Expiring first");
+  });
+  it("says Manual, and nothing before the policy has loaded", () => {
+    assert.equal(policySummary({ mode: "manual", strategy: "exhaust" }), "Manual");
+    assert.equal(policySummary(undefined), "");
   });
 });

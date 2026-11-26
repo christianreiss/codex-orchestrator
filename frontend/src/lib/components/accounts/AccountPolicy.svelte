@@ -136,9 +136,9 @@
             </div>
           {/if}
 
-          <FormField id={`${prefix}-dwell`} label="Minimum dwell (minutes)" hint="After a switch the scope stays put at least this long, 0 to 240. Each switch rebuilds the prompt cache." error={issues.min_dwell_minutes} class="sm:max-w-48">
+          <FormField id={`${prefix}-dwell`} label="Minimum dwell (minutes)" hint="After a switch the scope stays put at least this long, 0 to 240. Each switch rebuilds the prompt cache." error={issues.min_dwell_minutes}>
             {#snippet children(f)}
-              <Input id={`${prefix}-dwell`} type="number" min={0} max={240} step={1} required value={draft!.min_dwell_minutes} oninput={(e) => edit({ min_dwell_minutes: e.currentTarget.valueAsNumber })} aria-describedby={f.describedBy} aria-invalid={f.invalid} />
+              <Input id={`${prefix}-dwell`} class="sm:max-w-48" type="number" min={0} max={240} step={1} required value={draft!.min_dwell_minutes} oninput={(e) => edit({ min_dwell_minutes: e.currentTarget.valueAsNumber })} aria-describedby={f.describedBy} aria-invalid={f.invalid} />
             {/snippet}
           </FormField>
         {/if}

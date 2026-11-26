@@ -42,13 +42,18 @@ export class UrlFilters<T extends FilterValues> {
         .then(() => { this.#needsCommit = false; return goto(destination); });
     });
 
+    // Compare what the URL means, not how it is spelled: `?open=a,b` and `?open=a%2Cb` are the
+    // same filters. Rewriting a merely re-encoded URL on the first mount ran replaceState before
+    // SvelteKit's root existed and left the page dead ("reading '$set'").
+    const differs = (url: URL, key: string) => filtersKey(readFilters(url.searchParams, defaults), defaults) !== key;
+
     $effect(() => {
       const snapshot = { ...this.values };
       const key = filtersKey(snapshot, defaults);
       untrack(() => {
         const current = page.url;
         const next = writeFilters(current, snapshot, defaults);
-        if (next.search !== current.search) {
+        if (differs(current, key)) {
           // Reload and copying the address must see edits before the debounce.
           // This shallow update still needs a real router commit for Back.
           this.#needsCommit = true;
@@ -60,7 +65,7 @@ export class UrlFilters<T extends FilterValues> {
         const current = untrack(() => page.url);
         this.#synced = filtersKey(snapshot, defaults);
         const next = writeFilters(current, snapshot, defaults);
-        if (next.search !== current.search || this.#needsCommit) {
+        if (differs(current, key) || this.#needsCommit) {
           void goto(next, { replaceState: true, keepFocus: true, noScroll: true }).then(() => {
             if (filtersKey(this.values, defaults) === key) this.#needsCommit = false;
           });
