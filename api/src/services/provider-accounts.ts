@@ -236,6 +236,11 @@ export class ProviderAccountsService {
       }
     }
     if (engine === 'claude' && identityKey) {
+      // A removed account stays removed until somebody enrolls it again on
+      // purpose (`enroll: true`, the admin console or a seed command). A host
+      // that still holds its login must not bring it back by syncing.
+      const retired = !account && accounts.some((a) => a.state === 'removed' && a.identityKey === identityKey);
+      if (retired && !enrollAccount && sourceHostId != null) throw new ConflictError('Account is retired', 'account_removed');
       // An operator replacing one account's credentials gets a refusal, not a
       // silent move to another account, when the login belongs elsewhere.
       if (target !== undefined && sourceHostId == null && !targetIsHint) {
@@ -246,6 +251,8 @@ export class ProviderAccountsService {
         if (!requestedIdentity && unprovenHeads.has(requested.id))
           throw await this.identityUnavailable(identity, { status: 'unavailable', reason: 'account_head' }, refusal);
       }
+      // Explicit enrollment: the tombstone gives its identity back before it is claimed again.
+      if (retired) await this.releaseRetiredIdentity(engine, identityKey, accounts);
       // Same login family whose identity was never recorded.
       const lineage = accounts.find((a) => a.id === matched?.accountId || a.payloadId === matched?.id);
       if (!account && lineage && !accountIdentity(lineage)) account = lineage;
