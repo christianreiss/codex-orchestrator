@@ -320,6 +320,16 @@ export function poolRecommendation(
   const pct = (score: number | null) => (score === null ? 'unknown' : `${Math.round(score)}%`);
   const others = accounts.filter((a) => a.usable && a.id !== bound?.id);
   const boundScore = bound ? effective(bound.score) : 0;
+  // A reset-aware move comes while the bound account is still low: say that the
+  // session changes accounts for the weekly reset, not because of its usage.
+  const early = bound && boundScore < warnPercent && liveSwitch ? others.find((a) => a.id === plannedTarget) : undefined;
+  const earlyReason = early ? resetAwareReason(policy, early, Date.now()) : '';
+  if (bound && early && earlyReason)
+    return {
+      action: 'continue',
+      account_id: null,
+      message: `${bound.score === null ? `Account ${bound.label} has no usage reading yet` : `Account ${bound.label} is at ${pct(bound.score)}`}. The pool policy moves this session to ${early.label} at a turn boundary: ${earlyReason}; keep working.`,
+    };
   const pool = accounts
     .filter((a) => a.id !== bound?.id)
     .map((a) => `${a.label} ${pct(a.score)}`)

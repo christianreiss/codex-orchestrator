@@ -303,6 +303,16 @@ describe('reset-aware strategy (use expiring quota first)', () => {
     expect(poolRecommendation(policy(), accounts[0]!, accounts, 85, 95, true, 2).message).not.toContain('weekly quota');
     const blind = [view(1, 92, null), view(2, 40, null)];
     expect(poolRecommendation(p, blind[0]!, blind, 85, 95, true, 2).message).toContain('moves this session to acct2 at a turn boundary');
+    // The operator's case: the bound account is the fresh one at 15 %, far below any
+    // warning, and the session still moves. The message says it is for the reset.
+    const fresh = [view(1, 15, 119), view(2, 55, 23), view(3, 70, 47)];
+    const early = poolRecommendation(p, fresh[0]!, fresh, 85, 95, true, 2);
+    expect(early).toMatchObject({ action: 'continue', account_id: null });
+    expect(early.message).toBe('Account acct1 is at 15%. The pool policy moves this session to acct2 at a turn boundary: its weekly quota resets in 23 h, the soonest with room; keep working.');
+    // No move planned, another strategy or an engine without live switching: the plain line.
+    expect(poolRecommendation(p, fresh[0]!, fresh, 85, 95, true, null).message).toBe('Account acct1 is at 15%.');
+    expect(poolRecommendation(policy(), fresh[0]!, fresh, 85, 95, true, 2).message).toBe('Account acct1 is at 15%.');
+    expect(poolRecommendation(p, fresh[0]!, fresh, 85, 95, false, 2).message).toBe('Account acct1 is at 15%.');
     // The headroom verdict uses the hard ceiling: 97 still counts while 99 pauses.
     expect(poolRecommendation(p, view(1, 99, 5), [view(1, 99, 5), view(2, 97, 9)], 85, 95, true, null).action).toBe('continue');
     expect(poolRecommendation(p, view(1, 99, 5), [view(1, 99, 5), view(2, 99, 9)], 85, 95, true, null).action).toBe('pause');
