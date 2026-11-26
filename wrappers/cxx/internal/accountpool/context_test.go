@@ -196,6 +196,26 @@ func TestBindingScopesAndObservesOnlyVerifiedMetadata(t *testing.T) {
 		t.Fatal("response switched a running session")
 	}
 }
+
+// Regression (2026-11-26): a maintenance client without a lease observed the
+// server's default account and rebound a scope whose sessions ran on another.
+func TestObserveWithoutLeaseKeepsALiveScopeBinding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".credentials.json")
+	running := Load("claude", path, "https://fleet")
+	running.Observe("/auth", []byte(`{"account_id":8,"verification_state":"verified"}`))
+	stop := running.writeSessionMarker("0123456789abcdef")
+	defer stop()
+	maintenance := Load("claude", path, "https://fleet")
+	maintenance.Observe("/auth", []byte(`{"account_id":1,"verification_state":"verified"}`))
+	if got := Load("claude", path, "https://fleet").AccountID; got != 8 {
+		t.Fatalf("binding moved to %d under a live session", got)
+	}
+	stop()
+	maintenance.Observe("/auth", []byte(`{"account_id":1,"verification_state":"verified"}`))
+	if got := Load("claude", path, "https://fleet").AccountID; got != 1 {
+		t.Fatalf("idle scope did not follow the server: %d", got)
+	}
+}
 func TestLeaseSelectionReleaseAndNativeCompareAndSwap(t *testing.T) {
 	for _, scenario := range []struct {
 		name      string

@@ -2073,7 +2073,14 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   `#account-switch`) and the Accounts page request switches; Codex, Grok and Kimi report
   `account_switch_unsupported_engine` and keep the launch-time selection.
 - The statusline reads the account from the binding file, so usage after a switch is reported for the new
-  account; reports for an account the session no longer holds are ignored by the server.
+  account; reports for an account the session no longer holds are ignored by the server. The first payload
+  after a switch can still be the previous account's last response; the server ignores such a reading for
+  30 minutes after the switch when its reset time belongs to another account.
+- The binding file belongs to the scope's live sessions (cxx 0.9.209). Every `/auth` and `/sync/bootstrap`
+  request carries it, also from clients without a lease such as maintenance. A response to a request
+  without a lease never rebinds the file while a session marker of the scope is live; only a committed
+  switch or a generation-fenced adoption moves it. Communicator auth watches registered before a switch
+  send the current binding, because the server resolves a leased request from its session.
 
 ### Pools on the card, `status`, `doctor` and the statusline (cxx 0.9.209)
 

@@ -99,9 +99,7 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		return communicator.SyncResult{Error: syncError(err)}
 	}
 	client.Pool = accountpool.Load("claude", path, client.BaseURL)
-	if req.Job.SessionID != "" && client.Pool.AccountID > 0 && req.Job.AccountID != client.Pool.AccountID {
-		return communicator.SyncResult{Error: &communicator.SyncError{Message: "native auth directory belongs to another account"}}
-	}
+	req.Job.AccountID = workerAccount(req.Job.AccountID, req.Job.SessionID, client.Pool.AccountID)
 	if req.Job.AccountID > 0 {
 		client.Pool.AccountID = req.Job.AccountID
 	}
@@ -168,6 +166,18 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		out.HostSecure = reconciled.HostSecure
 	}
 	return out
+}
+
+// workerAccount is the account a worker request carries. A live switch moves
+// every session of the scope together and the binding file follows it, while
+// a watch registered before the switch still names the previous account. The
+// server resolves a leased request from its session, so for a leased job the
+// current binding wins over the job's snapshot.
+func workerAccount(job int64, session string, bound int64) int64 {
+	if session != "" && bound > 0 {
+		return bound
+	}
+	return job
 }
 
 // A previous write may have committed. A readback can acknowledge the same

@@ -133,6 +133,12 @@ func (c *Context) Observe(path string, raw []byte) {
 	if id <= 0 || state != "verified" || (c.SessionID != "" && c.AccountID != id) {
 		return
 	}
+	// Live sessions of this scope own the binding; only a committed switch
+	// (ApplySwitch or a fenced adoption) moves it. A process without a lease
+	// must not rebind them from whatever account the server answered for.
+	if c.SessionID == "" && c.AccountID > 0 && id != c.AccountID && len(c.LiveSessions()) > 0 {
+		return
+	}
 	if id != c.AccountID {
 		c.AccountLabel = ""
 	}

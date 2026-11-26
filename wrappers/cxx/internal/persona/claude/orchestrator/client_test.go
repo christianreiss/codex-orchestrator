@@ -291,3 +291,27 @@ func TestAuthResponseHostSecurity(t *testing.T) {
 		})
 	}
 }
+
+// Regression (2026-11-26): a client built without a pool (cron upkeep) sent
+// /auth without account_id; the server answered for its default account and
+// the observed answer rebound the scope away from its live sessions.
+func TestJSONWithoutPoolCarriesTheScopeBinding(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	var sent map[string]any
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&sent)
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "valid", "account_id": 8, "verification_state": "verified"})
+	})
+	bound := c.loadAccountPool()
+	bound.Observe("/auth", []byte(`{"account_id":8,"verification_state":"verified"}`))
+	if c.Pool != nil {
+		t.Fatal("fixture must start without a pool")
+	}
+	if _, err := c.AuthStore(context.Background(), json.RawMessage(`{"claudeAiOauth":{}}`)); err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	if sent["account_id"] != float64(8) {
+		t.Fatalf("request did not carry the binding: %v", sent["account_id"])
+	}
+}

@@ -12,7 +12,7 @@ import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { recordAuthCall, flushAuthCalls, uninstallOwnedHost } from './owner.js';
 import { readQuotaPolicy } from '../../services/quota-policy.js';
 import { ProviderAccountsService } from '../../services/provider-accounts.js';
-import { AccountSwitchService, LIVE_SWITCH_ENGINES, accountSwitchNoticeContent } from '../../services/account-switch.js';
+import { AccountSwitchService, LIVE_SWITCH_ENGINES, accountSwitchNoticeContent, staleSwitchReading } from '../../services/account-switch.js';
 import { AgentMessagingService } from '../../services/agent-messaging.js';
 import { quotaNoticeId } from '../../ops/quota-worker.js';
 import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
@@ -735,6 +735,18 @@ if (engine === ENGINE_KIMI) {
       // account; its reading must not be filed under the new one.
       if (accountId !== undefined && accountId !== session.accountId) return { status: 'ignored', reason: 'stale_account' };
       accountId = session.accountId;
+      // The reporter files by binding, but right after a switch the payload can
+      // still be the previous account's last response (same reset times).
+      if ('boundAt' in session && session.boundAt) {
+        const pool = await switches.pool(ENGINE_CLAUDE);
+        const report = {
+          short_resets_at: typeof fiveHour.resets_at === 'string' ? fiveHour.resets_at : null,
+          weekly_resets_at: typeof sevenDay.resets_at === 'string' ? sevenDay.resets_at : null,
+        };
+        const bound = pool.find((a) => a.id === accountId);
+        if (staleSwitchReading(report, session.boundAt, bound, pool.filter((a) => a.id !== accountId), Date.now()))
+          return { status: 'ignored', reason: 'stale_account' };
+      }
     } else if (accountId !== undefined) {
       await accounts.get(accountId, ENGINE_CLAUDE);
     }

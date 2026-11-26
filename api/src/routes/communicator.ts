@@ -707,6 +707,10 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
                             error: z.string().max(160).optional(),
                             host_secure: z.boolean().optional(),
                             fatal: z.boolean().optional(),
+                            // cxx 0.9.208 counts pushed account_switch frames per scope. Unknown
+                            // here, every heartbeat after the first switch request failed the
+                            // strict parse and closed the owner with 1008 about every 15 s.
+                            switch_signal: z.number().int().nonnegative().optional(),
                           })
                           .strict(),
                       })

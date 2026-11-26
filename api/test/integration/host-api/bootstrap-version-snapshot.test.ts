@@ -114,7 +114,7 @@ describe('bootstrap request version snapshot', () => {
 
   it.each(['stored', 'rejected', 'projection retry'] as const)('re-reads after an auth candidate is %s', async outcome => {
     const f = fixture('codex');
-    vi.spyOn(ProviderAccountsService.prototype, 'resolveCandidate').mockResolvedValue({ id: 2 } as never);
+    vi.spyOn(ProviderAccountsService.prototype, 'resolveCandidateDetailed').mockResolvedValue({ account: { id: 2 }, created: false } as never);
     const store = vi.fn(async () => {
       f.rows.find(row => row.name === f.runnerKey)!.version = 'fail';
       if (outcome === 'rejected') throw new ServiceUnavailableError('runner offline');
@@ -141,7 +141,7 @@ describe('bootstrap request version snapshot', () => {
 
   it('carries the pool block in the nested auth answer a launch reuses', async () => {
     const f = fixture('claude');
-    vi.spyOn(ProviderAccountsService.prototype, 'resolveCandidate').mockResolvedValue({ id: 1 } as never);
+    vi.spyOn(ProviderAccountsService.prototype, 'resolveCandidateDetailed').mockResolvedValue({ account: { id: 1 }, created: false } as never);
     vi.spyOn(pooledAuth, 'createPooledAuthStoreService').mockImplementation(deps => ({ ...createAuthStore(deps),
       storeCandidate: vi.fn(async () => ({ status: 'valid' as const, engine: 'claude' as const, account_id: 1,
         canonical_last_refresh: candidate.last_refresh, canonical_digest: 'a'.repeat(64), verification_state: 'verified' as const, pending_payload_id: 2, runner_applied: true })) }));

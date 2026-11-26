@@ -120,3 +120,24 @@ func TestUnknownUploadAdoptsOnlyVerifiedNewerHead(t *testing.T) {
 		})
 	}
 }
+
+// Regression (2026-11-26): watches registered before a live switch kept the
+// previous account, and every scheduled pass failed with "native auth
+// directory belongs to another account" until the binding file was rewritten.
+func TestWorkerAccountFollowsTheBindingAfterALiveSwitch(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		job, bound int64
+		session    string
+		want       int64
+	}{
+		{"leased watch from before the switch", 1, 8, "lease", 8},
+		{"leased watch on the current account", 8, 8, "lease", 8},
+		{"no binding yet", 1, 0, "lease", 1},
+		{"launch bootstrap without a lease", 8, 1, "", 8},
+	} {
+		if got := workerAccount(tc.job, tc.session, tc.bound); got != tc.want {
+			t.Errorf("%s: got %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}

@@ -119,6 +119,39 @@ export function poolPosition(account: PoolPositionInput, now: number): PoolPosit
   };
 }
 
+/** How long after a live switch a reading is checked against the previous account's windows. */
+export const SWITCH_STALE_READING_MS = 30 * 60_000;
+
+/**
+ * After a live switch Claude Code's statusline keeps showing the rate limits of
+ * the last response, which the previous account served, while the reporter
+ * already files them under the new binding. A reading taken shortly after a
+ * switch is stale when its reset matches another account's current window
+ * and not the bound account's own: reset times identify an account's window.
+ */
+export function staleSwitchReading(
+  report: { short_resets_at: string | null; weekly_resets_at: string | null },
+  boundAt: string | null | undefined,
+  bound: Pick<PoolAccount, 'short_resets_at' | 'weekly_resets_at'> | undefined,
+  others: Pick<PoolAccount, 'short_resets_at' | 'weekly_resets_at'>[],
+  now: number,
+): boolean {
+  const at = boundAt ? Date.parse(boundAt) : NaN;
+  if (!Number.isFinite(at) || now - at > SWITCH_STALE_READING_MS) return false;
+  const same = (a: string | null | undefined, b: string | null | undefined) => {
+    if (!a || !b) return false;
+    const x = Date.parse(a);
+    const y = Date.parse(b);
+    return Number.isFinite(x) && Number.isFinite(y) && Math.abs(x - y) < 60_000;
+  };
+  const window = (key: 'short_resets_at' | 'weekly_resets_at') => {
+    const reset = report[key];
+    if (!reset || same(reset, bound?.[key])) return false;
+    return others.some((o) => same(reset, o[key]));
+  };
+  return window('weekly_resets_at') || window('short_resets_at');
+}
+
 const liveLease = (row: Lease, now: string) => row.ownershipMode === 'connection' || row.expiresAt > now;
 const generationOf = (row: Pick<Lease, 'bindingGeneration'>) => row.bindingGeneration ?? 1;
 
@@ -560,7 +593,9 @@ export class AccountSwitchService {
 
   /**
    * Applies the automatic policy to every live scope of an engine: a scope whose
-   * account should move gets a pending `policy` switch. Existing requests stay.
+   * account should move gets a pending `policy` switch. A pending policy switch
+   * follows the current readings (retargeted or withdrawn); admin and agent
+   * requests stay.
    */
   async evaluate(engine: Engine): Promise<number> {
     if (!LIVE_SWITCH_ENGINES.has(engine)) return 0;
@@ -572,9 +607,22 @@ export class AccountSwitchService {
     const limitPercent = await this.limitPercent();
     let requested = 0;
     for (const scope of await this.scopes(engine)) {
-      if (scope.account_switch) continue;
+      const pending = scope.account_switch;
+      // Admin and agent requests stand; a policy request follows the readings.
+      if (pending && pending.reason !== 'policy') continue;
       const target = rebalanceTarget(policy, scope.account_id, candidates, scope.bound_at, Date.now(), limitPercent);
-      if (!target) continue;
+      if (pending && target?.id === pending.account_id) continue;
+      if (!target) {
+        if (!pending) continue;
+        // The reading that asked for the move no longer holds (for example a
+        // stale reading right after a switch): withdraw it instead of moving.
+        try {
+          await this.requestSwitch({ hostId: scope.host_id, engine, scopeId: scope.scope_id, target: scope.account_id, reason: 'policy' });
+        } catch {
+          // Re-evaluated on the next pass.
+        }
+        continue;
+      }
       try {
         await this.requestSwitch({ hostId: scope.host_id, engine, scopeId: scope.scope_id, target: target.id, reason: 'policy' });
         requested += 1;

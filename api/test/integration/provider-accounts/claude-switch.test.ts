@@ -203,4 +203,24 @@ describe.skipIf(!handle)('Claude account identity and live switching on MySQL', 
     expect(view.recommendation).toMatchObject({ action: 'switch', account_id: b });
     expect(view).toMatchObject({ bound_account_id: a, headroom: true, launch_account_id: b });
   });
+
+  it('withdraws a pending policy move once the readings no longer call for it', async () => {
+    const a = (await put('alice-1')).account_id!;
+    const b = (await put('bob-1')).account_id!;
+    await accounts.acquire(1, 'claude', 'scope-eeeeeeeeeeeeeeee', 'lease-eeeeeeeeeeeeeeee', 95, a);
+    await db.update(providerAccountSessions).set({ boundAt: '2026-11-26T00:00:00Z' });
+    const resets = '2099-01-01T00:00:00Z';
+    await new ClaudeUsageService(db, a).store({ accountId: a, hostId: 1, source: 'test', sevenDayUsedPercent: 70, sevenDayResetsAt: resets, fiveHourUsedPercent: null, fiveHourResetsAt: null });
+    await new ClaudeUsageService(db, b).store({ accountId: b, hostId: 1, source: 'test', sevenDayUsedPercent: 10, sevenDayResetsAt: resets, fiveHourUsedPercent: null, fiveHourResetsAt: null });
+    expect(await switches.evaluate('claude')).toBe(1);
+    expect((await switches.sessionBinding(1, 'claude', 'lease-eeeeeeeeeeeeeeee')).account_switch).toMatchObject({ account_id: b, reason: 'policy' });
+    // A newer reading puts the bound account back inside the band.
+    await new ClaudeUsageService(db, a).store({ accountId: a, hostId: 1, source: 'test', sevenDayUsedPercent: 15, sevenDayResetsAt: resets, fiveHourUsedPercent: null, fiveHourResetsAt: null });
+    await switches.evaluate('claude');
+    expect((await switches.sessionBinding(1, 'claude', 'lease-eeeeeeeeeeeeeeee')).account_switch).toBeNull();
+    // An operator request is never withdrawn by the policy.
+    await switches.requestSwitch({ hostId: 1, engine: 'claude', scopeId: 'scope-eeeeeeeeeeeeeeee', target: b, reason: 'admin' });
+    await switches.evaluate('claude');
+    expect((await switches.sessionBinding(1, 'claude', 'lease-eeeeeeeeeeeeeeee')).account_switch).toMatchObject({ account_id: b, reason: 'admin' });
+  });
 });

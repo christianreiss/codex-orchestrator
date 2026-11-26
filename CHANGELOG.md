@@ -1,5 +1,31 @@
 # 2026-11-26
 
+- Fix: communicator owners that had received an account switch were disconnected about every 15 s. Their heartbeat reports the new `switch_signal` counter, which the server's strict heartbeat schema did not know. The server accepts it now, and a unit test checks every auth-state field of the wrapper against the schema.
+
+- Fix: after a live Claude switch, a reading taken right afterwards could be filed under the new account. Claude Code's statusline still showed the previous account's last response, which triggered a bogus switch back. For 30 minutes after a switch the server ignores readings whose reset time belongs to another account. The policy now withdraws or retargets its own pending switch once fresh readings no longer call for it; operator and agent requests stay.
+
+- Fix (cxx 0.9.209): `clx` could refuse to start with "account assignment would switch active local sessions" after a live switch, because the local binding had been rewritten to the previous account. Requests without a lease now always carry the scope's binding, and they never rebind a scope while its sessions run. Auth watches registered before a switch follow the current binding instead of failing every pass.
+
+- Account switches announce themselves: every agent session that followed a live switch gets one `ACCOUNT/1 switched` notice naming the new and previous account with their 5h and weekly usage, so a quota that drops from 91 % to 0 % is explained and work continues.
+
+- cdx/clx (cxx 0.9.209) show the whole account pool. This applies to the launch quota picker, the startup card, `status`, `doctor` and the Claude statusline, which now names the bound account. They stay quiet while another account has headroom, and another provider is recommended only when the whole pool is high. A "remember today" choice made before the update still applies until midnight (`clx run --quota-choice-reset` clears it).
+
+- Admin console, accounts:
+  - Accounts and the Overview group provider accounts per engine in a collapsible row with averages, headroom, pool state and policy.
+  - An engine counts as near quota only when none of its usable accounts has headroom.
+  - The Accounts page no longer freezes after load: the Claude policy form looped, so accounts enrolled later did not appear until a reload.
+
+- Admin console shell:
+  - Top-bar controls share one 36 px size, and status chips appear only when something needs attention.
+  - Theme switching, Manual and Keyboard shortcuts moved into the account menu at the foot of the sidebar.
+  - Sidebar rows, the active state and the brand row are aligned.
+
+- Security: `/sync/bootstrap` no longer lets an insecure host enroll an unknown Claude subscription. It applies the same secure-host rule as `POST /auth` and serves the canonical account back.
+
+- Deploy: the API healthcheck gives owner-state startup a 300 s start period, and every `up --wait` that starts the API is bounded at 420 s. A slow but healthy boot no longer aborts `scripts/deploy.sh` (feedback 85617715).
+
+- Git Director: the `git_register` refusal, the tool description and the guidance now state that a linked worktree needs a separate `kind: path` claim besides the `kind: git` branch claim (feedback caae5bf8).
+
 - Several Claude subscriptions per fleet: the server identifies each Claude login through Anthropic's OAuth profile, so a second subscription becomes a new account (labelled with its e-mail) instead of overwriting the first; a late rotation always returns to its own account. Secure hosts enroll unknown subscriptions automatically, insecure hosts are refused. cxx 0.9.207 adds `clx accounts list|add|use`; `add` signs in through an isolated login without touching `~/.claude`.
 
 - Account distribution policy per engine on the Accounts page: automatic (default) or manual; balanced keeps accounts within a band (eng/normal/locker = 10/20/30 points), exhaust fills accounts in order to 90 % and then to 99 %. Moves wait 15 minutes after the last change unless an account reaches its limit; launches skip accounts blocked by an emulated budget.

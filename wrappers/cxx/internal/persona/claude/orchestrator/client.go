@@ -125,7 +125,14 @@ func (c *Client) Do(ctx context.Context, req *http.Request, retries int) (*http.
 }
 
 func (c *Client) JSON(ctx context.Context, method, path string, in any, out any, retries int) error {
-	in = c.Pool.Inject(path, in)
+	// A client built without a pool still carries this scope's binding: an
+	// /auth or /sync/bootstrap without account_id is answered for the server's
+	// default account, and observing that answer would rebind the scope.
+	pool := c.Pool
+	if pool == nil {
+		pool = c.loadAccountPool()
+	}
+	in = pool.Inject(path, in)
 	var body io.Reader
 	if in != nil {
 		buf, err := json.Marshal(in)
@@ -167,11 +174,7 @@ func (c *Client) JSON(ctx context.Context, method, path string, in any, out any,
 	if err := json.Unmarshal(raw, out); err != nil {
 		return err
 	}
-	observer := c.Pool
-	if observer == nil {
-		observer = c.loadAccountPool()
-	}
-	observer.Observe(path, raw)
+	pool.Observe(path, raw)
 	return nil
 }
 

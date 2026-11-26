@@ -2588,6 +2588,11 @@ score is `max(short, weekly)` used percent.
 - Audit actions `provider_account.switch_requested` and `provider_account.switched`; WebSocket
   `accounts.updated` and `provider.scope.switch`.
 - Usage reports for an account the session no longer holds return `{status: "ignored", reason: "stale_account"}`.
+  The same applies for 30 minutes after a switch when a report's reset time matches another
+  account's current window but not the bound account's own. Claude Code's statusline still
+  shows the previous account's last response until the first request on the new account.
+- The policy re-evaluates its own pending `policy` switches. One that the current readings no
+  longer call for is withdrawn, and a better target retargets it. Admin and agent requests stay.
 
 `GET /auth/accounts` (`?engine=claude&session_id=…`) returns `{engine, policy, bound_account_id, binding_generation,
 account_switch, live_switch, accounts[], recommendation}`. With more than one account, `/auth` retrieve and store

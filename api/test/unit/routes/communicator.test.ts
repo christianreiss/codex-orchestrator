@@ -884,6 +884,29 @@ describe('negotiated resident owner reports', () => {
     ws.close();
   });
 
+  // Regression (2026-11-26): cxx 0.9.208 adds `switch_signal` once an
+  // account_switch frame arrived; the strict schema closed those owners with 1008.
+  it('accepts every auth_state field the wrapper communicator reports', async () => {
+    await setup();
+    const ws = await open(true);
+    let closed = false;
+    ws.on('close', () => { closed = true; });
+    const source = readFileSync(resolve(import.meta.dirname, '../../../../wrappers/cxx/internal/communicator/sync.go'), 'utf8');
+    const struct = /type AuthStatus struct \{([\s\S]*?)\n\}/.exec(source)?.[1] ?? '';
+    const auth: Record<string, unknown> = {};
+    for (const m of struct.matchAll(/^\s*\w+\s+(\*?\w+)\s+`json:"([a-z_]+)/gm)) {
+      const [, type, name] = m;
+      auth[name!] = type === 'string' ? '' : type === 'int64' ? 3 : true;
+    }
+    Object.assign(auth, { type: 'auth_state', scope: 'b'.repeat(64), engine: 'claude', state: 'checked', native_adoption: 'unconfirmed', updated_at: '2026-11-26T11:23:24Z' });
+    expect(Object.keys(auth)).toContain('switch_signal');
+    const response = new Promise<Record<string, unknown>>((done) => ws.once('message', (data: unknown) => done(JSON.parse(String(data)))));
+    ws.send(JSON.stringify({ type: 'heartbeat', sessions: 1, synced_at: '2026-11-26T11:23:24Z', sync_scopes: [{ auth, content_error: '', running: false, scope: 'b'.repeat(64) }] }));
+    expect(await response).toEqual({ type: 'heartbeat', api_version: 1, min_api: 1 });
+    expect(closed).toBe(false);
+    ws.close();
+  });
+
   it('uses the existing heartbeat authorization after diagnostic reports', async () => {
     await setup();
     const ws = await open(true);
