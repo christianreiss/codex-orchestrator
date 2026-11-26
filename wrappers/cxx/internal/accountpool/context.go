@@ -59,6 +59,12 @@ type binding struct {
 // leaseHeartbeatEvery renews a launch's account lease (server TTL 5 minutes).
 var leaseHeartbeatEvery = 90 * time.Second
 
+// A lost provider attachment is redialed every redialEvery; every
+// redialsPerHeartbeat refusals in a row a heartbeat checks the lease itself.
+var redialEvery = time.Second
+
+const redialsPerHeartbeat = 30
+
 func Load(engine, authPath, baseURL string) *Context {
 	directory := filepath.Clean(filepath.Dir(authPath))
 	if real, err := filepath.EvalSymlinks(directory); err == nil {
@@ -323,6 +329,8 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 		}
 		return nil, nil, err
 	}
+	// The file now holds the leased account's head, whatever it held before.
+	c.ClearRepair()
 	c.mu.Lock()
 	c.AccountID, c.SessionID, c.AccountLabel = lease.AccountID, id, lease.AccountLabel
 	c.observeBindingLocked(lease.binding(), false)
@@ -351,6 +359,7 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 		// A confirmed owner attachment replaces periodic lease renewal. Lost
 		// authority retries only that attachment, never reassigning an account.
 		connectionOwned := false
+		refused := 0
 		for {
 			state := initialState
 			initialState = nil
@@ -362,14 +371,21 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 				if !connectionOwned {
 					break
 				}
+				// The server removes a lease whose holder was gone too long
+				// (a suspended host) and then refuses the attachment for good.
+				// A heartbeat finds that out (404) and re-reserves the same
+				// session on the bound account; the next redial succeeds.
+				if refused++; refused%redialsPerHeartbeat == 0 {
+					_ = c.Heartbeat(hctx, client)
+				}
 				select {
 				case <-hctx.Done():
 					return
-				case <-time.After(time.Second):
+				case <-time.After(redialEvery):
 				}
 				continue
 			}
-			connectionOwned = true
+			connectionOwned, refused = true, 0
 			select {
 			case <-hctx.Done():
 				state.Close()

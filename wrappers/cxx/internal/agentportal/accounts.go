@@ -113,6 +113,28 @@ func (b *Broker) claudeTurnIdleLocked() (idle, known bool) {
 	return b.rootTurnIdle, true
 }
 
+// SetClaudeTurnObserver registers fn to hear the hook evidence about the root
+// Claude turn now and on every later change. fn runs inside the hook path with
+// the lifecycle lock held: a turn that starts is published before its prompt
+// hook returns, and so before the turn's first request.
+func (r *ConnectionRuntime) SetClaudeTurnObserver(fn func(idle, known bool)) {
+	if r == nil || r.broker == nil {
+		return
+	}
+	b := r.broker
+	b.nativeMu.Lock()
+	defer b.nativeMu.Unlock()
+	b.turnObserver = fn
+	b.observeClaudeTurnLocked()
+}
+
+func (b *Broker) observeClaudeTurnLocked() {
+	if b.turnObserver == nil || b.session == nil || b.session.Engine != "claude" {
+		return
+	}
+	b.turnObserver(b.claudeTurnIdleLocked())
+}
+
 // WhileClaudeTurnIdle runs fn while holding the lock every native lifecycle
 // hook takes, so a UserPromptSubmit queues behind fn and cannot start a turn
 // in between. fn must be short and local (no network). Without hook evidence

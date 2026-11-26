@@ -19,7 +19,16 @@ type sessionMarker struct {
 	SessionID string    `json:"session_id"`
 	PID       int       `json:"pid"`
 	StartedAt time.Time `json:"started_at"`
+	// Turn is the holder's own hook evidence about its root Claude turn:
+	// "busy", "idle", or empty when it has none (a launch without the
+	// receiver hooks, or a wrapper that does not publish it).
+	Turn string `json:"turn,omitempty"`
 }
+
+const (
+	turnBusy = "busy"
+	turnIdle = "idle"
+)
 
 func (c *Context) markerDir() string {
 	return strings.TrimSuffix(c.path, ".json") + ".sessions"
@@ -55,6 +64,72 @@ func (c *Context) writeSessionMarker(id string) func() {
 	return func() { _ = os.Remove(path) }
 }
 
+// SetSessionTurn publishes this launch's hook evidence in its session marker,
+// so a sibling about to switch the scope's account sees a running turn. It is
+// called from the hook path and stays local: one small file, replaced whole.
+func (c *Context) SetSessionTurn(idle, known bool) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	id := c.SessionID
+	c.mu.Unlock()
+	if !validSessionID(id) {
+		return
+	}
+	path := filepath.Join(c.markerDir(), id+".json")
+	raw, err := os.ReadFile(path)
+	var m sessionMarker
+	if err != nil || json.Unmarshal(raw, &m) != nil || m.SessionID != id {
+		return
+	}
+	turn := ""
+	if known {
+		turn = turnBusy
+		if idle {
+			turn = turnIdle
+		}
+	}
+	if m.Turn == turn {
+		return
+	}
+	m.Turn = turn
+	next, _ := json.Marshal(m)
+	tmp := path + ".tmp"
+	if os.WriteFile(tmp, next, 0o600) != nil {
+		return
+	}
+	if os.Rename(tmp, path) != nil {
+		_ = os.Remove(tmp)
+	}
+}
+
+// SiblingTurns reads what the other live launches of this scope publish:
+// busy when one of them reports a running turn, unknown when one of them
+// publishes nothing. Unknown is never idle; the caller falls back to what it
+// can observe itself.
+func (c *Context) SiblingTurns() (busy, unknown bool) {
+	if c == nil {
+		return false, false
+	}
+	c.mu.Lock()
+	own := c.SessionID
+	c.mu.Unlock()
+	for _, m := range c.liveMarkers() {
+		if m.SessionID == own {
+			continue
+		}
+		switch m.Turn {
+		case turnBusy:
+			busy = true
+		case turnIdle:
+		default:
+			unknown = true
+		}
+	}
+	return busy, unknown
+}
+
 func processAlive(pid int) bool {
 	if pid <= 0 {
 		return false
@@ -66,6 +141,15 @@ func processAlive(pid int) bool {
 // LiveSessions returns the lease IDs of live wrapper processes in this scope,
 // newest first.
 func (c *Context) LiveSessions() []string {
+	live := c.liveMarkers()
+	ids := make([]string, 0, len(live))
+	for _, m := range live {
+		ids = append(ids, m.SessionID)
+	}
+	return ids
+}
+
+func (c *Context) liveMarkers() []sessionMarker {
 	if c == nil {
 		return nil
 	}
@@ -91,9 +175,5 @@ func (c *Context) LiveSessions() []string {
 		live = append(live, m)
 	}
 	sort.Slice(live, func(i, j int) bool { return live[i].StartedAt.After(live[j].StartedAt) })
-	ids := make([]string, 0, len(live))
-	for _, m := range live {
-		ids = append(ids, m.SessionID)
-	}
-	return ids
+	return live
 }

@@ -79,6 +79,7 @@ func (b *Broker) activityHook(w http.ResponseWriter, raw []byte) {
 	quiet := b.turnProof.Epoch == "" || b.turnProofNativeID != b.nativeID || b.turnProof.Sequence <= 1 || b.sessionIdle > 0
 	if h.Event != "" && b.session.Engine == "claude" {
 		b.rootTurnIdle = claudeRootTurnIdle(h, b.rootTurnIdle, quiet)
+		b.observeClaudeTurnLocked()
 	}
 	proofEvent := h.Event
 	if b.session.Engine == "kimi" {
