@@ -563,6 +563,8 @@ export class ProviderAccountsService {
             score: unlimited ? 0 : scores.length ? Math.max(...scores) : null,
             active: sessions.filter((s) => s.accountId === a.id).length,
             lastSelectedAt: a.lastSelectedAt,
+            // Unlimited quota never expires, so it has no reset to race.
+            weeklyResetsAt: unlimited ? null : usage.weekly_resets_at,
           });
         }
         const admitted = [];

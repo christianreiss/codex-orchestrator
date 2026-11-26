@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   quotaWindowScore,
   selectAccount,
+  weeklyDeadline,
   type AccountChoice,
 } from '../../../src/services/account-selection.js';
 const now = Date.parse('2026-09-30T10:00:00Z');
@@ -27,5 +28,23 @@ describe('account quota selection', () => {
   it('selects a least-used account when all are exhausted and leaves enforcement to launch policy', () => {
     expect(selectAccount([choice(1, 100), choice(2, 96)], 95, now)?.id).toBe(2);
     expect(selectAccount([], 95, now)).toBeNull();
+  });
+});
+
+describe('weekly deadline', () => {
+  const iso = (ms: number) => new Date(now + ms).toISOString();
+  it('is the reset time only while it is proven to lie ahead', () => {
+    expect(weeklyDeadline(iso(3_600_000), now)).toBe(now + 3_600_000);
+    expect(weeklyDeadline('2026-10-01T12:00:00+02:00', now)).toBe(Date.parse('2026-10-01T10:00:00Z'));
+    expect(weeklyDeadline(null, now)).toBeNull();
+    expect(weeklyDeadline(undefined, now)).toBeNull();
+    expect(weeklyDeadline('', now)).toBeNull();
+    expect(weeklyDeadline('soon', now)).toBeNull();
+  });
+  it('is unknown once the reset has passed or lies implausibly far away', () => {
+    expect(weeklyDeadline(iso(0), now)).toBeNull();
+    expect(weeklyDeadline(iso(-1000), now)).toBeNull();
+    expect(weeklyDeadline(iso(8 * 86_400_000), now)).toBe(now + 8 * 86_400_000);
+    expect(weeklyDeadline(iso(8 * 86_400_000 + 1000), now)).toBeNull();
   });
 });
