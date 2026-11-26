@@ -2,7 +2,6 @@ package kimi
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -202,7 +201,6 @@ func login(ctx context.Context, cfg *config.Config, client *orchestrator.Client,
 	return nil
 }
 
-func validDeviceID(value string) bool {
-	raw, err := hex.DecodeString(value)
-	return err == nil && len(raw) == 16
-}
+// validDeviceID accepts what the runtime projection and the server accept;
+// kimi-code writes a dashed UUID into a fresh login home.
+func validDeviceID(value string) bool { return native.ValidDeviceID(value) }

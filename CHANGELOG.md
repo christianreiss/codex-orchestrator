@@ -1,5 +1,6 @@
 # 2026-11-26
 
+- cxx 0.9.212: `ckx login` accepts the dashed-UUID device id that kimi-code mints in a fresh login home. It refused every such login with "fresh Kimi subscription device login required", while the server, the runtime projection and the verification runner already accepted both forms.
 - Claude accounts: a login whose identity cannot be resolved is refused (503 `account_identity_unavailable`) instead of being filed under the session's account; a removed account stays removed until it is enrolled on purpose (409 `account_removed`).
 - Claude usage: a report is attributed through a lease of the reporting host, merged per window (an idle session no longer lowers an account's reading), and a previous account's figures are refused after a switch. Reports from an insecure host need its open window.
 - Live switch: a scope can leave an account that is paused, being removed or no longer verified. A login to another pool account inside a running session is put back to the bound account at the next turn boundary; switch with `clx accounts use`.
