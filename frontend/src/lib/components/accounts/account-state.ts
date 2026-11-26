@@ -71,8 +71,11 @@ export interface EnginePool {
   /** Mean short / weekly window over the usable accounts reporting it, rounded; null when none does. */
   avgShort: number | null;
   avgWeekly: number | null;
-  /** Usable accounts with any current reading (the averages' coverage). */
+  /** Usable accounts with any current reading. */
   reporting: number;
+  /** Usable accounts behind each average (its coverage). */
+  shortReporting: number;
+  weeklyReporting: number;
 }
 
 /** One window as the pool scores it: the server's value, else the raw reading. */
@@ -102,6 +105,8 @@ export function enginePools(accounts: readonly ProviderAccount[]): EnginePool[] 
       avgShort: average(usable.map((account) => windowValue(account, "short"))),
       avgWeekly: average(usable.map((account) => windowValue(account, "weekly"))),
       reporting: usable.filter((account) => poolScore(account) !== null).length,
+      shortReporting: usable.filter((account) => windowValue(account, "short") !== null).length,
+      weeklyReporting: usable.filter((account) => windowValue(account, "weekly") !== null).length,
     };
   });
 }
@@ -125,8 +130,15 @@ export function poolUsageText(pool: EnginePool): string {
   // Grok and Kimi Code report other windows (period, monthly); their rows show them, the pool score does not.
   if (!pool.reporting && pool.usable.some((account) => peakUsage(account) !== null)) return "";
   const parts = [pool.best ? `Least used: ${displayName(pool.best)} (${scoreText(pool.best)})` : "Least used: no reading yet"];
-  const windows = [pool.avgShort !== null && `short ${pool.avgShort}%`, pool.avgWeekly !== null && `weekly ${pool.avgWeekly}%`].filter(Boolean);
-  parts.push(windows.length ? `average ${windows.join(", ")} (${pool.reporting} of ${pool.usable.length} reporting)` : "no usage reported yet");
+  const of = pool.usable.length;
+  const windows = [
+    pool.avgShort !== null ? { text: `short ${pool.avgShort}%`, count: pool.shortReporting } : null,
+    pool.avgWeekly !== null ? { text: `weekly ${pool.avgWeekly}%`, count: pool.weeklyReporting } : null,
+  ].filter((window) => window !== null);
+  if (!windows.length) parts.push("no usage reported yet");
+  // One coverage note when both averages rest on the same accounts, else one per window.
+  else if (windows.every((window) => window.count === windows[0].count)) parts.push(`average ${windows.map((window) => window.text).join(", ")} (${windows[0].count} of ${of} reporting)`);
+  else parts.push(`average ${windows.map((window) => `${window.text} (${window.count} of ${of})`).join(", ")}`);
   return parts.join(" · ");
 }
 

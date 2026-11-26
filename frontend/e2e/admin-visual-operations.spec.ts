@@ -68,7 +68,8 @@ test("account totals distinguish unavailable data from a confirmed empty pool", 
     return route.fulfill({ status: 503, json: { status: "error", message: "Account backend unavailable" } });
   });
   await page.goto("/admin/accounts");
-  await expect(page.getByRole("status", { name: "Loading", exact: true })).toBeVisible();
+  // The list's loading state comes first; the policy and scopes sections below may still be loading too.
+  await expect(page.getByRole("status", { name: "Loading", exact: true }).first()).toBeVisible();
   await expect(page.locator("main dl")).toHaveCount(0);
   await page.getByRole("textbox", { name: "Search accounts", exact: true }).fill("unavailable");
   await expect(page.getByRole("search")).not.toContainText("0 of 0");

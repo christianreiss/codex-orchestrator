@@ -114,6 +114,8 @@ describe("account groups", () => {
     const [pool] = enginePools([row(1, 40, 60), passed]);
     assert.equal(pool.avgWeekly, 60);
     assert.equal(pool.avgShort, 30);
+    // Each average names its own coverage when they differ: weekly rests on one account.
+    assert.equal(poolUsageText(pool), "Least used: Account 2 (20%) · average short 30% (2 of 2), weekly 60% (1 of 2)");
   });
 
   it("states problems before quota and near quota only for a whole pool", () => {
