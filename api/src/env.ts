@@ -118,6 +118,19 @@ const schema = z
     AUTH_RUNNER_VERIFY_MAX_INTERVAL_SECONDS: intish(21600),
     AUTH_SEED_TOKEN_TTL_SECONDS: intish(900),
 
+    // Gateway upstream source (real provider API keys). Bodies up to
+    // REPLAY_BYTES are buffered so failover can resend them; larger multipart
+    // uploads stream once without failover, up to MAX_UPLOAD_BYTES. Timeouts
+    // are seconds: connect, time to response headers, idle gap between body
+    // chunks. PRIVATE_HOSTS (comma/space separated) may be plain http and skip
+    // the private-address guard — for a self-hosted proxy or tests only.
+    GATEWAY_UPSTREAM_REPLAY_BYTES: intish(8 * 1024 * 1024).pipe(z.number().int().min(0).max(64 * 1024 * 1024)),
+    GATEWAY_UPSTREAM_MAX_UPLOAD_BYTES: intish(512 * 1024 * 1024).pipe(z.number().int().min(1)),
+    GATEWAY_UPSTREAM_CONNECT_TIMEOUT: intish(10).pipe(z.number().int().min(1).max(120)),
+    GATEWAY_UPSTREAM_HEADERS_TIMEOUT: intish(900).pipe(z.number().int().min(1).max(3600)),
+    GATEWAY_UPSTREAM_BODY_IDLE_TIMEOUT: intish(300).pipe(z.number().int().min(1).max(3600)),
+    GATEWAY_UPSTREAM_PRIVATE_HOSTS: z.string().default(''),
+
     // Admin
     ADMIN_SESSION_COOKIE: z.string().default('codex_admin_session'),
     ADMIN_SESSION_TTL_MINUTES: intish(60 * 24 * 30),

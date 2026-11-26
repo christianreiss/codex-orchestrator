@@ -110,6 +110,9 @@ export const WS_EVENT_TYPES = [
   'apikey.created',
   'apikey.toggled',
   'apikey.deleted',
+  // Provider API keys (gateway upstream source): any create, edit, state,
+  // order, verification or background invalidation. Payload {id, provider, action}.
+  'provider_key.changed',
 
   // Fleet secrets. `secret.revealed` is deliberately absent: it is recorded
   // with `broadcast: false`, because a human reading a credential is an audit
