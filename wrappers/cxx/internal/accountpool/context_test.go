@@ -305,7 +305,8 @@ func TestHeartbeatReacquiresReapedLease(t *testing.T) {
 		t.Run(scenario.name, func(t *testing.T) {
 			c := Load("claude", filepath.Join(t.TempDir(), ".credentials.json"), "https://fleet")
 			f := &heartbeatClient{heartbeat: scenario.heartbeat, account: scenario.account}
-			c.heartbeat(context.Background(), f, "session-0123456789", 3)
+			c.AccountID, c.SessionID = 3, "session-0123456789"
+			_ = c.Heartbeat(context.Background(), f)
 			if len(f.requests) != len(scenario.want) {
 				t.Fatalf("requests: %v", f.requests)
 			}

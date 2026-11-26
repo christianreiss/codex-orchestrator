@@ -48,6 +48,10 @@ type AuthStatus struct {
 	Error          string `json:"error,omitempty"`
 	HostSecure     *bool  `json:"host_secure,omitempty"`
 	Fatal          bool   `json:"fatal,omitempty"`
+	// SwitchSignal counts pushed `account_switch` frames for this engine. A
+	// change makes the lease stream re-emit, so attached wrappers heartbeat
+	// now and read the directive; it carries no account or credential data.
+	SwitchSignal int64 `json:"switch_signal,omitempty"`
 }
 type scopeState struct {
 	suspended bool
@@ -852,6 +856,19 @@ func (s *server) invalidateAuth(engine string, account int64) {
 	case s.authDirty <- struct{}{}:
 	default:
 	}
+}
+
+// signalAccountSwitch relays a pushed `account_switch` frame to every attached
+// wrapper of the engine through the existing lease stream.
+func (s *server) signalAccountSwitch(engine string) {
+	s.mu.Lock()
+	for _, state := range s.scopes {
+		if engine != "" && state.auth.Engine == engine {
+			state.auth.SwitchSignal++
+		}
+	}
+	s.mu.Unlock()
+	s.notifyLocal()
 }
 
 func signedSyncDisabled(job syncJob) bool {

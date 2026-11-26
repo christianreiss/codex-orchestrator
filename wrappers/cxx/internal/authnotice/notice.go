@@ -17,9 +17,15 @@ type Notice struct {
 	Generation string    `json:"generation"`
 	Engine     string    `json:"engine"`
 	UpdatedAt  time.Time `json:"updated_at"`
+	// Detail replaces the generic text for a live account switch. Older
+	// binaries ignore it and show the generic credential-update notice.
+	Detail string `json:"detail,omitempty"`
 }
 
 func (n Notice) Message() string {
+	if n.Detail != "" {
+		return n.Detail
+	}
 	name, command := "Codex", "cdx"
 	if n.Engine == "claude" {
 		name, command = "Claude", "clx"
@@ -55,6 +61,18 @@ func Publish(engine, generation string) error {
 	}
 	return mailbox.Publish(engine, generation, func(Notice) Notice {
 		return Notice{Generation: generation, Engine: engine, UpdatedAt: time.Now().UTC()}
+	})
+}
+
+// PublishDetail publishes a generation with model-facing text of its own,
+// used when a live account switch changed which account the credentials name.
+func PublishDetail(engine, generation, detail string) error {
+	decoded, err := hex.DecodeString(generation)
+	if err != nil || len(decoded) != sha256.Size {
+		return errors.New("invalid auth notice generation")
+	}
+	return mailbox.Publish(engine, generation, func(Notice) Notice {
+		return Notice{Generation: generation, Engine: engine, UpdatedAt: time.Now().UTC(), Detail: detail}
 	})
 }
 

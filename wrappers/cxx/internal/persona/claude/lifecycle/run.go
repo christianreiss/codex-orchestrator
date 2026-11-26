@@ -261,6 +261,9 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	client.Pool = accountpool.Load("claude", authPath, client.BaseURL)
 	restoreInitialAccountEnv := client.Pool.ActivateEnvironment()
 	defer restoreInitialAccountEnv()
+	// accountLeased marks a launch that holds a provider lease; only such a
+	// launch supervises live account switches.
+	accountLeased := false
 
 	var (
 		authResp         *orchestrator.AuthRetrieveResponse
@@ -381,6 +384,7 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			}
 			defer stopAccount()
 			if lease != nil {
+				accountLeased = true
 				authCandidateErr = nil
 				restoreAccountEnv := client.Pool.ActivateEnvironment()
 				defer restoreAccountEnv()
@@ -664,12 +668,33 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 	}
 	// Upload mid-session native token rotations as they happen instead of
 	// only at exit; see auth_watch.go for why the gap is dangerous.
-	stopAuthWatch := func() {}
+	watchStarted := false
+	authWatch := &restartableAuthWatch{start: func() func() {
+		baseline := before
+		// After a live switch the file holds the committed head of the new
+		// account, not a rotation to upload. A restart starts from the current
+		// generation when the server materialized exactly that file (an
+		// unconfirmed one keeps the launch baseline and is uploaded).
+		if watchStarted {
+			if snap, err := claude.ReadAuthForRetrieveSnapshot(); err == nil && snap.Generation.Exists && snap.ServerDigest != "" {
+				baseline = snap.Generation
+			}
+		}
+		watchStarted = true
+		return startMidSessionAuthUpload(ctx, client, logger, baseline, authSession)
+	}}
+	stopAuthWatch := authWatch.Stop
+	stopAccountSwitch := func() {}
 	if !opts.SkipAuthSync && dec.Allowed {
-		stopAuthWatch = startMidSessionAuthUpload(ctx, client, logger, before, authSession)
+		authWatch.Start()
+		// Live account switching (Claude): only for a launch holding a lease.
+		if accountLeased {
+			stopAccountSwitch = startAccountSwitcher(ctx, client, connection, authWatch, logger)
+		}
 	}
 	quotaadvice.ArmLaunch(ctx)
 	exitCode, _, runErr := claude.RunCaptureWithAuthSession(ctx, cfg, launchArgs, authSession)
+	stopAccountSwitch()
 	stopAuthWatch()
 	duration := time.Since(started)
 	portalStatus, portalSummary := portalExit(exitCode, runErr)

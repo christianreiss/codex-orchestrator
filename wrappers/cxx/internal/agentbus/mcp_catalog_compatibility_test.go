@@ -32,7 +32,7 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 	if err := json.Unmarshal(toolCatalogJSON(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if len(catalog) != 83 {
+	if len(catalog) != 85 {
 		t.Fatalf("review new tools: got %d", len(catalog))
 	}
 	// Optional export lets the real Grok MCP doctor load exactly this catalogue
@@ -57,6 +57,8 @@ func TestMCPCatalogCompatibility(t *testing.T) {
 				args["to"] = []any{"agent:fixture"}
 			case "agent_receiver_status":
 				args["status"] = "working"
+			case "account_switch":
+				args["target"] = "auto"
 			case "agent_attachment_upload":
 				path := t.TempDir() + "/fixture.txt"
 				if err := os.WriteFile(path, []byte("fixture"), 0600); err != nil {

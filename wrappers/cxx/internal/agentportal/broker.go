@@ -62,6 +62,11 @@ type Broker struct {
 	// sessionIdle: 1 after a startup/resume/clear SessionStart, 2 once an
 	// observer has polled the resulting unknown proof; see activityHook.
 	sessionIdle int
+	// rootTurnIdle is the last root hook's turn state (claudeRootTurnIdle),
+	// read by the live account switch. Guarded by nativeMu.
+	rootTurnIdle   bool
+	accountMu      sync.Mutex
+	accountHandler AccountHandler
 }
 
 func (s *Session) StartBroker(parent context.Context) (*Broker, error) {
@@ -261,6 +266,10 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		b.activityHook(w, raw)
 		return
 	}
+	if op, ok := isAccountRoute(r.URL.Path); ok {
+		b.accountRequest(w, r, op, raw)
+		return
+	}
 	// Long polls may wait 25 seconds. A 35-second ceiling also bounds a
 	// response that sends headers and then stalls its body indefinitely.
 	requestCtx, cancel := context.WithTimeout(b.ctx, 35*time.Second)
@@ -396,7 +405,7 @@ func (b *Broker) allowedPath(path string) bool {
 	}
 	for _, operation := range []string{
 		"reboot/prepare", "reboot/arm", "reboot/status", "reboot/restore", "reboot/disarm",
-		"work-state", "quota/get", "watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
+		"work-state", "quota/get", "provider-account/status", "provider-account/switch", "watchdog/get", "watchdog/enable", "watchdog/disable", "watchdog/finish",
 		"spawn", "spawn-status", "stop", "insecure-enable",
 		"advisor/ask", "advisor/close", "advisor/status",
 		"list", "self", "translate", "send", "reply", "wait", "message", "digest", "cancel", "bind", "mailbox", "deliveries/claim",

@@ -1,14 +1,18 @@
 package orchestrator
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
-	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
+	"io"
 	"net/http"
 	"strings"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 )
 
 // AuthRetrieveResponse mirrors POST /auth?engine=claude. The orchestrator may
@@ -19,6 +23,8 @@ type AuthRetrieveResponse struct {
 	AccountID      int64                    `json:"account_id,omitempty"`
 	AccountPool    bool                     `json:"account_pool,omitempty"`
 	QuotaAdvice    *quotaadvice.Comparison  `json:"quota_advice,omitempty"`
+	// QuotaPool is present when the engine's pool has more than one account.
+	QuotaPool *QuotaPool `json:"quota_pool,omitempty"`
 
 	Status                      string               `json:"status"`
 	Action                      string               `json:"action,omitempty"`
@@ -247,3 +253,89 @@ func (c *Client) SyncStatus(ctx context.Context) (*SyncStatus, error) {
 }
 
 // SyncBootstrap is implemented in bundle.go (typed request + response).
+
+// QuotaPool is the pool-wide quota view of /auth retrieve. Only the
+// recommendation is used locally; other fields are tolerated and ignored.
+type QuotaPool struct {
+	Recommendation *PoolRecommendation `json:"recommendation,omitempty"`
+}
+
+// PoolRecommendation: action is continue, switch or pause. pause means the
+// whole pool is at its limit; the others mean work can go on.
+type PoolRecommendation struct {
+	Action    string `json:"action"`
+	AccountID *int64 `json:"account_id,omitempty"`
+	Message   string `json:"message"`
+}
+
+// AuthEnrollResponse is the store answer for an explicit additional-account
+// login (`enroll: true`).
+type AuthEnrollResponse struct {
+	Status            string `json:"status"`
+	Message           string `json:"message,omitempty"`
+	AccountID         int64  `json:"account_id"`
+	AccountLabel      string `json:"account_label"`
+	AccountCreated    bool   `json:"account_created"`
+	VerificationState string `json:"verification_state,omitempty"`
+}
+
+// AuthEnroll uploads credentials from an isolated login as a new or updated
+// pool account. It deliberately bypasses the account pool: no session or
+// account id is sent, and the response never rebinds the host's ~/.claude.
+func (c *Client) AuthEnroll(ctx context.Context, payload json.RawMessage) (*AuthEnrollResponse, error) {
+	body, err := json.Marshal(map[string]any{"command": "store", "engine": "claude", "auth": payload, "enroll": true})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, c.BaseURL+"/auth", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.Do(ctx, req, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, &HTTPError{StatusCode: resp.StatusCode, Code: parseErrorCode(raw), Scope: parseErrorScope(raw), Method: http.MethodPost, Path: "/auth", Body: strings.TrimSpace(string(raw))}
+	}
+	raw, err := httpguard.ReadLimit(resp.Body, httpguard.MaxJSONBytes)
+	if err != nil {
+		return nil, err
+	}
+	out := &AuthEnrollResponse{}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return nil, err
+	}
+	if out.Status == "error" {
+		return out, errors.New(out.Message)
+	}
+	if out.AccountID <= 0 {
+		return out, fmt.Errorf("server did not assign an account (status %q)", out.Status)
+	}
+	return out, nil
+}
+
+// ServerMessage extracts the human sentence from an orchestrator error body.
+func (e *HTTPError) ServerMessage() string {
+	var env struct {
+		Message string `json:"message"`
+		Error   any    `json:"error"`
+	}
+	if json.Unmarshal([]byte(e.Body), &env) == nil {
+		if env.Message != "" {
+			return env.Message
+		}
+		if nested, ok := env.Error.(map[string]any); ok {
+			if m, _ := nested["message"].(string); m != "" {
+				return m
+			}
+		}
+		if m, ok := env.Error.(string); ok && m != "" {
+			return m
+		}
+	}
+	return e.Error()
+}

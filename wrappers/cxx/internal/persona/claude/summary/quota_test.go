@@ -120,3 +120,40 @@ func TestClaudeQuotaHighUsageRemainsAdvisoryUnderHardFail(t *testing.T) {
 		t.Fatalf("Claude quota refused launch: %+v", got)
 	}
 }
+
+func TestPoolQuotaAdviceNeverSuggestsPauseWhilePoolHasRoom(t *testing.T) {
+	local := "Emulated 5h limit reached, suggest pause until reset"
+	pool := func(action, message string) *orchestrator.AuthRetrieveResponse {
+		return &orchestrator.AuthRetrieveResponse{QuotaPool: &orchestrator.QuotaPool{Recommendation: &orchestrator.PoolRecommendation{Action: action, Message: message}}}
+	}
+	for _, c := range []struct {
+		auth         *orchestrator.AuthRetrieveResponse
+		notice, want string
+	}{
+		{nil, local, local},
+		{&orchestrator.AuthRetrieveResponse{}, local, local},
+		{pool("pause", "Alle Accounts am Limit."), local, local},
+		{pool("continue", "Pool hat Luft."), local, "Account pool: Pool hat Luft."},
+		{pool("continue", "Pool hat Luft."), "", ""},
+		{pool("switch", "Wechsel zu #7 empfohlen."), "", "Account pool: Wechsel zu #7 empfohlen."},
+		{pool("switch", "Wechsel zu #7 empfohlen."), local, "Account pool: Wechsel zu #7 empfohlen."},
+		{pool("future", "x"), local, "Account pool: x"},
+		{pool("future", "x"), "", ""},
+		{pool("switch", " "), local, "Account pool has capacity; keep working."},
+		{pool("continue", ""), local, "Account pool has capacity; keep working."},
+		{pool("", "x"), local, local},
+		{pool("PAUSE", "x"), local, local},
+	} {
+		if got := poolQuotaAdvice(c.auth, c.notice); got != c.want {
+			t.Fatalf("%+v %q: got %q", c.auth, c.notice, got)
+		}
+	}
+	var decoded orchestrator.AuthRetrieveResponse
+	raw := `{"status":"valid","quota_pool":{"accounts":[{"id":3}],"recommendation":{"action":"continue","account_id":null,"message":"ok"},"extra":1}}`
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil || decoded.QuotaPool.Recommendation.Message != "ok" {
+		t.Fatalf("tolerant decode: %v", err)
+	}
+	if err := json.Unmarshal([]byte(`{"status":"valid","quota_pool":null}`), &decoded); err != nil {
+		t.Fatal(err)
+	}
+}

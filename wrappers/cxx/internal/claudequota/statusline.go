@@ -36,6 +36,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
@@ -231,16 +232,45 @@ func newState(fiveHour, sevenDay *reportWindow, now time.Time) reportState {
 	return st
 }
 
-func stateFilePath() (string, error) {
+func stateFilePath(account int64) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 	name := "claude-quota-report.json"
-	if id, err := strconv.ParseInt(os.Getenv("CXX_PROVIDER_ACCOUNT_ID"), 10, 64); err == nil && id > 0 {
-		name = fmt.Sprintf("claude-quota-report-%d.json", id)
+	if account > 0 {
+		name = fmt.Sprintf("claude-quota-report-%d.json", account)
 	}
 	return filepath.Join(home, ".clx", "state", name), nil
+}
+
+// reportAccount names the account a report belongs to. A live account switch
+// leaves the inherited CXX_PROVIDER_ACCOUNT_ID stale, so the scope's binding
+// file wins whenever it exists; the environment is the fallback.
+func reportAccount(cfg *config.Config) int64 {
+	account, _ := strconv.ParseInt(os.Getenv("CXX_PROVIDER_ACCOUNT_ID"), 10, 64)
+	if cfg == nil {
+		return account
+	}
+	if authPath, err := claude.AuthPath(); err == nil {
+		if bound := accountpool.Load("claude", authPath, cfg.Orchestrator.BaseURL).AccountID; bound > 0 {
+			return bound
+		}
+	}
+	return account
+}
+
+func loadReportConfig() *config.Config {
+	path, err := config.DefaultPathForEngine(config.EngineClaude)
+	if err != nil {
+		return nil
+	}
+	pubkey, _ := signing.PublicKey()
+	cfg, err := config.LoadForEngine(path, pubkey, false, config.EngineClaude)
+	if err != nil {
+		return nil
+	}
+	return cfg
 }
 
 func readState(path string) *reportState {
@@ -280,14 +310,8 @@ func reportBody(fiveHour, sevenDay *reportWindow) map[string]any {
 // Any failure (no config yet, unreachable orchestrator, ...) is swallowed:
 // the next statusline render tries again, and the statusline itself must
 // never fail or print an error on account of the network.
-func attemptReport(fiveHour, sevenDay *reportWindow) bool {
-	path, err := config.DefaultPathForEngine(config.EngineClaude)
-	if err != nil {
-		return false
-	}
-	pubkey, _ := signing.PublicKey()
-	cfg, err := config.LoadForEngine(path, pubkey, false, config.EngineClaude)
-	if err != nil {
+func attemptReport(cfg *config.Config, account int64, fiveHour, sevenDay *reportWindow) bool {
+	if cfg == nil {
 		return false
 	}
 	client, err := orchestrator.New(orchestrator.Options{
@@ -301,7 +325,11 @@ func attemptReport(fiveHour, sevenDay *reportWindow) bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), networkTimeout)
 	defer cancel()
-	err = client.JSON(ctx, http.MethodPost, "/claude/usage/report", reportBody(fiveHour, sevenDay), nil, 0)
+	body := reportBody(fiveHour, sevenDay)
+	if account > 0 {
+		body["account_id"] = account
+	}
+	err = client.JSON(ctx, http.MethodPost, "/claude/usage/report", body, nil, 0)
 	return err == nil
 }
 
@@ -319,7 +347,9 @@ func RunCommand(stdin io.Reader, stdout, _ io.Writer) int {
 		return 0
 	}
 
-	statePath, err := stateFilePath()
+	cfg := loadReportConfig()
+	account := reportAccount(cfg)
+	statePath, err := stateFilePath(account)
 	if err != nil {
 		return 0
 	}
@@ -327,7 +357,7 @@ func RunCommand(stdin io.Reader, stdout, _ io.Writer) int {
 	if !shouldReport(readState(statePath), fiveHour, sevenDay, now) {
 		return 0
 	}
-	if attemptReport(fiveHour, sevenDay) {
+	if attemptReport(cfg, account, fiveHour, sevenDay) {
 		writeState(statePath, newState(fiveHour, sevenDay, now))
 	}
 	return 0

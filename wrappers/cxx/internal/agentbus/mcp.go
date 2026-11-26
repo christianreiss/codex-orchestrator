@@ -572,7 +572,9 @@ func taskResultProperties() map[string]any {
 
 func toolCatalogJSON() []byte {
 	tools := []map[string]any{
-		tool("quota_get", "Read short and long quota for this session’s bound provider account before heavy workloads or large delegations. Includes observation age, reset times, effective policy and PayG/unlimited; unavailable is not zero.", map[string]any{}, nil),
+		tool("quota_get", "Read short and long quota for this session’s bound provider account before heavy workloads or large delegations. Includes observation age, reset times, effective policy and PayG/unlimited; unavailable is not zero. With several Claude accounts, pool and recommendation (continue, switch, pause) apply: keep working unless the recommendation is pause.", map[string]any{}, nil),
+		tool("account_status", "Read this Claude session's account pool: bound account, each account's short and weekly usage, the distribution policy, a pending switch and the pool recommendation (continue, switch or pause). Claude sessions only.", map[string]any{}, nil),
+		tool("account_switch", "Request a live switch of this Claude session's account: target is an account id from account_status or \"auto\" for the policy's best account. The switch takes effect at the next turn boundary, after the current turn ends, for every session sharing these credentials; the first request on the new account rebuilds the prompt cache. Claude sessions only.", map[string]any{"target": map[string]any{"anyOf": []any{map[string]any{"type": "integer", "minimum": 1}, map[string]any{"type": "string", "enum": []string{"auto"}}}, "description": "Account id or \"auto\""}}, []string{"target"}),
 		tool("host_insecure_enable", "Open an insecure host access window from an authenticated agent on an active secure host. Defaults to the target host window duration; this is audited and does not start work.", map[string]any{"host_id": map[string]any{"type": "integer", "minimum": 1}, "duration_minutes": map[string]any{"type": "integer", "minimum": 0, "maximum": 480}}, []string{"host_id"}),
 		tool("agent_spawn", "Start a helper on an enabled remote host. Keep client_message_id for retries. Returns operation_id and session_id; use agent_spawn_status, then existing messaging with its address.", map[string]any{"host_id": map[string]any{"type": "integer"}, "engine": map[string]any{"type": "string", "enum": []string{"codex", "claude", "grok", "kimi"}}, "cwd": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "client_message_id": map[string]any{"type": "string", "description": "Stable UUID for idempotent retries"}}, []string{"host_id", "engine", "title", "prompt", "client_message_id"}),
 		tool("agent_spawn_status", "Read the state and result of your remote helper; omit session_id to discover enabled remote hosts.", map[string]any{"session_id": map[string]any{"type": "string"}}, nil),
@@ -955,6 +957,13 @@ func messageKindFor(tool string) string {
 	return "message"
 }
 
+// accountToolsSupported limits the live account tools to Claude. An unset
+// engine (direct invocation, tests) defers the decision to the broker.
+func accountToolsSupported() bool {
+	engine := strings.TrimSpace(os.Getenv("CXX_AGENT_PORTAL_ENGINE"))
+	return engine == "" || engine == config.EngineClaude
+}
+
 func requireChannelPreview() error {
 	engine := strings.TrimSpace(os.Getenv("CXX_AGENT_PORTAL_ENGINE"))
 	if engine != config.EngineClaude {
@@ -1021,8 +1030,17 @@ func handleMCPRequest(ctx context.Context, client *sessionClient, req mcpRequest
 	case "ping":
 		return mcpSuccess(req.ID, map[string]any{})
 	case "tools/list":
-		var tools any
+		var tools []map[string]any
 		_ = json.Unmarshal(toolCatalogJSON(), &tools)
+		if !accountToolsSupported() {
+			kept := tools[:0]
+			for _, t := range tools {
+				if name, _ := t["name"].(string); name != "account_status" && name != "account_switch" {
+					kept = append(kept, t)
+				}
+			}
+			tools = kept
+		}
 		return mcpSuccess(req.ID, map[string]any{"tools": tools})
 	case "tools/call":
 		if channelState != nil && channelState.owner != nil && !channelState.owner.isOwner() {
@@ -1075,6 +1093,12 @@ func callMCPTool(ctx context.Context, client *sessionClient, channelState *chann
 	case "quota_get":
 		var out map[string]any
 		err := client.post(ctx, "quota/get", args, &out)
+		return out, err
+	case "account_status", "account_switch":
+		if !accountToolsSupported() {
+			return nil, errors.New(name + " supports Claude sessions only; other engines use another account from their next launch")
+		}
+		err := client.post(ctx, "provider-account/"+strings.TrimPrefix(name, "account_"), args, &out)
 		return out, err
 	case "watchdog_get", "watchdog_enable", "watchdog_disable", "watchdog_finish":
 		var out map[string]any

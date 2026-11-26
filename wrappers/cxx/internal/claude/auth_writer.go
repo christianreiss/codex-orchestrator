@@ -1135,3 +1135,17 @@ func WriteAssignedAccountIfCurrent(payload json.RawMessage, digest string, expec
 	_, wrote, err := writeAuthContext(context.Background(), payload, digest, &expected, false, true, switching)
 	return wrote, err
 }
+
+// WriteSwitchedAccountIfCurrent applies the credentials of a committed live
+// account switch while native sessions keep running. Unlike the launch-time
+// assignment it takes no idle-child lease: the caller has already waited for
+// a turn boundary. The CAS is as strict as the in-session writer, so a native
+// rotation that landed after the flush wins and the caller re-flushes. An
+// explicit logout is never overridden, and generation.json is committed with
+// the native file so the new head counts as server-confirmed.
+func WriteSwitchedAccountIfCurrent(ctx context.Context, payload json.RawMessage, canonicalDigest, verificationState string, expected AuthGeneration) (AuthGeneration, bool, error) {
+	if !expected.Exists || !strings.EqualFold(strings.TrimSpace(verificationState), "verified") {
+		return AuthGeneration{}, false, nil
+	}
+	return writeAuthContext(ctx, payload, canonicalDigest, &expected, false, true)
+}

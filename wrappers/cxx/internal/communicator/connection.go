@@ -79,6 +79,8 @@ type connection struct {
 	// true for the handshake's ready frame.
 	apiObserved func(levels APILevels, authoritative bool)
 	authChanged func(string, int64)
+	// accountSwitch relays a pushed live account switch (Claude only).
+	accountSwitch func(string)
 	// onTerminate is set when this owner can be stopped remotely; control is
 	// true once the server announced that it may ask.
 	onTerminate  func(reason string, acked <-chan struct{})
@@ -271,6 +273,11 @@ func (c *connection) receive() {
 		case "auth_changed":
 			if c.authChanged != nil {
 				c.authChanged(f.Engine, f.AccountID)
+			}
+		case "account_switch":
+			// Metadata only: attached wrappers heartbeat and read the directive.
+			if c.accountSwitch != nil && f.Engine == "claude" {
+				c.accountSwitch(f.Engine)
 			}
 		case "resident_policy_changed":
 			if c.residentChanged != nil {

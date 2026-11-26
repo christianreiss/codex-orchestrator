@@ -19,6 +19,7 @@ var clxHelpCommands = []wrapperHelpItem{
 	{"clx status", "Host, versions, health and usage."},
 	{"clx doctor", "Diagnose and show repair steps."},
 	{"clx auth-upload", "Verify and upload local credentials."},
+	{"clx accounts [list|add|use <id|auto>]", "Show the account pool, enroll another Claude account, or switch live sessions."},
 	{"clx emergency [--] [args]", "Launch the native CLI directly on a secure host."},
 	{"clx auth-reconcile [--accept-server]", "Inspect interrupted uploads; explicitly adopt verified server credentials with a local backup."},
 	{"clx sync", "Apply managed files without launching."},

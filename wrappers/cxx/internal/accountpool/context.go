@@ -32,6 +32,13 @@ type Context struct {
 	AccountID int64
 	SessionID string
 	Capable   bool
+	// AccountLabel, BindingGeneration and PendingSwitch follow the scope's
+	// live binding (Claude live account switching). All guarded by mu.
+	AccountLabel      string
+	BindingGeneration int64
+	PendingSwitch     *SwitchDirective
+	wake              chan struct{}
+	onAdopt           func(Adoption)
 }
 type binding struct {
 	AccountID int64 `json:"account_id"`
@@ -104,6 +111,13 @@ func (c *Context) Observe(path string, raw []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Capable = c.Capable || capable
+	if c.SessionID != "" {
+		var fields bindingFields
+		_ = json.Unmarshal(doc["binding_generation"], &fields.BindingGeneration)
+		fields.AccountSwitch = doc["account_switch"]
+		fields.AccountID = id
+		c.observeBindingLocked(fields, false)
+	}
 	if id <= 0 || state != "verified" || (c.SessionID != "" && c.AccountID != id) {
 		return
 	}
@@ -156,6 +170,11 @@ type LeaseResponse struct {
 	QuotaHardFail       *bool                    `json:"quota_hard_fail"`
 	QuotaLimitPercent   *int                     `json:"quota_limit_percent"`
 	QuotaWeekPartition  *int                     `json:"quota_week_partition"`
+	// Live account switching (Claude). Absent on older servers.
+	BindingGeneration    *int64          `json:"binding_generation"`
+	AccountSwitch        json.RawMessage `json:"account_switch"`
+	PreviousAccountID    int64           `json:"previous_account_id"`
+	CanonicalLastRefresh string          `json:"canonical_last_refresh"`
 }
 
 // acquireLease retries only transient gateway failures. Reusing the original
@@ -244,13 +263,17 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 		return nil, nil, err
 	}
 	c.mu.Lock()
-	c.AccountID, c.SessionID = lease.AccountID, id
+	c.AccountID, c.SessionID, c.AccountLabel = lease.AccountID, id, lease.AccountLabel
+	c.observeBindingLocked(lease.binding(), false)
 	err = c.saveLocked()
 	c.mu.Unlock()
 	if err != nil {
 		release()
 		return nil, nil, fmt.Errorf("save account binding: %w", err)
 	}
+	removeMarker := c.writeSessionMarker(id)
+	unmarkedRelease := release
+	release = func() { removeMarker(); unmarkedRelease() }
 	var initialState *communicator.StateClient
 	if stateRequired {
 		var stateErr error
@@ -302,37 +325,12 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 			case <-hctx.Done():
 				return
 			case <-ticker.C:
-				c.heartbeat(hctx, client, id, lease.AccountID)
+				_ = c.Heartbeat(hctx, client)
 			}
 		}
 	}()
 	var once sync.Once
 	return func() { once.Do(func() { cancel(); <-done; release() }) }, &lease, nil
-}
-
-// heartbeat extends the lease. A host that slept past the five-minute TTL
-// resumes with a lease the server has already reaped while the native
-// credentials still belong to this account, so a 404 re-reserves the same
-// session ID on the same account; the child's inherited session binding stays
-// valid. The returned auth is discarded: the child may have rotated past it.
-func (c *Context) heartbeat(ctx context.Context, client Client, id string, account int64) {
-	callCtx, stop := context.WithTimeout(ctx, 5*time.Second)
-	err := client.JSON(callCtx, http.MethodPost, "/auth/sessions/heartbeat", map[string]any{"engine": c.Engine, "session_id": id}, nil, 0)
-	stop()
-	var status interface{ HTTPStatus() int }
-	if !errors.As(err, &status) || status.HTTPStatus() != http.StatusNotFound {
-		return
-	}
-	callCtx, stop = context.WithTimeout(ctx, 15*time.Second)
-	defer stop()
-	var lease LeaseResponse
-	body := map[string]any{"engine": c.Engine, "scope_id": c.ScopeID, "session_id": id, "account_id": account}
-	if client.JSON(callCtx, http.MethodPost, "/auth/sessions", body, &lease, 0) != nil {
-		return
-	}
-	if lease.SessionID != id || lease.AccountID != account {
-		_ = client.JSON(callCtx, http.MethodPost, "/auth/sessions/release", map[string]any{"engine": c.Engine, "session_id": id}, nil, 0)
-	}
 }
 
 // ActivateEnvironment matches the existing portal environment lifecycle. Only

@@ -203,6 +203,9 @@ func (e *HTTPError) Error() string {
 // HTTPStatus lets packages that cannot import this one branch on the status.
 func (e *HTTPError) HTTPStatus() int { return e.StatusCode }
 
+// ErrorCode lets packages that cannot import this one branch on the code.
+func (e *HTTPError) ErrorCode() string { return e.Code }
+
 func (e *HTTPError) OperatorHTTPResponse() operatorerror.HTTPResponse {
 	return operatorerror.HTTPResponse{Status: e.StatusCode, Code: e.Code, Scope: e.Scope, Body: e.Body}
 }

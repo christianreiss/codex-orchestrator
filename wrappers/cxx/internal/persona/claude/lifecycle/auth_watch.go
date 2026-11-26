@@ -62,9 +62,15 @@ func startMidSessionAuthUpload(
 	if communicator.SyncManaged(client.BaseURL) {
 		path, _ := claude.AuthPath()
 		account, sessionID := client.Pool.Binding()
+		var switchSignal int64
 		stop, err := communicator.WatchAuth(ctx, client.BaseURL, "claude", path, account, sessionID, "", func(status communicator.AuthStatus) {
 			if status.HostSecure != nil && session != nil {
 				_ = session.SetPurgeOnLastExitContext(ctx, !*status.HostSecure)
+			}
+			// A pushed account_switch frame: heartbeat now for the directive.
+			if status.SwitchSignal != switchSignal {
+				switchSignal = status.SwitchSignal
+				client.Pool.Poke()
 			}
 		}, func(c context.Context) func() { return startMidSessionAuthUpload(c, client, logger, before, session) })
 		if err == nil {

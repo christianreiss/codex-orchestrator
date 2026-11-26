@@ -141,6 +141,7 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		dots = buildDots(auth, in)
 		quotaRows, quotaWarning = buildQuota(auth, time.Now())
 		extraRows, emulationNotice := quotaemulation.Display(auth.QuotaSnapshot, time.Now())
+		emulationNotice = poolQuotaAdvice(auth, emulationNotice)
 		quotaRows = append(quotaRows, extraRows...)
 		if emulationNotice != "" {
 			if quotaWarning != "" {

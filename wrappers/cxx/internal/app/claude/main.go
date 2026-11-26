@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
 	"io"
 	"log/slog"
@@ -191,6 +192,7 @@ var wrapperOwnedSubcommands = map[string]bool{
 	"auth-upload": true, "auth-upload-auto": true,
 	"auth-reconcile": true, "auth-sync": true, "update": true, "uninstall": true,
 	"cron": true, "execute": true, "exec": true, "sync": true,
+	"accounts": true,
 }
 
 // resumeArgs builds the upstream argv for a resume request. Claude spells
@@ -319,6 +321,10 @@ func run(args []string, stdout, stderr io.Writer, choices ...*quotaadvice.Sessio
 func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*quotaadvice.Session) (code int) {
 	if !native && authreconcile.HelpRequested(args) {
 		authreconcile.PrintHelp(stdout)
+		return 0
+	}
+	if !native && len(args) > 0 && args[0] == "accounts" && clihelp.Requested(args[1:]) {
+		fmt.Fprint(stdout, accountsUsage)
 		return 0
 	}
 	depth, _ := strconv.Atoi(os.Getenv("CLAUDE_WRAPPER_RESTART_DEPTH"))
@@ -584,6 +590,8 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 		return 0
 	case "cron":
 		return cmdCron(ctx, cfg, subArgs, stdout, stderr, f.minimal)
+	case "accounts":
+		return cmdAccounts(ctx, cfg, append(subArgs, passthrough...), stdout, stderr)
 	default:
 		// Reserved upstream subcommands (login, logout, mcp, …) passthrough to
 		// the real claude binary with the token preserved. The wrapper-owned
@@ -605,7 +613,7 @@ func runMode(args []string, stdout, stderr io.Writer, native bool, choices ...*q
 			return exit
 		}
 		ui.Say(stderr, "clx", ui.ToneFail, "usage", "unknown subcommand: "+fmt.Sprint(sub))
-		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | emergency | sync | status | doctor | auth-upload | exec -- <cmd...>")
+		fmt.Fprintln(stderr, "subcommands: run | resume [<session>] | emergency | sync | status | doctor | auth-upload | accounts [list|add|use] | exec -- <cmd...>")
 		fmt.Fprintln(stderr, "flags: --wrapper-help | --version | --status | --doctor | --update | --uninstall | -r/--resume[=<session>] | --continue | --execute <prompt> | --cron [install|remove|run] | --silent | --debug | --minimal | --skip-boot | --dangerously-skip-permissions")
 		return 2
 	}

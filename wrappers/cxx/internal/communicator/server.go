@@ -346,7 +346,7 @@ func (s *server) connectLoop(ctx context.Context) {
 				cancel()
 				err = e
 				if err == nil {
-					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, cacheInvalidated: s.invalidateContent, updateAvailable: s.triggerUpdate, authChanged: s.invalidateAuth, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.sampleResidentReport, residentChanged: s.signalResidentPolicy, apiObserved: s.observeAPI}
+					c = &connection{ws: ws, pending: map[string]chan frame{}, done: make(chan struct{}), ready: make(chan struct{}), invalidated: s.invalidate, cacheInvalidated: s.invalidateContent, updateAvailable: s.triggerUpdate, authChanged: s.invalidateAuth, accountSwitch: s.signalAccountSwitch, onTerminate: s.terminate, runtimeID: s.runtimeID, preTerminate: s.preflightStop, residentReport: s.sampleResidentReport, residentChanged: s.signalResidentPolicy, apiObserved: s.observeAPI}
 					go c.receive()
 					hello := map[string]any{"type": "hello", "protocol": Protocol, "username": communicatorUsername(), "version": s.version}
 					// Older servers parse hello strictly and refuse unknown keys,

@@ -77,6 +77,9 @@ func (b *Broker) activityHook(w http.ResponseWriter, raw []byte) {
 	// No turn has been observed in this epoch (or the idle boundary is already
 	// armed): the only state a SessionStart may legitimately turn into idle.
 	quiet := b.turnProof.Epoch == "" || b.turnProofNativeID != b.nativeID || b.turnProof.Sequence <= 1 || b.sessionIdle > 0
+	if h.Event != "" && b.session.Engine == "claude" {
+		b.rootTurnIdle = claudeRootTurnIdle(h, b.rootTurnIdle, quiet)
+	}
 	proofEvent := h.Event
 	if b.session.Engine == "kimi" {
 		switch h.Event {

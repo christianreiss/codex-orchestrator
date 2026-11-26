@@ -115,3 +115,35 @@ func quotaReportTime(q *orchestrator.ClaudeUsageSnapshot, now time.Time) (time.T
 	}
 	return fetchedAt, ""
 }
+
+// poolQuotaAdvice applies the server's account-pool recommendation to the
+// launch card. Any recommendation other than pause means another account has
+// room, so a local "pause" suggestion is replaced by the pool message (or a
+// generic keep-working line when the server sent none); a switch message is
+// shown even without a local warning. pause, an absent pool or a
+// recommendation without an action keeps the single-account wording.
+func poolQuotaAdvice(auth *orchestrator.AuthRetrieveResponse, notice string) string {
+	if auth == nil || auth.QuotaPool == nil || auth.QuotaPool.Recommendation == nil {
+		return notice
+	}
+	r := auth.QuotaPool.Recommendation
+	action := strings.ToLower(strings.TrimSpace(r.Action))
+	if action == "" || action == "pause" {
+		return notice
+	}
+	message := strings.TrimSpace(r.Message)
+	pool := "Account pool: " + message
+	if message == "" {
+		pool = "Account pool has capacity; keep working."
+	}
+	if strings.Contains(notice, "pause") {
+		return pool
+	}
+	if action == "switch" && message != "" {
+		if notice == "" {
+			return pool
+		}
+		return notice + "; " + pool
+	}
+	return notice
+}
