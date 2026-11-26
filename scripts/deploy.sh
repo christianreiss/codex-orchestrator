@@ -408,8 +408,8 @@ log "building compose services"
 
 # Migrate with the freshly built image, before any listener opens. The API also
 # migrates on boot (RUN_MIGRATIONS_ON_BOOT), but doing it here keeps a slow
-# ALTER out of the container healthcheck window, so `up --wait` cannot mark a
-# successfully-migrating api unhealthy.
+# ALTER out of the container's startup budget, which is sized for owner-state
+# hydration, not for schema changes.
 if [[ "${deploys_api}" -eq 1 ]]; then
   owner_cutover_prepare || fail "quiescent cutover failed; inspect previous-container recovery status"
   owner_cutover_phase changing
@@ -422,8 +422,14 @@ fi
 
 up_args=(up -d)
 [[ "$deploys_api" -eq 0 ]] || up_args+=(--remove-orphans)
-if [[ "${no_wait}" -eq 0 ]] && docker compose up --help | grep -q -- '--wait'; then
-  up_args+=(--wait)
+if [[ "${no_wait}" -eq 0 ]]; then
+  up_help="$(docker compose up --help)"
+  if grep -q -- '--wait-timeout' <<<"${up_help}"; then
+    # Bounded: see INSTANCE_API_WAIT_TIMEOUT in bin/lib/instance-compose.sh.
+    up_args+=(--wait --wait-timeout "${INSTANCE_API_WAIT_TIMEOUT}")
+  elif grep -q -- '--wait' <<<"${up_help}"; then
+    up_args+=(--wait)
+  fi
 fi
 if [[ "${#services[@]}" -gt 0 ]]; then
   up_args+=("${services[@]}")

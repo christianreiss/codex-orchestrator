@@ -12,7 +12,7 @@ Automatic, in two places:
   file before the listener opens. With it off, boot still *fails* when something
   is pending; it never serves against a schema the code does not expect.
 - **`scripts/deploy.sh`** — runs the CLI between `compose build` and `compose up`
-  so a slow `ALTER` cannot eat the container healthcheck window, then re-checks
+  so a slow `ALTER` cannot eat the container's startup budget, then re-checks
   with `--check` once the stack is up.
 
 Read migration status while the API is running:

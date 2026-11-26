@@ -1056,8 +1056,11 @@ All four engine config GET/store routes share the revision contract: `revision` 
   `workspace.git_root`/`cwd`). A native session or a child that shares its
   binding can register a linked worktree of the same clone alongside the parent.
   Pass the bound clone's explicit `clone_dir` and the linked worktree's task
-  branch. The original native instance must hold live claims for the exact
-  linked worktree path and that branch. Registration leaves the parent binding
+  branch. The original native instance must hold two live claims: a `path`
+  claim on the exact linked worktree path and a `git` claim on that `clone_dir`
+  with that branch. The optional `path` of a `git` resource is not a path claim
+  (Git identity is `common_dir`/`branch`; it excludes no paths), so a git claim
+  alone is refused. Registration leaves the parent binding
   and registration intact. A separate repository nested inside the bound
   checkout (a submodule or vendored clone) registers directly with its own
   explicit `clone_dir`. For other workspaces, use `agent_context_update`

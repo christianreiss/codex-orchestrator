@@ -23,12 +23,19 @@ services:
         condition: service_healthy
     ports:
       - "127.0.0.1:8488:8080"
+    # The listener opens only after owner-state hydration, which took 107-112 s
+    # on production (2026-11-25/26); probes see "connection refused" until then.
+    # Failures inside start_period do not count and the first success ends it,
+    # so a fast boot is not slowed down. Steady state stays 30s x 3. Every
+    # `up --wait` that starts the api waits INSTANCE_API_WAIT_TIMEOUT
+    # (bin/lib/instance-compose.sh), which must exceed
+    # start_period + interval x retries.
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/healthz || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 300s
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       APP_ENV: ${APP_ENV:-production}

@@ -1089,7 +1089,7 @@ step_apptier() {
   fi
   local services=(api media-worker slop-worker) up=(up -d)
   (( USE_CADDY )) && services+=(caddy)
-  compose up --help 2>/dev/null | grep -q -- '--wait' && up+=(--wait --wait-timeout 180)
+  compose up --help 2>/dev/null | grep -q -- '--wait' && up+=(--wait --wait-timeout "$INSTANCE_API_WAIT_TIMEOUT")
   [[ -z "$OWNER_CUTOVER_DIR" ]] || owner_cutover_phase replacement-started
   info "starting ${services[*]}"
   compose "${up[@]}" "${services[@]}" >&2 ||
