@@ -16,7 +16,8 @@ the agent's limit while another account in the pool has headroom.
 ## Read the pool
 
 Call account_status. It returns the bound account, every account's short and
-weekly usage, the distribution policy (auto or manual; balanced or exhaust), a
+weekly usage, the distribution policy (auto or manual; balanced, exhaust or
+reset_aware, which uses the account closest to its weekly reset first), a
 pending switch and recommendation.action:
 
 - continue: keep working. In auto mode the policy moves the session itself.

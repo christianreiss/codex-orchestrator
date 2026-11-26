@@ -2053,7 +2053,7 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   `enroll: true`, prints whether a new account was created or an existing one refreshed, and removes the
   directory. `~/.claude` and running sessions stay untouched. Insecure hosts cannot enroll (403
   `account_enroll_insecure_host`).
-- The distribution policy (automatic balanced/exhaust or manual) is server-side, per engine, and edited on
+- The distribution policy (automatic balanced/exhaust/reset_aware or manual) is server-side, per engine, and edited on
   the Accounts page.
 - **Live switch.** The unit is the scope (host, user, native credential directory): every session sharing
   `~/.claude/.credentials.json` moves together. A pending switch arrives in acquire/heartbeat/`/auth`

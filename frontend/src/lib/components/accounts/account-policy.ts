@@ -4,9 +4,36 @@
  */
 export const SPREAD_POINTS = { eng: 10, normal: 20, locker: 30 } as const;
 
+export type PolicyStrategyName = "balanced" | "exhaust" | "reset_aware";
+
+/** One line per strategy for the policy form: what it does, in the operator's terms. */
+export const STRATEGY_OPTIONS: ReadonlyArray<{ value: PolicyStrategyName; label: string; hint: string; explanation: string }> = [
+  {
+    value: "balanced",
+    label: "Balanced",
+    hint: "Raise all accounts together",
+    explanation: "Accounts are raised together. A running scope only moves once the account it is on is further ahead of the least-used account than the band allows.",
+  },
+  {
+    value: "exhaust",
+    label: "Exhaust",
+    hint: "Use one account up to its limit, then the next",
+    explanation: "Account 1 is used up to the soft limit, then the next one. Only when every account is past the soft limit does work continue up to the hard limit.",
+  },
+  {
+    value: "reset_aware",
+    label: "Expiring first",
+    hint: "Use the account closest to its weekly reset first",
+    explanation: "The account whose weekly quota resets soonest is used first, up to the soft limit, then the next soonest; a freshly reset account comes last. Quota left over at a reset is lost, so it is spent before quota that keeps for days.",
+  },
+];
+
+/** Strategies that fill accounts to the soft and hard limit; Balanced uses the band instead. */
+export const usesCeilings = (strategy: PolicyStrategyName): boolean => strategy !== "balanced";
+
 export interface PolicyDraft {
   mode: "auto" | "manual";
-  strategy: "balanced" | "exhaust";
+  strategy: PolicyStrategyName;
   soft_ceiling: number;
   hard_ceiling: number;
   min_dwell_minutes: number;
@@ -18,7 +45,7 @@ const whole = (value: unknown): value is number => typeof value === "number" && 
 export function policyIssues(policy: PolicyDraft): Partial<Record<"soft_ceiling" | "hard_ceiling" | "min_dwell_minutes", string>> {
   const issues: Partial<Record<"soft_ceiling" | "hard_ceiling" | "min_dwell_minutes", string>> = {};
   if (policy.mode !== "auto") return issues;
-  if (policy.strategy === "exhaust") {
+  if (usesCeilings(policy.strategy)) {
     if (!whole(policy.soft_ceiling) || policy.soft_ceiling < 50 || policy.soft_ceiling > 99) issues.soft_ceiling = "Enter a whole number from 50 to 99.";
     if (!whole(policy.hard_ceiling) || policy.hard_ceiling > 100) issues.hard_ceiling = "Enter a whole number up to 100.";
     else if (!issues.soft_ceiling && policy.hard_ceiling < policy.soft_ceiling) issues.hard_ceiling = "The hard limit cannot be below the soft limit.";

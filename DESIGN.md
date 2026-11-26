@@ -780,6 +780,10 @@ English, and its launcher docks into the mobile tab bar so it no longer covers
 the last row. Applicable rules: NAV-1/2/3/4, VIS-1/3/4, INT-1/5/6/7 and
 ACC-1/3/4. No exception.
 
+### Expiring-first strategy option (2026-11-26)
+
+The distribution policy form on Accounts (next record) gains a third Strategy option, "Expiring first" (`reset_aware`). It is one more button in the existing `SegmentedControl`, which wraps at narrow widths like the three-option Band control; the soft and hard limit fields of Exhaust are reused, and the one-line explanation under the control now comes from the same option list as the labels (`STRATEGY_OPTIONS`). No new component, token or surface. Rules checked by source inspection: INT-2 (the same persistent labels, hints and submission-time validation for the limits), INT-3 (unchanged explicit save; only the fields the chosen strategy shows are sent), VIS-1/VIS-5, ACC-1 (native buttons with `aria-pressed`; the hint is a `title`, the instruction itself is the visible sentence). No exception. Not run: the browser sweep, contrast and 320 px checks.
+
 ### Account policy and live scopes (2026-11-26)
 
 Accounts gains a per-engine distribution policy form and, for Claude, a list of active scopes with a "Switch to…" dialog. Both are flat `Section`s (VIS-5, no nested cards), reuse `SegmentedControl`, `FormField`, `SaveState` and `DraftGuard`, and use the shared `SimpleSelect` (INT-2). Rules checked: INT-2 (persistent labels, hint and error text beside each number field, submission-time validation), INT-3 (explicit Save, pending/saved/failed state, the draft survives a refresh and a failed save), INT-4 (the switch dialog names host and consequence, "Request switch" action), INT-5 (failure beside the task plus toast), INT-6 (`Timestamp` for the bind time), INT-7 (loading, error with retry, empty and denied states through `DataTable`/`StateBlock`), VIS-1 (no page-local colors), ACC-1/ACC-4 (native fieldset/labels, `DataTable reflow`). No new exception. Not run: the browser sweep (`admin-design.spec.ts`), contrast and 320 px checks.

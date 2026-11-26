@@ -2552,13 +2552,33 @@ hash in `identity_key`); a default label becomes the account e-mail.
 - When Anthropic cannot identify a token (offline, non-OAuth credential) the previous lineage rules apply.
 
 **Distribution policy** (`versions` key `account_policy_<engine>`):
-`{mode: auto|manual, strategy: balanced|exhaust, spread: eng|normal|locker, soft_ceiling, hard_ceiling, min_dwell_minutes}`,
+`{mode: auto|manual, strategy: balanced|exhaust|reset_aware, spread: eng|normal|locker, soft_ceiling, hard_ceiling, min_dwell_minutes}`,
 default `auto`/`balanced`/`normal`/90/99/15. The band words are 10, 20 and 30 percentage points. The
 score is `max(short, weekly)` used percent.
 - `balanced`: launches take the least used account; a running scope moves once its account is more than
   the band above the least used one.
 - `exhaust`: accounts are used in ID order up to `soft_ceiling`, then the next; when all are above it,
   up to `hard_ceiling`.
+- `reset_aware` ("Expiring first"): the ceilings of `exhaust`, but in the order of the weekly resets
+  instead of the IDs. Quota left at a weekly reset is lost and quota in a new window keeps for days, so the
+  account whose weekly quota resets soonest is used first and a freshly reset one last.
+  - Order: accounts below `soft_ceiling`, then those below `hard_ceiling`; inside each group the earliest
+    weekly reset first, then the lower score, fewer sessions and the lower ID. With nothing below
+    `hard_ceiling` a launch takes the least used account.
+  - The score stays the gate, so an account whose 5-hour window is full is skipped until that window
+    resets, and an emulation-blocked account (score 100) is never chosen.
+  - A weekly reset counts only while it is proven: a missing or unreadable one, one that has passed (the
+    reading is stale) and one more than 8 days ahead are unknown. Unknown sorts after every dated account
+    and never pulls a running scope over. Unlimited accounts have no reset.
+  - Launches: a never-measured idle account still takes one launch per ten minutes to publish a reading;
+    an account whose recorded reset has passed does not. If no account has a known reset (Grok reports no
+    usage), the launch falls back to the balanced choice.
+  - A running scope leaves an account at or above `soft_ceiling` for one below it. Between accounts on the
+    same side of the ceilings it only moves towards a weekly reset at least 1 h earlier than its own and
+    at least 30 min away, on an account with at least 5 points of room below that ceiling. It stays on an
+    expiring account until the reset.
+  - The quota limit for immediate moves and for `recommendation` is `hard_ceiling`, as in `exhaust`.
+    `recommendation.message` names the weekly reset behind a reset-aware pick.
 - `manual`: no automatic moves.
 - Automatic moves wait `min_dwell_minutes` after the last change (prompt caches are organization-scoped);
   an account at the quota limit moves immediately when another has headroom. Launches skip accounts

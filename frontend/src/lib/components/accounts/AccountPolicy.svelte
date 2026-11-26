@@ -14,7 +14,7 @@
   import { FormField } from "$lib/components/ui/form-field";
   import { Section, StateBlock, DraftGuard, SaveState } from "$lib/components/page";
   import SegmentedControl from "$lib/components/page/SegmentedControl.svelte";
-  import { policyIssues, SPREAD_POINTS } from "./account-policy";
+  import { policyIssues, usesCeilings, SPREAD_POINTS, STRATEGY_OPTIONS } from "./account-policy";
 
   type Props = { engine: Engine; canManage: boolean };
   let { engine, canManage }: Props = $props();
@@ -51,7 +51,7 @@
         mode: "auto",
         strategy: d.strategy,
         min_dwell_minutes: d.min_dwell_minutes,
-        ...(d.strategy === "balanced" ? { spread: d.spread } : { soft_ceiling: d.soft_ceiling, hard_ceiling: d.hard_ceiling }),
+        ...(usesCeilings(d.strategy) ? { soft_ceiling: d.soft_ceiling, hard_ceiling: d.hard_ceiling } : { spread: d.spread }),
       });
     },
     onSuccess: (policy) => {
@@ -104,17 +104,13 @@
             <SegmentedControl
               label="Strategy"
               value={draft.strategy}
-              options={[{ value: "balanced", label: "Balanced", hint: "Raise all accounts together" }, { value: "exhaust", label: "Exhaust", hint: "Use one account up to its limit, then the next" }]}
+              options={STRATEGY_OPTIONS}
               onChange={(strategy) => edit({ strategy })}
             />
-            <p class="text-body-sm text-muted-foreground">
-              {draft.strategy === "balanced"
-                ? "Accounts are raised together. A running scope only moves once the account it is on is further ahead of the least-used account than the band allows."
-                : "Account 1 is used up to the soft limit, then the next one. Only when every account is past the soft limit does work continue up to the hard limit."}
-            </p>
+            <p class="text-body-sm text-muted-foreground">{STRATEGY_OPTIONS.find((option) => option.value === draft!.strategy)?.explanation}</p>
           </div>
 
-          {#if draft.strategy === "balanced"}
+          {#if !usesCeilings(draft.strategy)}
             <div class="grid gap-1.5">
               <span class="text-body-sm font-medium">Band</span>
               <SegmentedControl

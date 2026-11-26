@@ -50,20 +50,25 @@ function unlimited(s: OwnerStateSnapshot, engine: Engine, id: number) {
     return false;
   }
 }
-function score(s: OwnerStateSnapshot, engine: Engine, id: number) {
-  if (unlimited(s, engine, id)) return 0;
+/** Quota position of an account for selection: the score and the weekly reset the policy may race. */
+function position(s: OwnerStateSnapshot, engine: Engine, id: number): { score: number | null; weeklyResetsAt: string | null } {
+  // Unlimited quota never expires, so it has no reset to race.
+  if (unlimited(s, engine, id)) return { score: 0, weeklyResetsAt: null };
   const now = Date.now();
-  if (engine === 'grok') return null; // Grok usage is display-only, as in existing selection.
+  if (engine === 'grok') return { score: null, weeklyResetsAt: null }; // Grok usage is display-only, as in existing selection.
   let values: Array<number | null>;
+  let weeklyResetsAt: string | null;
   if (engine === 'kimi') {
     const r = s.table('kimiUsageSnapshots').get(id);
     values = r?.errorCode ? [] : [quotaWindowScore(r?.fiveHourUsedPercent ?? null, r?.fiveHourResetsAt ?? null, now), quotaWindowScore(r?.weeklyUsedPercent ?? null, r?.weeklyResetsAt ?? null, now)];
+    weeklyResetsAt = r?.errorCode ? null : (r?.weeklyResetsAt ?? null);
   } else if (engine === 'claude') {
     const r = [...s.table('claudeUsageSnapshots').by('accountId', id)].sort((a, b) => b.id - a.id)[0];
     values = [
       quotaWindowScore(r?.fiveHourUsedPercent ?? null, r?.fiveHourResetsAt ?? null, now),
       quotaWindowScore(r?.sevenDayUsedPercent ?? null, r?.sevenDayResetsAt ?? null, now),
     ];
+    weeklyResetsAt = r?.sevenDayResetsAt ?? null;
   } else {
     const r = [...s.table('chatgptUsageSnapshots').by('accountId', id)]
       .filter((r) => r.status === 'ok')
@@ -78,9 +83,10 @@ function score(s: OwnerStateSnapshot, engine: Engine, id: number) {
       quotaWindowScore(short?.used ?? null, short?.reset ?? null, now),
       quotaWindowScore(weekly?.used ?? null, weekly?.reset ?? null, now),
     ];
+    weeklyResetsAt = weekly?.reset ?? null;
   }
   const present = values.filter((x): x is number => x !== null);
-  return present.length ? Math.max(...present) : null;
+  return { score: present.length ? Math.max(...present) : null, weeklyResetsAt };
 }
 export async function acquireOwnedProvider(
   owner: OwnerRuntime,
@@ -120,7 +126,7 @@ export async function acquireOwnedProvider(
           )
           .map((a) => ({
             id: a.id,
-            score: score(s, engine, a.id),
+            ...position(s, engine, a.id),
             active: sessions.filter((r) => r.accountId === a.id).length,
             lastSelectedAt: a.lastSelectedAt,
           }));

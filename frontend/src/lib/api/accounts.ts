@@ -69,7 +69,7 @@ export interface AccountSwitchDirective {
 }
 
 export type PolicyMode = "auto" | "manual";
-export type PolicyStrategy = "balanced" | "exhaust";
+export type PolicyStrategy = "balanced" | "exhaust" | "reset_aware";
 export type PolicySpread = "eng" | "normal" | "locker";
 
 /** Per-engine account distribution policy (`GET/POST /admin/accounts/policy/:engine`). */
