@@ -155,6 +155,9 @@ test("lists each provider's keys in failover order with their verdicts", async (
   // An empty provider says what a key is for and offers to add one.
   await expect(page.locator("#provider-xai")).toContainText("No xAI keys");
   await expect(page.getByRole("button", { name: "Add xAI key", exact: true })).toBeVisible();
+  // Each provider names the surface it answers: Moonshot AI is the /kimi/v1 key path.
+  await expect(page.locator("#provider-moonshot")).toContainText("Source of /kimi/v1:");
+  await expect(page.locator("#provider-xai")).toContainText("Source of /grok/v1:");
 
   const axe = await new AxeBuilder({ page }).include("main").analyze();
   expect(axe.violations.filter((v) => ["critical", "serious"].includes(v.impact ?? ""))).toEqual([]);

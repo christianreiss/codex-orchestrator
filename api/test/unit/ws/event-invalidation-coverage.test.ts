@@ -41,8 +41,6 @@ const UNMAPPED_EVENT_TYPES: Record<string, string> = {
     'durable snapshot changes invalidate accounts/overview through control_state.changed; the dashboard can reread a quiet observation on Refresh',
   'version.wrapper_published':
     'communicator update hint; the public setup check can re-read the current manifest directly, including before any admin socket exists',
-  'provider_key.changed':
-    'provider API keys admin view is built separately; its frontend query mapping lands with that view, which must remove this entry',
   'host.force_delete_ip_mismatch':
     'audit notice during authentication; successful partial and full uninstalls invalidate host views through host.updated or host.deleted',
 };

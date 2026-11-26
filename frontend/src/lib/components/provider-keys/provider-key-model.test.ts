@@ -68,6 +68,7 @@ describe("provider key model", () => {
       assert.doesNotMatch(text, /^server text$/, code);
     }
     assert.match(keyErrorText({ code: "engine_disabled" }, "xAI", "Grok"), /^Grok is switched off fleet-wide/);
+    assert.match(keyErrorText({ code: "engine_disabled" }, "Moonshot AI", "Kimi Code"), /^Kimi Code is switched off fleet-wide/);
     assert.equal(keyErrorText({ code: "other", message: "Plain failure" }), "Plain failure");
   });
 
