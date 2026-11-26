@@ -3,9 +3,12 @@ package claudequota
 import (
 	"bytes"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 )
 
 // The confirmed real shape: read out of the installed
@@ -201,6 +204,62 @@ func TestRunCommandAlwaysPrintsAndNeverBlocksOnMissingConfig(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Sonnet 5") {
 		t.Errorf("stdout = %q", stdout.String())
+	}
+}
+
+func TestStatusLineNamesTheBoundAccountOnlyInAPool(t *testing.T) {
+	authPath := filepath.Join(t.TempDir(), ".credentials.json")
+	const base = "https://orchestrator.example"
+	observe := func(body string) *accountpool.Context {
+		accountpool.Load("claude", authPath, base).Observe("/auth", []byte(body))
+		return accountpool.Load("claude", authPath, base)
+	}
+	pool := observe(`{"status":"valid","account_id":8,"verification_state":"verified","account_pool":true,
+		"quota_pool":{"accounts":[{"id":1,"label":"email@christian-reiss.example"},{"id":8,"label":"christian.reiss@dalason.example"}]}}`)
+	if got := accountSegment(pool); got != "#8 christian.reiss@dalason…" {
+		t.Fatalf("pool segment = %q", got)
+	}
+	payload := parsePayload([]byte(`{"model":{"display_name":"Opus"},"cwd":"/p/repo"}`))
+	if line := renderStatusLine(payload, &reportWindow{UsedPercent: 12}, nil, accountSegment(pool)); line != "Opus · repo · 5h 12% · #8 christian.reiss@dalason…" {
+		t.Fatalf("line = %q", line)
+	}
+	// The relayed /sync/bootstrap shape carries the same block under "auth".
+	accountpool.Load("claude", authPath, base).Observe("/sync/bootstrap", []byte(`{"auth":{"status":"valid","account_id":1,"verification_state":"verified",
+		"quota_pool":{"accounts":[{"id":1,"label":"a@x"},{"id":8,"label":"b@x"}]}}}`))
+	if got := accountSegment(accountpool.Load("claude", authPath, base)); got != "#1 a@x" {
+		t.Fatalf("switched segment = %q", got)
+	}
+	single := observe(`{"status":"valid","account_id":1,"verification_state":"verified","account_pool":true}`)
+	if got := accountSegment(single); got != "" {
+		t.Fatalf("single account segment = %q", got)
+	}
+	if accountSegment(nil) != "" {
+		t.Fatal("no binding must add nothing")
+	}
+}
+
+func TestStatusLineKeepsThePoolHintAcrossSiblingSaves(t *testing.T) {
+	authPath := filepath.Join(t.TempDir(), ".credentials.json")
+	const base = "https://orchestrator.example"
+	accountpool.Load("claude", authPath, base).Observe("/auth", []byte(`{"status":"valid","account_id":1,"verification_state":"verified"}`))
+	stale := accountpool.Load("claude", authPath, base) // bound to #1 before the pool grew
+	accountpool.Load("claude", authPath, base).Observe("/auth", []byte(`{"status":"valid","account_id":1,"verification_state":"verified",
+		"quota_pool":{"accounts":[{"id":1,"label":"a@x"},{"id":8,"label":"b@x"}]}}`))
+	// The stale process saves the same account (no switch): the sibling's
+	// pool hint survives.
+	if _, _, err := stale.ApplySwitch(&accountpool.LeaseResponse{AccountID: 1, AccountLabel: "a@x"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := accountSegment(accountpool.Load("claude", authPath, base)); got != "#1 a@x" {
+		t.Fatalf("segment after a stale save = %q", got)
+	}
+	// A switch by a process that never saw a pooled answer proves a pool.
+	other := accountpool.Load("claude", filepath.Join(t.TempDir(), ".credentials.json"), base)
+	if _, _, err := other.ApplySwitch(&accountpool.LeaseResponse{AccountID: 3, AccountLabel: "c@x"}); err != nil {
+		t.Fatal(err)
+	}
+	if other.PoolSize < 2 {
+		t.Fatalf("a switch proves a pool: %d", other.PoolSize)
 	}
 }
 

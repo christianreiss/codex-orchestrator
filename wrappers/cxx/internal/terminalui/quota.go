@@ -319,6 +319,9 @@ type QuotaCompare struct {
 	Window    time.Duration // 0 = unknown
 	ResetIn   time.Duration // 0 = unknown
 	Age       time.Duration // time since the measurement
+	// Detail replaces the window/reset/age metadata, e.g. for one account of
+	// a provider pool ("5h 12% · 7d 87%", "in use").
+	Detail []string
 }
 
 // QuotaCompareLines renders aligned bar rows for comparing providers:
@@ -392,6 +395,14 @@ func QuotaCompareLines(caps Caps, rows []QuotaCompare, width int) []string {
 func (r QuotaCompare) meta(caps Caps) []string {
 	p := caps.Palette
 	var parts []string
+	if len(r.Detail) > 0 {
+		for _, part := range r.Detail {
+			if part = inlineFor(caps, part); part != "" {
+				parts = append(parts, p.Dim+part+p.Reset)
+			}
+		}
+		return parts
+	}
 	if r.Window > 0 {
 		parts = append(parts, p.Dim+DurationShort(r.Window)+" window"+p.Reset)
 	}

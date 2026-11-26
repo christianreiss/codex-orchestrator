@@ -1761,6 +1761,24 @@ working directory after the original wrapper releases its auth leases. No prompt
 resume identifier or launch arguments transfer. If the original invocation has
 options or a conversation to resume, confirm their loss on every switch.
 
+**Account pools (cxx 0.9.208).** When an engine has more than one account, the
+recommendation reads the whole pool, not only the account in use. The server
+sends each account's usage and its headroom verdict in
+`quota_advice.<engine>.pool`. The verdict uses the same rule as the pool
+recommendation: another usable account is below the policy ceiling, and an
+account without a reading counts as unused.
+
+- If the current engine's pool has headroom, no question or hint appears. The
+  pool policy moves the work: Claude switches live at a turn boundary, Codex
+  switches at the next launch.
+- If the whole pool is high, the question lists every account under the engine
+  bars: 5h and 7d usage, plus `in use`, `next launch` or `unavailable`.
+  Non-interactive hints add a `<Engine> pool:` line with the same information.
+- An alternative engine whose whole pool is at its limit is never recommended.
+- The alternative engine's numbers are those of the account its next launch
+  would use (`launch_account_id`).
+- A remembered "today" choice still applies until midnight.
+
 “Remember this provider for today” applies the selection to subsequent interactive
 starts of both `cdx` and `clx`, until local midnight (including daylight-saving
 transitions). The private, atomically written state is stored under
@@ -2016,7 +2034,7 @@ preview.
 
 A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Launch-time account changes use strict generation CAS and require an idle native child lease (live switching below is the only exception); overlapping invocations with the same host/engine/auth-directory scope share their live account. Legacy timed leases heartbeat every 90 seconds (cxx 0.9.121) and expire after five minutes if a wrapper disappears; connection-owned leases follow the communicator connection; normal exit releases the reservation. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
 
-Quota gating and advice read the selected account only. The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. OAuth login sessions are not separate provider accounts. Fresh opaque Claude OAuth tokens reuse the sole account or their session/host assignment; known access/refresh lineage also identifies previous credentials. With multiple accounts and no assignment, use Replace credentials on the intended account. Use Add account or an untargeted seed command to explicitly enroll another opaque account.
+Quota gating reads the selected account; with more than one account, advice and the quota warnings also weigh the rest of the pool (see *Pools on the card, `status`, `doctor` and the statusline* below). The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. OAuth login sessions are not separate provider accounts. Fresh opaque Claude OAuth tokens reuse the sole account or their session/host assignment; known access/refresh lineage also identifies previous credentials. With multiple accounts and no assignment, use Replace credentials on the intended account. Use Add account or an untargeted seed command to explicitly enroll another opaque account.
 
 Claude statusline reports inherit `CXX_PROVIDER_ACCOUNT_ID` and `CXX_PROVIDER_SESSION_ID` from their native child. Both usage snapshots and the report throttle are account-scoped, preventing an older session from reporting under a newly selected account.
 
@@ -2056,6 +2074,65 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   `account_switch_unsupported_engine` and keep the launch-time selection.
 - The statusline reads the account from the binding file, so usage after a switch is reported for the new
   account; reports for an account the session no longer holds are ignored by the server.
+
+### Pools on the card, `status`, `doctor` and the statusline (cxx 0.9.208)
+
+With more than one account, `quota_pool` (on `/auth` and on the
+`/sync/bootstrap` auth block that a launch reuses) drives these surfaces. A
+single account keeps the previous output unchanged.
+
+- **Startup card and `clx status`.** The QUOTA section keeps the bars of the
+  account in use. Below them it lists every account: `●` (ASCII `*`) marks the
+  bound account and `→` (`>`) the target of a pending switch. Each row shows 5h
+  and 7d usage or `no reading`, plus a state: `in use`, `switching here`,
+  `next launch`, `paused`, `unverified`, `budget blocked`, `at limit`, or
+  `reported <age> ago`. The minimal form prints one
+  `account | id=… | label=… | 5h=…% | 7d=…% | bound=true | switch_target=true | <state>`
+  line per account.
+  - A dim note follows the rows: account count, policy, bound account, and any
+    pending switch ("at the next turn boundary" for Claude, "at the next launch"
+    for the others).
+  - If another account has headroom, the note adds the server's plan
+    (`switch`, or a message naming the pool). Otherwise it says "Another
+    account has headroom; keep working."
+  - A `pause` recommendation, meaning the whole pool is full, is printed as
+    the server sends it.
+  - `status` also reads `GET /auth/accounts` with the scope's live session, so
+    it shows the binding generation and a pending switch. A failed read keeps
+    the `/auth` answer's pool.
+- **No false alarms while the pool has headroom.**
+  - A high reading or forecast on the bound account no longer raises
+    `quota high`, "needs attention" or the forecast escalation. The forecast
+    stays visible in dim text.
+  - A freshly bound account without any report shows "No usage reported yet
+    for the bound account." instead of a telemetry warning.
+  - Stale, invalid or expired reports still warn.
+  - With a live switch (Claude), an emulated-budget "pause" suggestion is
+    dropped. Codex, Grok and Kimi keep it, because their run stays on its
+    account.
+  - If no account has headroom, the previous warnings apply unchanged.
+- **`clx doctor`.** An `Accounts` row appears for a multi-account pool. It
+  shows: account count, usable count, policy, bound account and generation,
+  pending switch, and compact usage (`#1 87%, #8 no reading`). Severity:
+  - FAIL: no usable account. The hint is to verify or re-enable an account on
+    the Accounts page, or `clx accounts add`.
+  - WARN: the bound account is paused, unverified or removed.
+  - WARN: every account is at its limit (a `pause` recommendation, or the bound
+    account at the ceiling with no headroom elsewhere).
+  - OK otherwise, including one high account in a pool that still has
+    headroom.
+- **Statusline.** With more than one account, the statusline appends the bound
+  account, e.g. `#8 christian.reiss@dalason…` (labels are cut at 24
+  characters). Its source is the binding file
+  `.cxx-account-<server-hash>.json`, which now stores two display-only keys,
+  `account_label` and `pool_size`, beside `account_id`:
+  - They are refreshed from every verified `/auth` and `/sync/bootstrap`
+    answer and from lease and switch results. A process that has not seen a
+    pooled answer keeps the file's `pool_size`. A switch or adoption counts as
+    proof of at least two accounts.
+  - Only `account_id` carries authority. Older binaries that rewrite the file
+    drop the two keys, which only hides the segment until the next answer.
+- `clx accounts` messages are English, like the rest of the CLI.
 
 ## Wake / Cron and explicit persistent recovery
 

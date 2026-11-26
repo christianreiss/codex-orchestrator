@@ -13,6 +13,24 @@ import (
 // provider probe. Keep the existing advisory launch policy: a report does not
 // become a new local refusal simply because ChatGPT hard-fail is configured.
 func buildQuota(auth *orchestrator.AuthRetrieveResponse, now time.Time) ([]ui.QuotaRow, string) {
+	return buildQuotaFor(auth, now, false)
+}
+
+// quotaLimits are the bar thresholds: the fleet quota limit (100 when the
+// server sent none) and the warning level ten points below it.
+func quotaLimits(auth *orchestrator.AuthRetrieveResponse) (limit, warnAt int) {
+	limit = 100
+	if auth != nil && auth.QuotaLimitPercent != nil {
+		limit = max(50, min(100, *auth.QuotaLimitPercent))
+	}
+	return limit, max(50, limit-10)
+}
+
+// buildQuotaFor renders the bound account's windows. poolHeadroom (another
+// account of the pool can take work) keeps a high reading or forecast from
+// raising attention: the pool policy, not the operator, handles it. Telemetry
+// problems (stale, invalid, reset passed) still warn.
+func buildQuotaFor(auth *orchestrator.AuthRetrieveResponse, now time.Time, poolHeadroom bool) ([]ui.QuotaRow, string) {
 	if auth != nil && auth.QuotaUnlimited {
 		return nil, ""
 	}
@@ -21,11 +39,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse, now time.Time) ([]ui.Qu
 	}
 	q := auth.ClaudeUsage
 	fetchedAt, freshnessWarning := quotaReportTime(q, now)
-	limit := 100
-	if auth.QuotaLimitPercent != nil {
-		limit = max(50, min(100, *auth.QuotaLimitPercent))
-	}
-	warnAt := max(50, limit-10)
+	limit, warnAt := quotaLimits(auth)
 	var rows []ui.QuotaRow
 	warning := freshnessWarning
 	addWindow := func(label string, used *int, resetAtText string, window time.Duration) {
@@ -75,14 +89,14 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse, now time.Time) ([]ui.Qu
 				if projected > *used {
 					row.Projection = fmt.Sprintf("~%d%% at reset", projected)
 					row.ProjectionTone = ui.ToneDim
-					if projected >= limit {
+					if projected >= limit && !poolHeadroom {
 						row.ProjectionTone = ui.ToneWarn
 					}
 				}
 			}
 		}
 		rows = append(rows, row)
-		if current && *used >= warnAt && warning == "" {
+		if current && *used >= warnAt && warning == "" && !poolHeadroom {
 			resetDetail := "; reset unknown"
 			if row.ResetAfter > 0 {
 				resetDetail = "; resets in " + ui.ResetInText(row.ResetAfter)

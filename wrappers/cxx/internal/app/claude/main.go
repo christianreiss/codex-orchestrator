@@ -41,6 +41,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/uninstall"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/update"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/poolview"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
@@ -1561,6 +1562,7 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		AuthErr:        authErr,
 		AuthSynced:     authSynced,
 		StatusOnly:     true,
+		Pool:           statusPool(ctx, client, resp),
 	})
 	if logoutHold {
 		state.ResultLabel = "Explicitly logged out locally; run `clx auth login` to authenticate again."
@@ -1578,6 +1580,16 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		return 1
 	}
 	return 0
+}
+
+// statusPool reads the scope's full pool view for the status card; nil keeps
+// the auth answer's own quota_pool. AuthRetrieve bound client.Pool to this
+// scope's binding file.
+func statusPool(ctx context.Context, client *orchestrator.Client, resp *orchestrator.AuthRetrieveResponse) *poolview.State {
+	if resp == nil || resp.QuotaUnlimited {
+		return nil
+	}
+	return poolview.ForStatus(ctx, client, client.Pool, "claude", resp.QuotaPool, resp.AccountID)
 }
 
 func cmdAuthUpload(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) (code int) {

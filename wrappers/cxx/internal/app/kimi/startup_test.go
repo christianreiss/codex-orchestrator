@@ -170,6 +170,25 @@ func TestNativeArgumentNeverReadsPromptOrTerminatorData(t *testing.T) {
 	}
 }
 
+func TestStartupScreenListsThePoolForTheLeasedAccount(t *testing.T) {
+	in := startupFixture(t)
+	if err := json.Unmarshal([]byte(`{"bound_account_id":3,"headroom":false,"policy":{"mode":"auto","strategy":"balanced"},"accounts":[{"id":3,"label":"a","state":"enabled","verified":true,"score":97},{"id":7,"label":"b","state":"enabled","verified":true,"score":null}]}`), &in.Auth.QuotaPool); err != nil {
+		t.Fatal(err)
+	}
+	in.Auth.AccountID = 7 // the lease picked another account than the answer's
+	ui := startupScreen(in)
+	if len(ui.QuotaAccounts) != 2 || ui.QuotaAccounts[0].Bound || !ui.QuotaAccounts[1].Bound || ui.QuotaAccounts[1].Note != "in use" {
+		t.Fatalf("accounts = %+v", ui.QuotaAccounts)
+	}
+	if !strings.Contains(ui.QuotaNote, "Account pool: 2 accounts; policy auto/balanced; bound #7.") {
+		t.Fatalf("note = %q", ui.QuotaNote)
+	}
+	in.Auth.QuotaPool = nil
+	if ui := startupScreen(in); len(ui.QuotaAccounts) != 0 || strings.Contains(ui.QuotaNote, "Account pool") {
+		t.Fatalf("single account changed: %+v", ui)
+	}
+}
+
 func TestStartupAuthUsesSelectedLeaseAndRetainsFleetMetadata(t *testing.T) {
 	in := startupFixture(t)
 	in.Auth.AccountID, in.Auth.VerificationState = 3, "stale"

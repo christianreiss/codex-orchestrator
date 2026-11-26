@@ -61,13 +61,68 @@ export async function readQuotaAdvice(settings: SettingsService): Promise<QuotaA
   }
 }
 
-// Only quota observations and host engine membership cross this boundary.
-// Never include canonical auth payloads or trigger a provider refresh.
+/** One account of an engine's pool as the launch picker sees it. */
+export interface AdvicePoolAccount {
+  id: number;
+  label: string;
+  usable: boolean;
+  score: number | null;
+  short_used_percent: number | null;
+  weekly_used_percent: number | null;
+}
+/**
+ * An engine's account pool for the launch picker (engines with more than one
+ * account). `headroom` is the server's pool verdict (see poolHeadroomTarget):
+ * for the requesting engine it excludes the bound account, for the other
+ * engine it covers every account. `launch_account_id` is what a new launch
+ * would be assigned.
+ */
+export interface AdvicePool {
+  bound_account_id: number | null;
+  launch_account_id: number | null;
+  headroom: boolean;
+  accounts: AdvicePoolAccount[];
+}
+
+/** Reduces an AccountSwitchService pool view to the picker's fields. */
+export function advicePool(view: {
+  bound_account_id: number | null;
+  launch_account_id: number | null;
+  headroom: boolean;
+  accounts: Array<{
+    id: number;
+    label: string;
+    state: string;
+    verified: boolean;
+    score: number | null;
+    short_used_percent: number | null;
+    weekly_used_percent: number | null;
+  }>;
+}): AdvicePool {
+  return {
+    bound_account_id: view.bound_account_id,
+    launch_account_id: view.launch_account_id,
+    headroom: view.headroom,
+    accounts: view.accounts.map((a) => ({
+      id: a.id,
+      label: a.label,
+      usable: a.state === 'enabled' && a.verified,
+      score: a.score,
+      short_used_percent: a.short_used_percent,
+      weekly_used_percent: a.weekly_used_percent,
+    })),
+  };
+}
+
+// Only quota observations, account labels of a pool and host engine
+// membership cross this boundary. Never include canonical auth payloads or
+// trigger a provider refresh.
 export function quotaAdviceSnapshot(
   settings: QuotaAdviceSettings,
   engines: string[],
   codex: Record<string, unknown>,
   claude: Record<string, unknown>,
+  pools: { codex?: AdvicePool; claude?: AdvicePool } = {},
 ) {
   const spark = codex.active_quota_lane === 'spark';
   const window = (q: Record<string, unknown>, prefix: string, seconds?: number) => ({
@@ -97,6 +152,7 @@ export function quotaAdviceSnapshot(
       windows: spark
         ? [sparkWindow('primary_window'), sparkWindow('secondary_window')]
         : [window(codex, 'primary'), window(codex, 'secondary')],
+      ...(pools.codex ? { pool: pools.codex } : {}),
     },
     claude: {
       available: engines.includes('claude'),
@@ -104,6 +160,7 @@ export function quotaAdviceSnapshot(
       fetched_at: claude.fetched_at ?? null,
       limit_reached: false,
       windows: [window(claude, 'five_hour', 18000), window(claude, 'seven_day', 604800)],
+      ...(pools.claude ? { pool: pools.claude } : {}),
     },
   };
 }

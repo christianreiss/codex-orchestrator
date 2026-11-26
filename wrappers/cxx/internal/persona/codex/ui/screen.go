@@ -29,10 +29,12 @@ type ScreenInput struct {
 	ConcurrentNote string
 	Dots           []HealthDot
 
-	QuotaRows   []QuotaRow
-	QuotaWarn   string
-	QuotaBlock  string
-	SessionRows []SessionRow
+	QuotaRows     []QuotaRow
+	QuotaAccounts []terminalui.QuotaAccount
+	QuotaNote     string
+	QuotaWarn     string
+	QuotaBlock    string
+	SessionRows   []SessionRow
 
 	ResultLabel string
 	ResultTone  Tone
@@ -62,6 +64,8 @@ func sharedScreen(in ScreenInput) terminalui.ScreenInput {
 		ConcurrentNote: in.ConcurrentNote,
 		Dots:           in.Dots,
 		QuotaRows:      in.QuotaRows,
+		QuotaAccounts:  in.QuotaAccounts,
+		QuotaNote:      in.QuotaNote,
 		QuotaWarn:      in.QuotaWarn,
 		QuotaBlock:     in.QuotaBlock,
 		SessionRows:    in.SessionRows,

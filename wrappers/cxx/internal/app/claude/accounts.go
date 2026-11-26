@@ -2,7 +2,6 @@ package claudeapp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +19,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/poolview"
 )
 
 const accountsUsage = `Usage:
@@ -32,37 +32,8 @@ const accountsUsage = `Usage:
 // killed `clx accounts add`) may keep credentials on disk.
 const enrollStaleAfter = time.Hour
 
-type accountsView struct {
-	Engine string `json:"engine"`
-	Policy *struct {
-		Mode            string `json:"mode"`
-		Strategy        string `json:"strategy"`
-		Spread          string `json:"spread"`
-		SpreadPoints    int    `json:"spread_points"`
-		SoftCeiling     int    `json:"soft_ceiling"`
-		HardCeiling     int    `json:"hard_ceiling"`
-		MinDwellMinutes int    `json:"min_dwell_minutes"`
-	} `json:"policy"`
-	BoundAccountID    *int64                       `json:"bound_account_id"`
-	BindingGeneration *int64                       `json:"binding_generation"`
-	AccountSwitch     *accountpool.SwitchDirective `json:"account_switch"`
-	Accounts          []struct {
-		ID                int64    `json:"id"`
-		Label             string   `json:"label"`
-		Email             *string  `json:"email"`
-		State             string   `json:"state"`
-		Verified          bool     `json:"verified"`
-		Plan              *string  `json:"plan"`
-		ShortUsedPercent  *float64 `json:"short_used_percent"`
-		WeeklyUsedPercent *float64 `json:"weekly_used_percent"`
-		ActiveSessions    int      `json:"active_sessions"`
-	} `json:"accounts"`
-	Recommendation *struct {
-		Action    string `json:"action"`
-		AccountID *int64 `json:"account_id"`
-		Message   string `json:"message"`
-	} `json:"recommendation"`
-}
+// accountsView is GET /auth/accounts (shared with status and doctor).
+type accountsView = poolview.View
 
 func cmdAccounts(ctx context.Context, cfg *config.Config, args []string, stdout, stderr io.Writer) int {
 	op := "list"
@@ -82,7 +53,7 @@ func cmdAccounts(ctx context.Context, cfg *config.Config, args []string, stdout,
 	case "use":
 		return accountsUse(ctx, cfg, args, stdout, stderr)
 	}
-	ui.Say(stderr, "clx", ui.ToneFail, "accounts", "unbekannter Unterbefehl: "+op)
+	ui.Say(stderr, "clx", ui.ToneFail, "accounts", "unknown subcommand: "+op)
 	fmt.Fprint(stderr, accountsUsage)
 	return 2
 }
@@ -107,18 +78,7 @@ func accountsClient(cfg *config.Config) (*orchestrator.Client, *accountpool.Cont
 
 // scopeSessions lists live lease IDs of this scope: the inherited one inside
 // a managed session first, then the markers of running wrappers.
-func scopeSessions(pool *accountpool.Context) []string {
-	var ids []string
-	if env := strings.TrimSpace(os.Getenv("CXX_PROVIDER_SESSION_ID")); env != "" {
-		ids = append(ids, env)
-	}
-	for _, id := range pool.LiveSessions() {
-		if len(ids) == 0 || id != ids[0] {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
+func scopeSessions(pool *accountpool.Context) []string { return poolview.Sessions(pool) }
 
 func isNotFound(err error) bool {
 	var httpErr *orchestrator.HTTPError
@@ -143,7 +103,7 @@ func accountsList(ctx context.Context, cfg *config.Config, args []string, stdout
 			fmt.Fprint(stdout, accountsUsage)
 			return 0
 		default:
-			ui.Say(stderr, "clx", ui.ToneFail, "accounts", "unbekanntes Argument: "+arg)
+			ui.Say(stderr, "clx", ui.ToneFail, "accounts", "unknown argument: "+arg)
 			return 2
 		}
 	}
@@ -154,31 +114,16 @@ func accountsList(ctx context.Context, cfg *config.Config, args []string, stdout
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	var raw json.RawMessage
-	err = errors.New("no session")
-	for _, session := range scopeSessions(pool) {
-		raw, err = accountpool.ListAccounts(callCtx, client, "claude", session)
-		if err == nil || !isNotFound(err) {
-			break
-		}
-	}
-	if err != nil && (isNotFound(err) || err.Error() == "no session") {
-		raw, err = accountpool.ListAccounts(callCtx, client, "claude", "")
+	view, raw, err := poolview.Fetch(callCtx, client, pool, "claude")
+	if asJSON && raw != nil {
+		fmt.Fprintln(stdout, string(raw))
+		return 0
 	}
 	if err != nil {
 		ui.Say(stderr, "clx", ui.ToneFail, "accounts", serverError(err))
 		return 1
 	}
-	if asJSON {
-		fmt.Fprintln(stdout, string(raw))
-		return 0
-	}
-	var view accountsView
-	if err := json.Unmarshal(raw, &view); err != nil {
-		ui.Say(stderr, "clx", ui.ToneFail, "accounts", "unerwartete Serverantwort: "+err.Error())
-		return 1
-	}
-	printAccounts(stdout, view, pool.AccountID)
+	printAccounts(stdout, *view, pool.AccountID)
 	return 0
 }
 
@@ -199,7 +144,7 @@ func printAccounts(w io.Writer, view accountsView, localBinding int64) {
 		if p.Strategy == "balanced" {
 			line += fmt.Sprintf(" · band %s (%d points)", p.Spread, p.SpreadPoints)
 		} else {
-			line += fmt.Sprintf(" · Grenzen %d/%d %%", p.SoftCeiling, p.HardCeiling)
+			line += fmt.Sprintf(" · ceilings %d/%d %%", p.SoftCeiling, p.HardCeiling)
 		}
 		line += fmt.Sprintf(" · dwell %d min", p.MinDwellMinutes)
 		fmt.Fprintln(w, line)
@@ -233,7 +178,7 @@ func printAccounts(w io.Writer, view accountsView, localBinding int64) {
 	if bound > 0 {
 		line := fmt.Sprintf("Bound: #%d", bound)
 		if view.BindingGeneration != nil {
-			line += fmt.Sprintf(" (Generation %d)", *view.BindingGeneration)
+			line += fmt.Sprintf(" (generation %d)", *view.BindingGeneration)
 		}
 		fmt.Fprintln(w, line)
 	}
@@ -254,7 +199,7 @@ func accountsUse(ctx context.Context, cfg *config.Config, args []string, stdout,
 	if args[0] != "auto" {
 		id, err := strconv.ParseInt(strings.TrimPrefix(args[0], "#"), 10, 64)
 		if err != nil || id <= 0 {
-			ui.Say(stderr, "clx", ui.ToneFail, "accounts", `Ziel muss eine Account-ID oder "auto" sein`)
+			ui.Say(stderr, "clx", ui.ToneFail, "accounts", `target must be an account ID or "auto"`)
 			return 2
 		}
 		target = id

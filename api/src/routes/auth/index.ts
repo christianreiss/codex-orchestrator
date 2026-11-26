@@ -15,7 +15,7 @@ import { ProviderAccountsService } from '../../services/provider-accounts.js';
 import { AccountSwitchService, LIVE_SWITCH_ENGINES } from '../../services/account-switch.js';
 import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
-import { readQuotaAdvice, quotaAdviceSnapshot } from '../../services/quota-advice.js';
+import { advicePool, readQuotaAdvice, quotaAdviceSnapshot, type AdvicePool } from '../../services/quota-advice.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { join, resolve } from 'node:path';
 import { and, eq, inArray, isNull, desc, sql } from 'drizzle-orm';
@@ -434,14 +434,22 @@ if (engine === ENGINE_KIMI) {
           extras.quota_pool = {
             recommendation: view.recommendation,
             policy: { mode: view.policy.mode, strategy: view.policy.strategy },
+            bound_account_id: view.bound_account_id,
+            headroom: view.headroom,
+            launch_account_id: view.launch_account_id,
+            live_switch: LIVE_SWITCH_ENGINES.has(engine),
             accounts: view.accounts.map((a) => ({
               id: a.id,
               label: a.label,
               state: a.state,
               verified: a.verified,
               short_used_percent: a.short_used_percent,
+              short_resets_at: a.short_resets_at,
               weekly_used_percent: a.weekly_used_percent,
+              weekly_resets_at: a.weekly_resets_at,
+              fetched_at: a.fetched_at,
               score: a.score,
+              emulation_blocked: a.emulation_blocked,
             })),
           };
       } catch {
@@ -780,7 +788,9 @@ if (engine === ENGINE_KIMI) {
         authStore,
         projectedVersions,
       );
-      out.auth = authResult;
+      // Same pool extras as POST /auth: a launch usually reuses this answer
+      // after its account lease, so the card and picker read the pool here.
+      out.auth = await withPoolExtras(authResult, enforced.id, engine, payload.session_id);
       const status = ((authResult as { status?: string }).status ?? '').toLowerCase();
       if (status !== 'valid') {
         out.reasons.push(`auth_${status !== '' ? status : 'unknown'}`);
@@ -1087,7 +1097,7 @@ if (engine === ENGINE_KIMI) {
     cdx_silent: versions.cdx_silent,
     engine,
   };
-  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(
+  const [chatgpt, claude, advice, pools] = await readAuthQuotaSnapshots(
     ctx,
     host,
     engine,
@@ -1101,6 +1111,7 @@ if (engine === ENGINE_KIMI) {
     activeHostEngines(host.engines, await readFleetEngineState(ctx.db)),
     chatgpt,
     claude,
+    pools,
   );
 
   if (!canonicalRow || !canonicalDigest) {
@@ -1203,7 +1214,7 @@ async function buildRetrieveBaseResponse(
     cdx_silent: versions.cdx_silent,
     engine,
   };
-  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(
+  const [chatgpt, claude, advice, pools] = await readAuthQuotaSnapshots(
     ctx,
     host,
     engine,
@@ -1221,6 +1232,7 @@ if (engine === ENGINE_KIMI)
     activeHostEngines(host.engines, await readFleetEngineState(ctx.db)),
     chatgpt,
     claude,
+    pools,
   );
   return baseResponse;
 }
@@ -1569,7 +1581,7 @@ async function handleStore(
     cdx_silent: summary.cdx_silent,
     host: buildHostPayload(host, await readFleetEngineState(ctx.db)),
   };
-  const [chatgpt, claude, advice] = await readAuthQuotaSnapshots(
+  const [chatgpt, claude, advice, pools] = await readAuthQuotaSnapshots(
     ctx,
     host,
     engine,
@@ -1585,6 +1597,7 @@ if (engine === ENGINE_KIMI) response.kimi_usage = await readKimiUsageSnapshot(ct
     activeHostEngines(host.engines, await readFleetEngineState(ctx.db)),
     chatgpt,
     claude,
+    pools,
   );
   return response;
 }
@@ -1855,8 +1868,25 @@ async function readAuthQuotaSnapshots(
             )
             .orderBy(desc(providerAccounts.lastSelectedAt), desc(providerAccounts.id))
         : [];
+  // Pools (engines with more than one account) give the picker the whole
+  // pool: the requesting engine relative to its bound account, the other
+  // engine as a new launch would see it. Advisory: a failure omits the pool.
+  const pools: { codex?: AdvicePool; claude?: AdvicePool } = {};
+  if (alternatives) {
+    const switches = new AccountSwitchService(ctx.db, ctx.keyring);
+    for (const target of needed) {
+      try {
+        const view = await switches.poolView(target, target === engine ? (accountId ?? null) : null);
+        if (view.accounts.length > 1) pools[target as 'codex' | 'claude'] = advicePool(view);
+      } catch {
+        // The single-account comparison stands without pool details.
+      }
+    }
+  }
   const idFor = (target: Engine) =>
-    target === engine ? accountId : accounts.find((a) => a.engine === target)?.id;
+    target === engine
+      ? accountId
+      : (pools[target as 'codex' | 'claude']?.launch_account_id ?? accounts.find((a) => a.engine === target)?.id);
   const read = async (target: Engine) => {
     if (!needed.includes(target)) return { status: 'unavailable' };
     const id = idFor(target);
@@ -1864,7 +1894,7 @@ async function readAuthQuotaSnapshots(
     return target === ENGINE_CODEX ? readChatgptSnapshot(ctx, id) : readClaudeSnapshot(ctx, id);
   };
   const [chatgpt, claude] = await Promise.all([read(ENGINE_CODEX), read(ENGINE_CLAUDE)]);
-  return [chatgpt, claude, advice] as const;
+  return [chatgpt, claude, advice, pools] as const;
 }
 
 async function readChatgptSnapshot(ctx: RouteContext, accountId?: number): Promise<Record<string, unknown>> {

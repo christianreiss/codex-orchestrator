@@ -774,7 +774,12 @@ percent falls back to the text note (`weekly; resets in 20
 days`) instead of printing 0%. A missing,
 unparseable, or already passed reset keeps `Subscription quota usage is
 unavailable.` This does not enable quota hard-fail, account balancing by Grok
-quota, automatic purchasing, or an extra provider call from the wrapper. The
+quota, automatic purchasing, or an extra provider call from the wrapper. From cxx 0.9.208, an answer carrying `quota_pool` (more than one account)
+also lists every account under the bar. The list uses the clx/cdx rows and
+dim pool note (see `docs/interface-clx.md` → *Pools on the card, `status`,
+`doctor` and the statusline*). The bound account is the leased one, even when
+the `/auth` answer predates the lease. Grok and Kimi keep any emulated-budget
+"pause" suggestion, because their run stays on its account. The
 provider-owned billing endpoint may change; source
 contract: [official CLI billing handler](https://github.com/xai-org/grok-build/blob/2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8/crates/codegen/xai-grok-shell/src/extensions/billing.rs).
 

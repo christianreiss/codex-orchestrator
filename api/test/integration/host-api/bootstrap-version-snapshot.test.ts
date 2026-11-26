@@ -9,6 +9,7 @@ import { createRunnerValidationService } from '../../../src/services/runner-vali
 import { ServiceUnavailableError } from '../../../src/http/errors.js';
 import { ClientVersionsService } from '../../../src/services/client-versions.js';
 import { ProviderAccountsService } from '../../../src/services/provider-accounts.js';
+import { AccountSwitchService } from '../../../src/services/account-switch.js';
 import * as pooledAuth from '../../../src/services/pooled-auth-store.js';
 import * as grokOwner from '../../../src/services/grok-auth-owner.js';
 import * as wrapperProjection from '../../../src/services/wrapper-version-projection.js';
@@ -135,6 +136,40 @@ describe('bootstrap request version snapshot', () => {
       expect(body.auth.versions.runner_state).toBe('fail');
       expect(body.auth.status).toBe(outcome === 'stored' ? 'updated' : 'missing');
       expect(projection).toHaveBeenCalledTimes(outcome === 'projection retry' ? 3 : 2);
+    } finally { await app.close(); }
+  });
+
+  it('carries the pool block in the nested auth answer a launch reuses', async () => {
+    const f = fixture('claude');
+    vi.spyOn(ProviderAccountsService.prototype, 'resolveCandidate').mockResolvedValue({ id: 1 } as never);
+    vi.spyOn(pooledAuth, 'createPooledAuthStoreService').mockImplementation(deps => ({ ...createAuthStore(deps),
+      storeCandidate: vi.fn(async () => ({ status: 'valid' as const, engine: 'claude' as const, account_id: 1,
+        canonical_last_refresh: candidate.last_refresh, canonical_digest: 'a'.repeat(64), verification_state: 'verified' as const, pending_payload_id: 2, runner_applied: true })) }));
+    const account = (id: number, score: number | null) => ({ id, label: `a${id}@example.com`, state: 'enabled', verified: true, short_used_percent: null,
+      short_resets_at: null, weekly_used_percent: score, weekly_resets_at: null, fetched_at: null, score, emulation_blocked: false });
+    const poolView = vi.spyOn(AccountSwitchService.prototype, 'poolView').mockResolvedValue({
+      policy: { mode: 'auto', strategy: 'balanced' }, accounts: [account(1, 87), account(8, null)],
+      recommendation: { action: 'continue', account_id: null, message: 'Account a1@example.com is at 87%.' },
+      bound_account_id: 1, headroom: true, launch_account_id: 8,
+    } as never);
+    const app = await f.app();
+    try {
+      const response = await app.inject({ ...f.inject, payload: { ...f.inject.payload, auth_candidate: candidate } });
+      expect(response.statusCode, response.body).toBe(200);
+      const pool = response.json().auth.quota_pool;
+      expect(poolView).toHaveBeenCalledWith('claude', 1);
+      expect(pool).toMatchObject({ bound_account_id: 1, headroom: true, launch_account_id: 8, live_switch: true,
+        policy: { mode: 'auto', strategy: 'balanced' } });
+      expect(pool.accounts.map((a: { id: number; score: number | null }) => [a.id, a.score])).toEqual([[1, 87], [8, null]]);
+      // The picker's copy: the requesting engine relative to its bound account,
+      // the alternative as a new launch would see it.
+      const advice = response.json().auth.quota_advice;
+      expect(advice.claude.pool).toEqual({ bound_account_id: 1, launch_account_id: 8, headroom: true, accounts: [
+        { id: 1, label: 'a1@example.com', usable: true, score: 87, short_used_percent: null, weekly_used_percent: 87 },
+        { id: 8, label: 'a8@example.com', usable: true, score: null, short_used_percent: null, weekly_used_percent: null },
+      ] });
+      expect(advice.codex.pool.headroom).toBe(true);
+      expect(poolView).toHaveBeenCalledWith('codex', null);
     } finally { await app.close(); }
   });
 

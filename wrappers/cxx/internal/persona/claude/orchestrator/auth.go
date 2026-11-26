@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/httpguard"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/poolview"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 )
@@ -25,6 +27,12 @@ type AuthRetrieveResponse struct {
 	QuotaAdvice    *quotaadvice.Comparison  `json:"quota_advice,omitempty"`
 	// QuotaPool is present when the engine's pool has more than one account.
 	QuotaPool *QuotaPool `json:"quota_pool,omitempty"`
+	// AccountSwitch is the pending live switch of a request that carried a
+	// session; it is shown on the card only. Binding fences stay with the
+	// account pool observer (binding_generation is deliberately not decoded,
+	// so a relayed answer never feeds it), and omitempty keeps a relay from
+	// inventing a null directive.
+	AccountSwitch *accountpool.SwitchDirective `json:"account_switch,omitempty"`
 
 	Status                      string               `json:"status"`
 	Action                      string               `json:"action,omitempty"`
@@ -254,19 +262,13 @@ func (c *Client) SyncStatus(ctx context.Context) (*SyncStatus, error) {
 
 // SyncBootstrap is implemented in bundle.go (typed request + response).
 
-// QuotaPool is the pool-wide quota view of /auth retrieve. Only the
-// recommendation is used locally; other fields are tolerated and ignored.
-type QuotaPool struct {
-	Recommendation *PoolRecommendation `json:"recommendation,omitempty"`
-}
+// QuotaPool is the pool-wide quota view of /auth and /sync/bootstrap
+// (shared with every persona; see internal/poolview).
+type QuotaPool = poolview.QuotaPool
 
 // PoolRecommendation: action is continue, switch or pause. pause means the
 // whole pool is at its limit; the others mean work can go on.
-type PoolRecommendation struct {
-	Action    string `json:"action"`
-	AccountID *int64 `json:"account_id,omitempty"`
-	Message   string `json:"message"`
-}
+type PoolRecommendation = poolview.Recommendation
 
 // AuthEnrollResponse is the store answer for an explicit additional-account
 // login (`enroll: true`).

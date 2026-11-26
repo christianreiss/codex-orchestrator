@@ -186,7 +186,7 @@ func TestPrintAccountsMarksBindingAndRecommendation(t *testing.T) {
 	var out bytes.Buffer
 	printAccounts(&out, view, 0)
 	text := out.String()
-	for _, want := range []string{"Policy: auto · balanced · band normal (20 points)", "*  3", "12 %", "40 %", "Max 20x", "Bound: #3 (Generation 2)", "Recommendation (continue): Pool has headroom; keep working."} {
+	for _, want := range []string{"Policy: auto · balanced · band normal (20 points)", "*  3", "12 %", "40 %", "Max 20x", "Bound: #3 (generation 2)", "Recommendation (continue): Pool has headroom; keep working."} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing %q in:\n%s", want, text)
 		}

@@ -409,6 +409,51 @@ func TestStatusNeverWritesFailedVerificationCanonical(t *testing.T) {
 	}
 }
 
+func TestStatusListsThePoolWithBindingAndPendingSwitch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CXX_PROVIDER_SESSION_ID", "abcdef0123")
+	setStatusClaudeBin(t)
+	now := time.Now().UTC()
+	accounts := `[{"id":1,"label":"a@example.com","state":"enabled","verified":true,"short_used_percent":12,"weekly_used_percent":87,"score":87},{"id":8,"label":"b@example.com","state":"enabled","verified":true,"short_used_percent":null,"weekly_used_percent":null,"score":null}]`
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.RequestURI())
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/auth/accounts" {
+			_, _ = w.Write([]byte(`{"engine":"claude","policy":{"mode":"auto","strategy":"balanced"},"bound_account_id":1,"binding_generation":3,"account_switch":{"account_id":8,"account_label":"b@example.com","binding_generation":3,"reason":"policy"},"live_switch":true,"accounts":` + accounts + `,"recommendation":{"action":"switch","account_id":8,"message":"Account a@example.com is at 87%; pool: b@example.com unknown. The pool policy moves this session to b@example.com at a turn boundary; keep working."}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"valid","verification_state":"verified","account_pool":true,"account_id":1,"host":{"secure":true},"quota_limit_percent":95,
+		"claude_usage":{"status":"ok","fetched_at":"` + now.Format(time.RFC3339) + `","seven_day_used_percent":87,"seven_day_resets_at":"` + now.Add(72*time.Hour).Format(time.RFC3339) + `"},
+		"quota_pool":{"bound_account_id":1,"headroom":true,"accounts":` + accounts + `}}`))
+	}))
+	defer server.Close()
+	cfg := &config.Config{Host: config.Host{Secure: true}, Orchestrator: config.Orchestrator{BaseURL: server.URL, APIKey: "test"}}
+	var stdout, stderr bytes.Buffer
+	if code := cmdStatus(context.Background(), cfg, "test", &stdout, &stderr, true); code != 0 {
+		t.Fatalf("status code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := strings.ReplaceAll(stdout.String(), "\n", " ")
+	for _, want := range []string{
+		"account | id=1 | label=a@example.com | 5h=12% | 7d=87% | bound=true | in use",
+		"account | id=8 | label=b@example.com | usage=none | switch_target=true | switching here",
+		"bound #1 (generation 3)",
+		"switch to #8 b@example.com pending (policy), at the next turn boundary",
+		"The pool policy moves this session to b@example.com",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status misses %q:\n%s", want, stdout.String())
+		}
+	}
+	if strings.Contains(out, "warning |") || strings.Contains(out, "quota high") {
+		t.Fatalf("healthy pool warned:\n%s", stdout.String())
+	}
+	if len(paths) < 2 || !strings.Contains(strings.Join(paths, " "), "/auth/accounts?engine=claude&session_id=abcdef0123") {
+		t.Fatalf("pool view not read with the scope session: %v", paths)
+	}
+}
+
 func TestStatusRepairsStructurallyInvalidNativeJSON(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

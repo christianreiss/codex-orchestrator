@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/poolview"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 	"net/http"
@@ -21,6 +22,9 @@ type AuthRetrieveResponse struct {
 	AccountID      int64                    `json:"account_id,omitempty"`
 	AccountPool    bool                     `json:"account_pool,omitempty"`
 	QuotaAdvice    *quotaadvice.Comparison  `json:"quota_advice,omitempty"`
+	// QuotaPool is present when the engine's pool has more than one account
+	// (shared with every persona; see internal/poolview).
+	QuotaPool *poolview.QuotaPool `json:"quota_pool,omitempty"`
 
 	Status               string          `json:"status"`
 	Action               string          `json:"action,omitempty"`

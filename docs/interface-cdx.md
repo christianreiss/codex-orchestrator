@@ -1556,6 +1556,24 @@ working directory after the original wrapper releases its auth leases. No prompt
 resume identifier or launch arguments transfer. If the original invocation has
 options or a conversation to resume, confirm their loss on every switch.
 
+**Account pools (cxx 0.9.208).** When an engine has more than one account, the
+recommendation reads the whole pool, not only the account in use. The server
+sends each account's usage and its headroom verdict in
+`quota_advice.<engine>.pool`. The verdict uses the same rule as the pool
+recommendation: another usable account is below the policy ceiling, and an
+account without a reading counts as unused.
+
+- If the current engine's pool has headroom, no question or hint appears. The
+  pool policy moves the work: Claude switches live at a turn boundary, Codex
+  switches at the next launch.
+- If the whole pool is high, the question lists every account under the engine
+  bars: 5h and 7d usage, plus `in use`, `next launch` or `unavailable`.
+  Non-interactive hints add a `<Engine> pool:` line with the same information.
+- An alternative engine whose whole pool is at its limit is never recommended.
+- The alternative engine's numbers are those of the account its next launch
+  would use (`launch_account_id`).
+- A remembered "today" choice still applies until midnight.
+
 “Remember this provider for today” applies the selection to subsequent interactive
 starts of both `cdx` and `clx`, until local midnight (including daylight-saving
 transitions). The private, atomically written state is stored under
@@ -1736,7 +1754,28 @@ never starts a turn itself. The signed file is re-read on every use.
 
 A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Account switching uses strict generation CAS and requires an idle native child lease; overlapping invocations with the same host/engine/auth-directory scope share their live account. Heartbeats run every 30 seconds and leases expire after five minutes if a wrapper disappears; normal exit releases the reservation. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
 
-Quota gating and advice read the selected account only. The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. Client uploads with a distinct provider identity can enroll another verified account; a new login for the same identity retains its existing account, including after migration. Opaque tokens reuse the sole or assigned account. Additional opaque accounts require explicit Add account or an untargeted seed command; unassigned opaque uploads into a multiple-account pool require an account assignment.
+Quota gating reads the selected account; with more than one account, advice and the quota warnings also weigh the rest of the pool (see *Pools on the card, `status` and `doctor`* below). The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. Client uploads with a distinct provider identity can enroll another verified account; a new login for the same identity retains its existing account, including after migration. Opaque tokens reuse the sole or assigned account. Additional opaque accounts require explicit Add account or an untargeted seed command; unassigned opaque uploads into a multiple-account pool require an account assignment.
+
+
+### Pools on the card, `status` and `doctor` (cxx 0.9.208)
+
+With more than one Codex account, `quota_pool` drives these surfaces the same
+way as for clx (see `docs/interface-clx.md` → *Pools on the card, `status`,
+`doctor` and the statusline*). Codex has no live switch, so the differences
+are:
+
+- A pending switch, and the policy's move away from a high account, apply at
+  the next launch.
+- The card stops raising `quota high`, daily-allowance-high and forecast
+  escalations while another account has headroom.
+- A reached limit still blocks under `quota_hard_fail`, or warns, because this
+  run stays on the bound account.
+- An emulated-budget "pause" suggestion is kept.
+- `cdx status` reads `GET /auth/accounts?engine=codex` for the binding view.
+- `cdx doctor` adds the `Accounts` row. There is no `cdx accounts add`, so the
+  no-usable-account hint points to the Accounts page only.
+- The card of an unbound scope names the account the next launch would use
+  (`next launch`).
 
 ## Wake / Cron and explicit persistent recovery
 
