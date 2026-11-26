@@ -453,4 +453,69 @@ describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
       expect(unknown.body.presented_account_id).toBeUndefined();
     });
   });
+
+  describe('requests and policy changes leave a trail', () => {
+    const scope = 'scope-trail-aaaaaaaa';
+    const session = 'lease-trail-aaaaaaaa';
+    const rows = async (action: string) =>
+      (await db.select().from(logs).where(eq(logs.action, action))).map((row) => JSON.parse(row.details ?? '{}') as Record<string, unknown>);
+
+    it('audits a policy change with its author and skips a write that changes nothing', async () => {
+      await writeAccountPolicy(db, 'claude', { mode: 'manual' }, 'op@example.com');
+      await writeAccountPolicy(db, 'claude', { mode: 'manual' }, 'op@example.com');
+      const audits = await rows('account.policy.updated');
+      expect(audits).toHaveLength(1);
+      expect(audits[0]).toMatchObject({ engine: 'claude', actor: 'op@example.com', before: { mode: 'auto' }, after: { mode: 'manual' } });
+    });
+
+    it('audits a request that is taken back', async () => {
+      const a = (await put('alice-1')).account_id!;
+      const b = (await put('bob-1')).account_id!;
+      await accounts.acquire(1, 'claude', scope, session, 95, a);
+      await switches.requestSwitch({ hostId: 1, engine: 'claude', scopeId: scope, target: b, reason: 'admin', actor: 'op@example.com' });
+      await switches.requestSwitch({ hostId: 1, engine: 'claude', scopeId: scope, target: a, reason: 'admin', actor: 'op@example.com' });
+      expect(await rows('provider_account.switch_withdrawn')).toEqual([
+        expect.objectContaining({ from_account_id: a, to_account_id: b, requested_reason: 'admin', withdrawn: 'requested', by: 'admin', actor: 'op@example.com' }),
+      ]);
+    });
+
+    it('withdraws a request whose target stopped being usable or that waited a day', async () => {
+      const a = (await put('alice-1')).account_id!;
+      const b = (await put('bob-1')).account_id!;
+      await writeAccountPolicy(db, 'claude', { mode: 'manual' });
+      await accounts.acquire(1, 'claude', scope, session, 95, a);
+      const pending = async () => (await switches.sessionBinding(1, 'claude', session)).account_switch;
+
+      await switches.requestSwitch({ hostId: 1, engine: 'claude', scopeId: scope, target: b, reason: 'agent' });
+      await switches.evaluate('claude');
+      expect(await pending()).toMatchObject({ account_id: b });
+      // Nobody carried it out for more than a day.
+      await db.update(providerAccountSessions).set({ desiredAt: new Date(Date.now() - 25 * 3_600_000).toISOString() });
+      await switches.evaluate('claude');
+      expect(await pending()).toBeNull();
+
+      await switches.requestSwitch({ hostId: 1, engine: 'claude', scopeId: scope, target: b, reason: 'admin' });
+      await accounts.update(b, { state: 'paused' });
+      await switches.evaluate('claude');
+      expect(await pending()).toBeNull();
+      expect((await rows('provider_account.switch_withdrawn')).map((row) => [row.requested_reason, row.withdrawn])).toEqual([
+        ['agent', 'expired'],
+        ['admin', 'target_unavailable'],
+      ]);
+    });
+
+    it('does not advise a move while the scope is inside its dwell time', async () => {
+      const a = (await put('alice-1')).account_id!;
+      const b = (await put('bob-1')).account_id!;
+      await writeAccountPolicy(db, 'claude', { mode: 'auto', strategy: 'balanced', min_dwell_minutes: 30 });
+      const week = new Date(Date.now() + 3 * 86_400_000).toISOString();
+      await new ClaudeUsageService(db, a).store({ accountId: a, hostId: 1, source: 'test', sevenDayUsedPercent: 70, sevenDayResetsAt: week });
+      await new ClaudeUsageService(db, b).store({ accountId: b, hostId: 1, source: 'test', sevenDayUsedPercent: 5, sevenDayResetsAt: week });
+      // Above the warning level (60) and below the limit, where the dwell still applies.
+      const long = await switches.poolView('claude', a, 60, new Date(Date.now() - 3_600_000).toISOString());
+      const fresh = await switches.poolView('claude', a, 60, new Date().toISOString());
+      expect(long.recommendation).toMatchObject({ action: 'switch', account_id: b });
+      expect(fresh.recommendation).toMatchObject({ action: 'continue', account_id: null });
+    });
+  });
 });

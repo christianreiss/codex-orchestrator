@@ -2652,8 +2652,17 @@ binding file and ignores every answer below it).
   scope and binding generation) naming the new and the previous account with their 5h and weekly
   usage, the reason, and that work continues. The notice is best effort: if it fails, the switch
   still stands and the failure is logged.
-- Audit actions `provider_account.switch_requested`, `provider_account.switched` and
-  `provider_account.switch_write_unfinished`; WebSocket
+- A pending request ends without a switch when it is taken back, when its target is paused, removed or
+  no longer verified, or when an operator, host or agent request has waited 24 hours for a turn boundary
+  (checked on every evaluator pass, also under the `manual` policy). Each such end writes
+  `provider_account.switch_withdrawn` with `withdrawn` (`requested`, `readings`, `target_unavailable`,
+  `expired`). A change of the distribution policy writes `account.policy.updated` with the admin, the
+  previous and the new policy.
+- `recommendation` in `quota_pool` and `GET /auth/accounts` is computed with the scope's `bound_at` when
+  the request names a session, so it does not announce a move the policy withholds for
+  `min_dwell_minutes`. An `auto` target requested by an agent or host honours the fleet quota limit.
+- Audit actions `provider_account.switch_requested`, `provider_account.switched`,
+  `provider_account.switch_withdrawn` and `provider_account.switch_write_unfinished`; WebSocket
   `accounts.updated` and `provider.scope.switch`.
 - Usage reports for an account the session no longer holds return `{status: "ignored", reason: "stale_account"}`.
   The same applies when a report's reset time matches another account's current window but not

@@ -197,6 +197,9 @@ function refusedLongEnough(key: string, now: number): boolean {
   return true;
 }
 
+/** How long an operator, host or agent request may wait for its scope before it is withdrawn. */
+export const SWITCH_REQUEST_TTL_MS = 24 * 3_600_000;
+
 /** Unfinished credential writes already audited (host, engine, scope, binding generation). */
 const unfinishedWrites = new Set<string>();
 
@@ -300,6 +303,12 @@ export class AccountSwitchService {
     const row = (await this.leases({ hostId, engine })).find((r) => r.id === sessionId);
     if (!row) return { binding_generation: null, account_switch: null };
     return { binding_generation: generationOf(row), account_switch: await this.directiveFor(row) };
+  }
+
+  /** When the scope of a session was bound to its account (null: unknown session). */
+  async boundAt(hostId: number, engine: Engine, sessionId: string): Promise<string | null> {
+    const row = (await this.leases({ hostId, engine })).find((r) => r.id === sessionId);
+    return row ? (row.boundAt ?? row.createdAt) : null;
   }
 
   /**
@@ -445,6 +454,8 @@ export class AccountSwitchService {
     target: number | 'auto';
     reason: SwitchReason;
     actor?: string | null;
+    /** Why a pending request is being cleared (audit only). */
+    withdrawn?: 'requested' | 'readings' | 'expired' | 'target_unavailable';
   }): Promise<{ bound_account_id: number; binding_generation: number; account_switch: SwitchDirective | null }> {
     const { hostId, engine, scopeId, reason } = input;
     if (!LIVE_SWITCH_ENGINES.has(engine))
@@ -457,7 +468,14 @@ export class AccountSwitchService {
     if (input.target === 'auto') {
       const policy = await readAccountPolicy(this.db, engine);
       const candidates = this.candidates(pool);
-      const forced = rebalanceTarget({ ...policy, mode: 'auto', min_dwell_minutes: 0 }, first.accountId, candidates, null, Date.now());
+      const forced = rebalanceTarget(
+        { ...policy, mode: 'auto', min_dwell_minutes: 0 },
+        first.accountId,
+        candidates,
+        null,
+        Date.now(),
+        await this.limitPercent(),
+      );
       target = forced?.id ?? first.accountId;
     } else {
       target = (await this.accounts.canonicalId(input.target, engine)) ?? input.target;
@@ -467,7 +485,14 @@ export class AccountSwitchService {
     const generation = generationOf(first);
     if (target === first.accountId) {
       if (first.desiredAccountId)
-        await this.updateScope(hostId, engine, scopeId, { accountId: first.accountId, generation }, { desiredAccountId: null, desiredReason: null, desiredAt: null }, null);
+        await this.updateScope(
+          hostId,
+          engine,
+          scopeId,
+          { accountId: first.accountId, generation },
+          { desiredAccountId: null, desiredReason: null, desiredAt: null },
+          this.withdrawal(engine, scopeId, first, input.withdrawn ?? 'requested', reason, input.actor ?? null),
+        );
       return { bound_account_id: first.accountId, binding_generation: generation, account_switch: null };
     }
     const requestedAt = nowIso();
@@ -492,6 +517,24 @@ export class AccountSwitchService {
         reason,
         requested_at: requestedAt,
         bound_account_usable: this.usable(pool, first.accountId),
+      },
+    };
+  }
+
+  /** Audit row for a pending request that ends without a switch. */
+  private withdrawal(engine: Engine, scopeId: string, row: Lease, why: string, by: SwitchReason, actor: string | null) {
+    return {
+      action: 'provider_account.switch_withdrawn',
+      details: {
+        engine,
+        scope_id: scopeId,
+        from_account_id: row.accountId,
+        to_account_id: row.desiredAccountId ?? null,
+        requested_reason: row.desiredReason ?? null,
+        requested_at: row.desiredAt ?? null,
+        withdrawn: why,
+        by,
+        actor,
       },
     };
   }
@@ -526,7 +569,14 @@ export class AccountSwitchService {
     if (session.desiredAccountId !== target || generationOf(session) !== generation)
       throw new ConflictError('The switch request is no longer pending', 'account_switch_stale');
     if (!this.usable(await this.pool(engine), target)) {
-      await this.updateScope(hostId, engine, scopeId, { accountId: session.accountId, generation }, { desiredAccountId: null, desiredReason: null, desiredAt: null }, null);
+      await this.updateScope(
+        hostId,
+        engine,
+        scopeId,
+        { accountId: session.accountId, generation },
+        { desiredAccountId: null, desiredReason: null, desiredAt: null },
+        this.withdrawal(engine, scopeId, session, 'target_unavailable', 'host', null),
+      );
       throw new ConflictError('The target account is not enabled and verified', 'account_switch_target_unavailable');
     }
     if (input.credentialsReady === false)
@@ -689,7 +739,7 @@ export class AccountSwitchService {
    * verdict for "the whole pool is high". `launch_account_id` is the account a
    * new launch would be assigned now (same selection as `POST /auth/sessions`).
    */
-  async poolView(engine: Engine, boundAccountId: number | null, warnPercent?: number) {
+  async poolView(engine: Engine, boundAccountId: number | null, warnPercent?: number, boundAt: string | null = null) {
     const [policy, pool, limitPercent] = await Promise.all([
       readAccountPolicy(this.db, engine),
       this.pool(engine),
@@ -704,8 +754,10 @@ export class AccountSwitchService {
     });
     const bound = pool.find((a) => a.id === boundAccountId) ?? null;
     const candidates = this.candidates(pool);
+    // With the scope's `boundAt` the advice respects the dwell like the policy
+    // itself: it does not announce a move the evaluator will not request yet.
     const planned = bound
-      ? rebalanceTarget(policy, bound.id, candidates, null, Date.now(), limitPercent)?.id ?? null
+      ? rebalanceTarget(policy, bound.id, candidates, boundAt, Date.now(), limitPercent)?.id ?? null
       : null;
     const recommendation: PoolRecommendation = poolRecommendation(
       policy,
@@ -735,6 +787,32 @@ export class AccountSwitchService {
   }
 
   /**
+   * Clears requests that can no longer happen: the target was paused, removed
+   * or lost its verification, or an operator, host or agent request has waited
+   * `SWITCH_REQUEST_TTL_MS` for a turn boundary that never came (no wrapper
+   * that can switch, a session that never goes idle). Policy requests are
+   * re-derived on every pass and need no age limit.
+   */
+  private async expireRequests(engine: Engine, pool: PoolAccount[], now = Date.now()): Promise<void> {
+    for (const scope of await this.scopes(engine, pool)) {
+      const pending = scope.account_switch;
+      if (!pending) continue;
+      const asked = pending.requested_at ? Date.parse(pending.requested_at) : NaN;
+      const withdrawn = !this.usable(pool, pending.account_id)
+        ? 'target_unavailable'
+        : pending.reason !== 'policy' && Number.isFinite(asked) && now - asked > SWITCH_REQUEST_TTL_MS
+          ? 'expired'
+          : null;
+      if (!withdrawn) continue;
+      try {
+        await this.requestSwitch({ hostId: scope.host_id, engine, scopeId: scope.scope_id, target: scope.account_id, reason: 'policy', withdrawn });
+      } catch {
+        // A scope that changed meanwhile is looked at again on the next pass.
+      }
+    }
+  }
+
+  /**
    * Applies the automatic policy to every live scope of an engine: a scope whose
    * account should move gets a pending `policy` switch. A pending policy switch
    * follows the current readings (retargeted or withdrawn); admin and agent
@@ -743,8 +821,11 @@ export class AccountSwitchService {
   async evaluate(engine: Engine): Promise<number> {
     if (!LIVE_SWITCH_ENGINES.has(engine)) return 0;
     const policy: AccountPolicy = await readAccountPolicy(this.db, engine);
-    if (policy.mode !== 'auto') return 0;
     const pool = await this.pool(engine);
+    // Also under the manual policy: a request nobody can carry out must not
+    // wait on its scope for ever.
+    await this.expireRequests(engine, pool);
+    if (policy.mode !== 'auto') return 0;
     // One usable account is enough to move a scope off an account that was
     // paused or lost its verification; `rebalanceTarget` finds no target for a
     // scope that already runs on the only usable one.
@@ -763,7 +844,7 @@ export class AccountSwitchService {
         // The reading that asked for the move no longer holds (for example a
         // stale reading right after a switch): withdraw it instead of moving.
         try {
-          await this.requestSwitch({ hostId: scope.host_id, engine, scopeId: scope.scope_id, target: scope.account_id, reason: 'policy' });
+          await this.requestSwitch({ hostId: scope.host_id, engine, scopeId: scope.scope_id, target: scope.account_id, reason: 'policy', withdrawn: 'readings' });
         } catch {
           // Re-evaluated on the next pass.
         }

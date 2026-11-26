@@ -436,7 +436,8 @@ if (engine === ENGINE_KIMI) {
     const accountId = typeof result.account_id === 'number' ? result.account_id : null;
     if (accountId !== null) {
       try {
-        const view = await switches.poolView(engine, accountId);
+        const boundAt = typeof sessionId === 'string' ? await switches.boundAt(hostId, engine, sessionId) : null;
+        const view = await switches.poolView(engine, accountId, undefined, boundAt);
         if (view.accounts.length > 1)
           extras.quota_pool = {
             recommendation: view.recommendation,
@@ -476,13 +477,15 @@ if (engine === ENGINE_KIMI) {
     // Labels are usually e-mail addresses: same window as credential retrieval.
     await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, unattendedRequest(req));
     let boundAccountId: number | null = null;
+    let boundAt: string | null = null;
     let binding: Record<string, unknown> = { binding_generation: null, account_switch: null };
     if (query.session_id !== undefined) {
       const session = await accounts.session(host.id, engine, opaqueId(query.session_id, 'session_id'));
       boundAccountId = session.accountId;
+      boundAt = session.boundAt ?? session.createdAt;
       binding = await switches.sessionBinding(host.id, engine, session.id);
     }
-    const view = await switches.poolView(engine, boundAccountId);
+    const view = await switches.poolView(engine, boundAccountId, undefined, boundAt);
     return {
       engine,
       policy: view.policy,

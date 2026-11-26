@@ -62,7 +62,7 @@ export async function registerAdminAccountsRoutes(app: FastifyInstance, ctx: Rou
   );
   app.post('/admin/accounts/policy/:engine', { preHandler: app.requireAdmin }, async (req) => {
     const engine = engineOf((req.params as { engine: string }).engine);
-    const policy = await writeAccountPolicy(ctx.db, engine, req.body);
+    const policy = await writeAccountPolicy(ctx.db, engine, req.body, req.admin?.user.email ?? null);
     wsPublisher.publish('accounts.updated', { engine, policy: true });
     // A stricter band or ceiling may move running scopes right away.
     void switches.evaluate(engine).catch((err) => req.log.warn({ err }, 'account policy evaluation failed'));
