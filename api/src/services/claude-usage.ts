@@ -75,6 +75,40 @@ function normalizeResetsAt(value: string | null | undefined): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
+export const CLAUDE_SHORT_WINDOW_MS = 5 * 3_600_000;
+export const CLAUDE_WEEKLY_WINDOW_MS = 7 * 86_400_000;
+/** Clock difference tolerated between this server and the provider's reset time. */
+const RESET_SLACK_MS = 10 * 60_000;
+
+export interface ReportedClaudeWindow {
+  usedPercent: number;
+  resetsAt: string | null;
+}
+
+/**
+ * One window of a host's usage report, or null when it says nothing usable
+ * about the window that is running now. A host only relays what Claude Code
+ * displayed, so the reading is bounded by what the window allows: a share of
+ * 0..100 and a reset that lies ahead by no more than the window's length. A
+ * reset that already passed belongs to a window that ended; a session that
+ * has been idle since keeps displaying it, and filing it again would present
+ * the old figure as a fresh one.
+ */
+export function reportedClaudeWindow(raw: unknown, spanMs: number, now: number): ReportedClaudeWindow | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const { used_percent: used, resets_at: reset } = raw as Record<string, unknown>;
+  if (typeof used !== 'number' || !Number.isFinite(used) || used < 0) return null;
+  let resetsAt: string | null = null;
+  if (typeof reset === 'string' && reset.trim() !== '') {
+    const at = Date.parse(reset);
+    if (!Number.isFinite(at) || at <= now || at > now + spanMs + RESET_SLACK_MS) return null;
+    resetsAt = reset.trim();
+  } else if (reset !== undefined && reset !== null && reset !== '') {
+    return null;
+  }
+  return { usedPercent: Math.min(100, used), resetsAt };
+}
+
 export class ClaudeUsageService {
   constructor(
     private readonly db: Database,

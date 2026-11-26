@@ -12,7 +12,7 @@ import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { recordAuthCall, flushAuthCalls, uninstallOwnedHost } from './owner.js';
 import { readQuotaPolicy } from '../../services/quota-policy.js';
 import { ProviderAccountsService } from '../../services/provider-accounts.js';
-import { AccountSwitchService, LIVE_SWITCH_ENGINES, accountSwitchNoticeContent, staleSwitchReading } from '../../services/account-switch.js';
+import { AccountSwitchService, LIVE_SWITCH_ENGINES, accountSwitchNoticeContent } from '../../services/account-switch.js';
 import { AgentMessagingService } from '../../services/agent-messaging.js';
 import { quotaNoticeId } from '../../ops/quota-worker.js';
 import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
@@ -65,7 +65,7 @@ import {
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
-import { ClaudeUsageService, normalizeClaudeUsageSnapshot } from '../../services/claude-usage.js';
+import { CLAUDE_SHORT_WINDOW_MS, CLAUDE_WEEKLY_WINDOW_MS, ClaudeUsageService, normalizeClaudeUsageSnapshot, reportedClaudeWindow } from '../../services/claude-usage.js';
 import { grokUsageAuthFields, readGrokUsage } from '../../services/grok-usage.js';
 import { kimiUsageAuthFields, readKimiUsage } from '../../services/kimi-usage.js';
 import {
@@ -720,46 +720,39 @@ if (engine === ENGINE_KIMI) {
     await assertApiNotDisabled(versions);
     const host = await hostAuth.authenticate(req);
     assertHostEngineEnabled(host, ENGINE_CLAUDE, await readFleetEngineState(ctx.db));
+    // A reading steers the account pool, so it is held to the same window as
+    // the credentials it describes. Unattended: a closed window refuses the
+    // report and never opens an approval request for a statusline render.
+    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, true);
     const payload = readPayload(req.body);
-    const fiveHour = asPlainRecord(payload.five_hour);
-    const sevenDay = asPlainRecord(payload.seven_day);
-    let accountId = accountIdFrom(payload.account_id);
-    if (accountId !== undefined) accountId = await accounts.canonicalId(accountId, ENGINE_CLAUDE);
-    if (payload.session_id !== undefined) {
-      const session = await accounts.session(
-        host.id,
-        ENGINE_CLAUDE,
-        opaqueId(payload.session_id, 'session_id'),
-      );
-      // After a live switch the statusline may still carry the previous
-      // account; its reading must not be filed under the new one.
-      if (accountId !== undefined && accountId !== session.accountId) return { status: 'ignored', reason: 'stale_account' };
-      accountId = session.accountId;
-      // The reporter files by binding, but right after a switch the payload can
-      // still be the previous account's last response (same reset times).
-      if ('boundAt' in session && session.boundAt) {
-        const pool = await switches.pool(ENGINE_CLAUDE);
-        const report = {
-          short_resets_at: typeof fiveHour.resets_at === 'string' ? fiveHour.resets_at : null,
-          weekly_resets_at: typeof sevenDay.resets_at === 'string' ? sevenDay.resets_at : null,
-        };
-        const bound = pool.find((a) => a.id === accountId);
-        if (staleSwitchReading(report, session.boundAt, bound, pool.filter((a) => a.id !== accountId), Date.now()))
-          return { status: 'ignored', reason: 'stale_account' };
-      }
-    } else if (accountId !== undefined) {
-      await accounts.get(accountId, ENGINE_CLAUDE);
+    const sessionId = payload.session_id === undefined ? undefined : opaqueId(payload.session_id, 'session_id');
+    let claimed = accountIdFrom(payload.account_id);
+    const now = Date.now();
+    const fiveHour = reportedClaudeWindow(payload.five_hour, CLAUDE_SHORT_WINDOW_MS, now);
+    const sevenDay = reportedClaudeWindow(payload.seven_day, CLAUDE_WEEKLY_WINDOW_MS, now);
+    if (!fiveHour && !sevenDay) {
+      const sent = payload.five_hour !== undefined || payload.seven_day !== undefined;
+      return sent ? { status: 'ignored', reason: 'no_current_window' } : { status: 'ignored' };
     }
+    if (claimed !== undefined) claimed = await accounts.canonicalId(claimed, ENGINE_CLAUDE);
+    const target = await switches.usageReportAccount(
+      host.id,
+      ENGINE_CLAUDE,
+      { sessionId, accountId: claimed, short_resets_at: fiveHour?.resetsAt ?? null, weekly_resets_at: sevenDay?.resetsAt ?? null },
+      now,
+    );
+    if ('ignored' in target) return { status: 'ignored', reason: target.ignored };
+    const accountId = target.accountId;
     const svc = new ClaudeUsageService(ctx.db, accountId);
     const previous = ownerRuntimeFor(ctx.db) ? await svc.latest() : null;
     const row = await svc.store({
       accountId,
       hostId: host.id,
       source: typeof payload.source === 'string' ? payload.source : null,
-      fiveHourUsedPercent: toFiniteNumber(fiveHour.used_percent),
-      fiveHourResetsAt: typeof fiveHour.resets_at === 'string' ? fiveHour.resets_at : null,
-      sevenDayUsedPercent: toFiniteNumber(sevenDay.used_percent),
-      sevenDayResetsAt: typeof sevenDay.resets_at === 'string' ? sevenDay.resets_at : null,
+      fiveHourUsedPercent: fiveHour?.usedPercent ?? null,
+      fiveHourResetsAt: fiveHour?.resetsAt ?? null,
+      sevenDayUsedPercent: sevenDay?.usedPercent ?? null,
+      sevenDayResetsAt: sevenDay?.resetsAt ?? null,
     });
     if (row && row.id !== previous?.id) {
       wsPublisher.publish('claude.usage.updated', { fetched_at: row.fetchedAt });
@@ -1664,16 +1657,6 @@ function headerString(value: string | string[] | undefined): string | undefined 
 function readPayload(body: unknown): Record<string, unknown> {
   if (body && typeof body === 'object' && !Array.isArray(body)) return body as Record<string, unknown>;
   return {};
-}
-
-function asPlainRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
-  return {};
-}
-
-function toFiniteNumber(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  return value;
 }
 
 function normalizeCommand(value: unknown): 'retrieve' | 'store' {

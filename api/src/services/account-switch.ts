@@ -255,6 +255,51 @@ export class AccountSwitchService {
     return { binding_generation: generationOf(row), account_switch: await this.directiveFor(row) };
   }
 
+  /**
+   * The account a host's usage report is filed under. The number in the report
+   * is only a claim: the account comes from a live lease of the reporting host,
+   * so a host cannot file a reading for an account it does not run on. A report
+   * that names its session is held to that session's binding. One that names
+   * only an account (a statusline outside a wrapper launch) needs a live lease
+   * of this host on that account, or the account to be the only one there is.
+   * A report that names neither stays unattributed, as before account pools.
+   */
+  async usageReportAccount(
+    hostId: number,
+    engine: Engine,
+    input: { sessionId?: string; accountId?: number; short_resets_at: string | null; weekly_resets_at: string | null },
+    now = Date.now(),
+  ): Promise<{ accountId?: number } | { ignored: 'stale_account' | 'session_required' }> {
+    let boundAt: string | null = null;
+    let accountId: number;
+    if (input.sessionId !== undefined) {
+      const session = await this.accounts.session(hostId, engine, input.sessionId);
+      // After a live switch the statusline may still carry the previous
+      // account; its reading must not be filed under the new one.
+      if (input.accountId !== undefined && input.accountId !== session.accountId) return { ignored: 'stale_account' };
+      accountId = session.accountId;
+      boundAt = session.boundAt ?? null;
+    } else if (input.accountId !== undefined) {
+      accountId = input.accountId;
+      const held = (await this.leases({ hostId, engine })).filter((row) => row.accountId === accountId);
+      if (!held.length) {
+        const live = (await this.accounts.list(engine)).filter((a) => a.state !== 'removed');
+        if (live.length !== 1 || live[0]!.id !== accountId) return { ignored: 'session_required' };
+      }
+      boundAt = held.map((row) => row.boundAt ?? null).sort((a, b) => (b ?? '').localeCompare(a ?? ''))[0] ?? null;
+    } else {
+      return {};
+    }
+    // The reporter files by binding, but right after a switch the payload can
+    // still be the previous account's last response (same reset times).
+    if (boundAt) {
+      const pool = await this.pool(engine);
+      const bound = pool.find((a) => a.id === accountId);
+      if (staleSwitchReading(input, boundAt, bound, pool.filter((a) => a.id !== accountId), now)) return { ignored: 'stale_account' };
+    }
+    return { accountId };
+  }
+
   private usable(pool: PoolAccount[], id: number) {
     const account = pool.find((a) => a.id === id);
     return !!account && account.state === 'enabled' && account.verified;
