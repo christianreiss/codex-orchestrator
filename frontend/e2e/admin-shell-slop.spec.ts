@@ -55,20 +55,70 @@ test("compact sidebar explains icons on keyboard focus and expanded labels reflo
 
 test("appearance selection is announced and a failed save remains visible after dismissing its toast", async ({ page }) => {
   await shell(page); await page.goto("/admin/dashboard");
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
-  await expect(page.getByRole("menuitemradio", { name: "System", exact: true })).toBeChecked();
+  // The quick switch lives in the account menu; the top bar keeps no appearance button.
+  await expect(page.locator("header").getByRole("button", { name: "Appearance" })).toHaveCount(0);
+  const accountMenu = page.getByRole("button", { name: /Account menu for/ });
+  await accountMenu.click();
+  await expect(page.getByRole("group", { name: "Appearance" }).getByRole("menuitemradio", { name: "System", exact: true })).toBeChecked();
   await page.keyboard.press("Escape");
+  await expect(accountMenu).toBeFocused();
   let fail = true;
   await page.route("**/admin/theme", route => route.fulfill({ status: route.request().method() === "POST" && fail ? 503 : 200, contentType: "application/json", body: JSON.stringify(route.request().method() === "POST" && fail ? { message: "Fixture save unavailable" } : { theme: "light" }) }));
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await accountMenu.click();
   await page.getByRole("menuitemradio", { name: "Light", exact: true }).click();
   for (const close of await page.getByRole("button", { name: "Close toast", exact: true }).all()) await close.click();
+  // The failure outlives the closed menu and its toast, in the full-width header.
+  await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(page.locator("header").getByRole("alert")).toContainText("Could not save appearance");
   fail = false;
   await page.getByRole("button", { name: "Retry appearance" }).click();
   await expect(page.locator("header").getByRole("alert")).toHaveCount(0);
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await accountMenu.click();
   await expect(page.getByRole("menuitemradio", { name: "Light", exact: true })).toBeChecked();
+});
+
+test("top-bar controls share one height and the healthy live connection takes no room", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await shell(page);
+  await page.route("**/admin/hosts/insecure", route => route.fulfill({ json: { hosts: [{ id: 1, fqdn: "build-01.example.test", active: true, insecure_enabled_until: new Date(Date.now() + 600_000).toISOString(), secure: false }], fleet_window: { open: false, until: null } } }));
+  await page.goto("/admin/dashboard");
+  const header = page.locator("header").filter({ has: page.getByRole("navigation", { name: "Breadcrumb" }) });
+  const controls = [
+    header.getByRole("button", { name: "Live updates are disabled; reload to refresh displayed information", exact: true }),
+    header.getByRole("link", { name: "1 temporary access window open", exact: true }),
+    header.getByRole("link", { name: "1234 unhandled reports", exact: true }),
+    header.getByRole("button", { name: "Open command palette" }).locator("visible=true"),
+  ];
+  const heights = new Set<number>();
+  for (const control of controls) {
+    await expect(control).toBeVisible();
+    heights.add(Math.round((await control.boundingBox())!.height));
+  }
+  expect([...heights]).toEqual([36]);
+  // Header and sidebar brand share one 48 px rule line.
+  const aside = page.getByRole("complementary", { name: "Fleet workspace" });
+  const brand = aside.getByRole("link", { name: "Codex Orchestrator overview" });
+  expect(Math.round((await header.boundingBox())!.height)).toBe(48);
+  expect(Math.round((await brand.boundingBox())!.height)).toBe(48);
+  // The rail's utilities sit in the account menu, not in a row of bare icons.
+  await expect(aside.getByRole("link", { name: "Manual", exact: true })).toHaveCount(0);
+  await aside.getByRole("button", { name: /Account menu for/ }).click();
+  const menu = page.getByRole("menu");
+  for (const name of ["Account", "Password & passkeys", "Companion devices", "Manual", "Keyboard shortcuts", "Sign out"]) {
+    await expect(menu.getByRole("menuitem", { name, exact: true })).toBeVisible();
+  }
+  await menu.getByRole("menuitem", { name: "Keyboard shortcuts", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("Keyboard shortcuts");
+});
+
+test("a live connection that never settles still claims a chip after the grace period", async ({ page }) => {
+  await shell(page);
+  // Nothing listens on the discard port, so the client keeps failing and retrying.
+  await page.route("**/admin/ws/info", route => route.fulfill({ json: { enabled: true, url: "ws://127.0.0.1:9/never" } }));
+  await page.goto("/admin/dashboard");
+  const header = page.locator("header").filter({ has: page.getByRole("navigation", { name: "Breadcrumb" }) });
+  await expect(header.getByRole("status")).not.toHaveText("Live updates connected");
+  await expect(header.getByRole("button", { name: /^(Connecting to live updates|Live updates disconnected; displayed information may be stale)$/ })).toBeVisible();
 });
 
 

@@ -1144,11 +1144,16 @@ test("account tabs preserve drafts, deep links and browser history", async ({ pa
 test("the user menu reaches each account section", async ({ page }) => {
   await page.goto("/admin/dashboard");
   await page.getByRole("button", { name: /Account menu for/ }).click();
-  for (const name of ["Password & passkeys", "Appearance", "Companion devices"]) {
-    await expect(page.getByRole("menuitem", { name })).toBeVisible();
+  for (const name of ["Account", "Password & passkeys", "Companion devices"]) {
+    await expect(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
   }
+  // Appearance is switched in place rather than linked.
+  await expect(page.getByRole("group", { name: "Appearance" }).getByRole("menuitemradio")).toHaveText(["Light", "Dark", "System"]);
   await page.getByRole("menuitem", { name: "Companion devices" }).click();
   await expect(page).toHaveURL(/\/admin\/account#devices$/);
+  await page.getByRole("button", { name: /Account menu for/ }).click();
+  await page.getByRole("menuitem", { name: "Manual", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/manual$/);
 });
 
 test("project detail and standalone approval keep their task-focused layouts", async ({ page }) => {
@@ -1848,7 +1853,7 @@ test("temporary access is counted on every route and its link opens the panel on
     : undefined);
   // The badge counts the open window without the Hosts page ever being visited.
   await page.goto("/admin/dashboard");
-  const badge = page.getByRole("banner").getByRole("link", { name: "1 temporary access windows open" });
+  const badge = page.getByRole("banner").getByRole("link", { name: "1 temporary access window open" });
   await expect(badge).toHaveAttribute("href", "/admin/hosts?insecure=1");
   // A directly loaded access link opens the panel, then drops the parameter so
   // a reload does not reopen it.
@@ -2231,8 +2236,10 @@ test("appearance menu switches light and dark immediately and persists across re
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/admin/dashboard");
   await expect(page.locator("html")).toHaveClass(/dark/);
+  // The quick switch is the Appearance group of the account menu.
+  const accountMenu = page.getByRole("button", { name: /Account menu for/ });
   for (const choice of ["Light", "Dark"]) {
-    await page.getByRole("button", { name: "Appearance", exact: true }).click();
+    await accountMenu.click();
     await expect(page.getByRole("menuitemradio", { name: choice, exact: true })).toBeVisible();
     await page.getByRole("menuitemradio", { name: choice, exact: true }).click();
     await expect.poll(() => page.locator("html").evaluate(el => el.classList.contains("dark"))).toBe(choice === "Dark");
@@ -2242,16 +2249,17 @@ test("appearance menu switches light and dark immediately and persists across re
   }
   await page.goto("/admin/account#appearance");
   await expect(page.getByRole("radio", { name: /Dark/ })).toBeChecked();
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await accountMenu.click();
   await page.getByRole("menuitemradio", { name: "Light", exact: true }).click();
   await expect(page.getByRole("radio", { name: /Light/ })).toBeChecked();
   await expect.poll(() => writes.at(-1)).toBe("light");
   // Selection updates the theme before the closing menu releases its focus
-  // scope. Wait for removal before resizing and opening it with the keyboard.
+  // scope. Wait for removal before opening it with the keyboard.
   await expect(page.getByRole("menuitemradio", { name: "Light", exact: true })).toHaveCount(0);
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Appearance", exact: true }).focus();
+  await accountMenu.focus();
   await page.keyboard.press("Enter");
+  await expect(page.getByRole("menuitem", { name: "Account", exact: true })).toBeFocused();
+  for (let step = 0; step < 3; step++) await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitemradio", { name: "Light", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitemradio", { name: "Dark", exact: true })).toBeFocused();
@@ -2278,7 +2286,7 @@ test("appearance menu restores the previous theme when saving fails", async ({ p
   }));
   await page.goto("/admin/dashboard");
   await expect(page.locator("html")).toHaveClass(/dark/);
-  await page.getByRole("button", { name: "Appearance", exact: true }).click();
+  await page.getByRole("button", { name: /Account menu for/ }).click();
   await page.getByRole("menuitemradio", { name: "Light", exact: true }).click();
   await expect(page.getByText("Could not save appearance", { exact: true })).toBeVisible();
   await expect(page.locator("html")).toHaveClass(/dark/);

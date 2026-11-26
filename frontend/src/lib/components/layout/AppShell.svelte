@@ -4,16 +4,19 @@
   import Sidebar from "./Sidebar.svelte";
   import MobileNav from "./MobileNav.svelte";
   import TopBar from "./TopBar.svelte";
+  import { createAppearanceControl } from "./appearance.svelte";
 
   let { children }: { children?: Snippet } = $props();
+  // The account menu switches the theme; the top bar reports a failed save.
+  const appearance = createAppearanceControl();
 </script>
 
 <a class="skip-link" href="#main-content">Skip to content</a>
 
 <div class="flex h-full min-h-0 w-full bg-background">
-  <Sidebar />
+  <Sidebar {appearance} />
   <div class="flex min-w-0 flex-1 flex-col">
-    <TopBar />
+    <TopBar {appearance} />
     <main
       id="main-content"
       tabindex="-1"

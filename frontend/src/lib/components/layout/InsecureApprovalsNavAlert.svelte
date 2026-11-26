@@ -22,8 +22,9 @@
 
   const rowClass = $derived(
     cn(
-      "flex w-full items-center gap-2.5 rounded-md border text-left font-medium md:max-lg:justify-center md:max-lg:px-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-      variant === "sheet" ? "min-h-12 px-3 py-2 text-body" : "min-h-8 px-2.5 py-2 text-body-sm",
+      "flex w-full items-center gap-2 rounded border text-left font-medium md:max-lg:justify-center md:max-lg:px-0 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+      // The rail variant has the geometry of a navigation row (Sidebar `row`).
+      variant === "sheet" ? "min-h-12 px-3 py-2 text-body" : "min-h-8 px-2 py-1.5 text-body-sm",
     ),
   );
 </script>
