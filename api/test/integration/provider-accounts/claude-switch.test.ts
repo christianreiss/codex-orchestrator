@@ -21,6 +21,7 @@ import { createRunnerValidationService } from '../../../src/services/runner-vali
 import { createPooledAuthStoreService } from '../../../src/services/pooled-auth-store.js';
 import { ProviderAccountsService } from '../../../src/services/provider-accounts.js';
 import { AccountSwitchService } from '../../../src/services/account-switch.js';
+import { writeAccountPolicy } from '../../../src/services/account-policy.js';
 import { setClaudeIdentityFetch } from '../../../src/services/claude-identity.js';
 import { ClaudeUsageService } from '../../../src/services/claude-usage.js';
 import type { RunnerClient } from '../../../src/services/runner-client.js';
@@ -202,6 +203,22 @@ describe.skipIf(!handle)('Claude account identity and live switching on MySQL', 
     const view = await switches.poolView('claude', a, 60);
     expect(view.recommendation).toMatchObject({ action: 'switch', account_id: b });
     expect(view).toMatchObject({ bound_account_id: a, headroom: true, launch_account_id: b });
+  });
+
+  it('the reset-aware policy moves a running scope to the account whose weekly reset comes first', async () => {
+    const a = (await put('alice-1')).account_id!;
+    const b = (await put('bob-1')).account_id!;
+    await writeAccountPolicy(db, 'claude', { mode: 'auto', strategy: 'reset_aware' });
+    await accounts.acquire(1, 'claude', 'scope-ffffffffffffffff', 'lease-ffffffffffffffff', 95, a);
+    await db.update(providerAccountSessions).set({ boundAt: '2026-11-26T00:00:00Z' });
+    const hours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+    // a was reset yesterday (15 %); b expires in 23 h with 45 % unused.
+    await new ClaudeUsageService(db, a).store({ accountId: a, hostId: 1, source: 'test', sevenDayUsedPercent: 15, sevenDayResetsAt: hours(119), fiveHourUsedPercent: null, fiveHourResetsAt: null });
+    await new ClaudeUsageService(db, b).store({ accountId: b, hostId: 1, source: 'test', sevenDayUsedPercent: 55, sevenDayResetsAt: hours(23), fiveHourUsedPercent: null, fiveHourResetsAt: null });
+    expect(await switches.evaluate('claude')).toBe(1);
+    expect((await switches.sessionBinding(1, 'claude', 'lease-ffffffffffffffff')).account_switch).toMatchObject({ account_id: b, reason: 'policy' });
+    const view = await switches.poolView('claude', a, 60);
+    expect(view.launch_account_id).toBe(b);
   });
 
   it('withdraws a pending policy move once the readings no longer call for it', async () => {

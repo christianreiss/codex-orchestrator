@@ -1,5 +1,7 @@
 # 2026-11-26
 
+- Accounts: new distribution strategy "Expiring first" (`reset_aware`). It uses the account closest to its weekly reset first and saves freshly reset ones, within the soft and hard limits of Exhaust. Running Claude scopes move to an account whose reset comes at least an hour earlier, after the dwell. Unknown or passed resets are never treated as expiring. Example: with resets on Wednesday, Thursday and Sunday, Tuesday's work goes to Wednesday's account first instead of the one reset yesterday.
+
 - Fix: communicator owners that had received an account switch were disconnected about every 15 s. Their heartbeat reports the new `switch_signal` counter, which the server's strict heartbeat schema did not know. The server accepts it now, and a unit test checks every auth-state field of the wrapper against the schema.
 
 - Fix: after a live Claude switch, a reading taken right afterwards could be filed under the new account. Claude Code's statusline still showed the previous account's last response, which triggered a bogus switch back. For 30 minutes after a switch the server ignores readings whose reset time belongs to another account. The policy now withdraws or retargets its own pending switch once fresh readings no longer call for it; operator and agent requests stay.

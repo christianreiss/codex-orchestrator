@@ -52,6 +52,8 @@ export interface PoolAccount {
   fetched_at: string | null;
   score: number | null;
   emulation_blocked: boolean;
+  /** Unlimited by quota policy: no window to save, so no reset to order by. */
+  unlimited: boolean;
   active_sessions: number;
   last_selected_at: string | null;
 }
@@ -220,6 +222,7 @@ export class AccountSwitchService {
           fetched_at: str(usage.fetched_at),
           score: position.score,
           emulation_blocked: position.emulation_blocked,
+          unlimited: a.quota_policy?.unlimited === true,
           active_sessions: a.sessions.length,
           last_selected_at: a.last_selected_at,
         };
@@ -511,7 +514,13 @@ export class AccountSwitchService {
   private candidates(pool: PoolAccount[]) {
     return pool
       .filter((a) => a.state === 'enabled' && a.verified)
-      .map((a) => ({ id: a.id, score: a.score, active: a.active_sessions, lastSelectedAt: a.last_selected_at }));
+      .map((a) => ({
+        id: a.id,
+        score: a.score,
+        active: a.active_sessions,
+        lastSelectedAt: a.last_selected_at,
+        weeklyResetsAt: a.unlimited ? null : a.weekly_resets_at,
+      }));
   }
 
   /** Live scopes of an engine with their binding (admin view). */
@@ -558,7 +567,13 @@ export class AccountSwitchService {
       this.pool(engine),
       this.limitPercent(),
     ]);
-    const view = (a: PoolAccount) => ({ id: a.id, label: a.label, score: a.score, usable: a.state === 'enabled' && a.verified });
+    const view = (a: PoolAccount) => ({
+      id: a.id,
+      label: a.label,
+      score: a.score,
+      usable: a.state === 'enabled' && a.verified,
+      weeklyResetsAt: a.unlimited ? null : a.weekly_resets_at,
+    });
     const bound = pool.find((a) => a.id === boundAccountId) ?? null;
     const candidates = this.candidates(pool);
     const planned = bound

@@ -14,6 +14,7 @@ const account = (id: number, label: string, short: number | null, weekly: number
   fetched_at: null,
   score: weekly,
   emulation_blocked: false,
+  unlimited: false,
   active_sessions: 0,
   last_selected_at: null,
 });
