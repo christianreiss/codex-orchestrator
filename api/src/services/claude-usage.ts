@@ -215,7 +215,7 @@ export class ClaudeUsageService {
     if (fiveHourUsedPercent === null && sevenDayUsedPercent === null) {
       return null;
     }
-    const now = new Date(at).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const now = isoOffsetSeconds(0, new Date(at));
     const values: ClaudeSnapshotInsert = {
       accountId: report.accountId ?? this.accountId,
       hostId: report.hostId ?? null,

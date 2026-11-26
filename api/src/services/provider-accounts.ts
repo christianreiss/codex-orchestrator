@@ -2,7 +2,7 @@ import { quotaSnapshot } from './quota-observation.js';
 import { emulationBlocks, emulationLimitError } from './quota-emulation.js';
 import {persistAuditLog} from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
-import { ownedAccount, ownedProviderSession, acquireOwnedProvider, releaseOwnedProvider, drainOwnedProviders } from '../control-plane/streams/provider-leases.js';
+import { ownedAccount, ownedProviderSession, acquireOwnedProvider, releaseOwnedProvider, drainOwnedProviders, freshBindingGeneration } from '../control-plane/streams/provider-leases.js';
 import { readQuotaPolicy } from './quota-policy.js';
 import { createHash } from 'node:crypto';
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, lte } from 'drizzle-orm';
@@ -717,7 +717,7 @@ export class ProviderAccountsService {
           accountId: account.id,
           expiresAt,
           createdAt: now,
-          bindingGeneration: pinned?.bindingGeneration ?? 1,
+          bindingGeneration: pinned?.bindingGeneration ?? freshBindingGeneration(),
           desiredAccountId: pinned?.desiredAccountId ?? null,
           desiredReason: pinned?.desiredReason ?? null,
           desiredAt: pinned?.desiredAt ?? null,

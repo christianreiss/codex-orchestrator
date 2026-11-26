@@ -10,6 +10,7 @@ import {
 } from '../../db/schema.js';
 import type { OwnerRuntime } from '../state/runtime.js';
 import { mutateOwnerState } from '../state/runtime.js';
+import { ownerPresence } from '../presence.js';
 import type { OwnerStateSnapshot } from '../state/store.js';
 import { ConflictError, NotFoundError, ServiceUnavailableError } from '../../http/errors.js';
 import { quotaWindowScore } from '../../services/account-selection.js';
@@ -17,6 +18,85 @@ import { accountPolicyKey, parseStoredPolicy, selectForLaunch } from '../../serv
 import { DEFAULT_QUOTA_POLICY, quotaPolicySchema } from '../../services/quota-policy.js';
 import type { Engine } from '../../util/engine.js';
 import type { Json } from '../commands.js';
+
+/**
+ * The binding generation of a scope without a live lease. A scope's rows are
+ * deleted with its last lease, so nothing remembers the generation it had; a
+ * wrapper does (its binding file) and ignores every answer below the number it
+ * knows. Counting again from 1 therefore cut a re-reserved session off from
+ * all later directives. Seconds since the epoch exceed any generation the
+ * scope had before, since a scope cannot switch more than once a second, and
+ * fit the unsigned 32-bit column until 2106.
+ */
+export function freshBindingGeneration(now: number = Date.now()): number {
+  return Math.floor(now / 1000);
+}
+
+/** How long a connection-owned lease outlives its provider attachment. */
+export const DETACHED_LEASE_GRACE_MS = 5 * 60_000;
+/** When each attachment was first seen missing. In memory only: absence counts from this owner's boot. */
+const detachedSince = new WeakMap<OwnerRuntime, Map<string, number>>();
+
+/**
+ * Removes leases nothing holds any more: connection-owned leases of the given
+ * engines whose provider attachment has been gone for the grace period (the
+ * wrapper was killed or its host went down, so it never released), and leases
+ * of any engine whose host was deleted. Only engines whose wrapper re-reserves
+ * a lease it finds missing are passed in: a suspended laptop comes back after
+ * the grace period and must be able to recover. Returns the removed ids.
+ */
+export async function reapAbandonedProviders(
+  owner: OwnerRuntime,
+  engines: ReadonlySet<string>,
+  now: number = Date.now(),
+): Promise<string[]> {
+  owner.assertOwner();
+  const presence = ownerPresence(owner);
+  const seen = detachedSince.get(owner) ?? new Map<string, number>();
+  detachedSince.set(owner, seen);
+  const state = owner.state.snapshot();
+  const rows = state.table('providerAccountSessions').all();
+  const ids = new Set(rows.map((r) => r.id));
+  for (const id of seen.keys()) if (!ids.has(id)) seen.delete(id);
+  const due = new Set<string>();
+  for (const row of rows) {
+    if (row.hostId > 0 && !state.table('hosts').get(row.hostId)) {
+      due.add(row.id);
+      continue;
+    }
+    if (row.ownershipMode !== 'connection' || !engines.has(row.engine) || presence.hasProvider(row.id)) {
+      seen.delete(row.id);
+      continue;
+    }
+    const since = seen.get(row.id) ?? now;
+    seen.set(row.id, since);
+    if (now - since >= DETACHED_LEASE_GRACE_MS) due.add(row.id);
+  }
+  if (!due.size) return [];
+  const removed: string[] = [];
+  await mutateOwnerState(owner, {
+    kind: 'provider.sessions.reap',
+    payload: { ids: [...due] },
+    prepare({ snapshot: s, draft, write }) {
+      removed.length = 0;
+      // Presence is read again inside the mutation: an attachment that came
+      // back meanwhile keeps its lease.
+      for (const id of due) {
+        const row = s.table('providerAccountSessions').get(id);
+        if (!row) continue;
+        const hostGone = row.hostId > 0 && !s.table('hosts').get(row.hostId);
+        if (!hostGone && presence.hasProvider(id)) continue;
+        draft.remove('providerAccountSessions', id);
+        removed.push(id);
+      }
+      if (removed.length)
+        write((tx) => tx.delete(providerAccountSessions).where(inArray(providerAccountSessions.id, [...removed])));
+      return null;
+    },
+  });
+  for (const id of removed) seen.delete(id);
+  return removed;
+}
 
 export function ownedAccount(s: OwnerStateSnapshot, id: number, engine?: Engine) {
   const seen = new Set<number>();
@@ -155,7 +235,7 @@ export async function acquireOwnedProvider(
       const mode = previous?.ownershipMode ?? ownershipMode;
       const expiresAt = previous?.expiresAt ?? new Date(Date.now() + 300000).toISOString();
       // A lease joining a live scope inherits its binding generation and any
-      // pending switch; a new scope starts at generation 1.
+      // pending switch; a new scope starts at a generation above any it had.
       const scope = previous ?? pinned;
       const lease = {
         id: sessionId,
@@ -166,7 +246,7 @@ export async function acquireOwnedProvider(
         ownershipMode: mode,
         expiresAt,
         createdAt: previous?.createdAt ?? now,
-        bindingGeneration: scope?.bindingGeneration ?? 1,
+        bindingGeneration: scope?.bindingGeneration ?? freshBindingGeneration(),
         desiredAccountId: scope?.desiredAccountId ?? null,
         desiredReason: scope?.desiredReason ?? null,
         desiredAt: scope?.desiredAt ?? null,
