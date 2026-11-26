@@ -2603,7 +2603,9 @@ score is `max(short, weekly)` used percent.
 - Automatic moves wait `min_dwell_minutes` after the last change (prompt caches are organization-scoped);
   an account at the quota limit moves immediately when another has headroom. Launches skip accounts
   blocked by emulated quota while others remain.
-- The evaluator runs after every Claude usage report and every 60 s.
+- The evaluator runs after every Claude usage report and every 60 s, and when a launch joins a scope
+  whose account is paused or no longer verified. A scope on such an account is moved to the best usable
+  account, also when only one usable account is left.
 
 **Live switching** (Claude only; other engines return 409 `account_switch_unsupported_engine`). A scope
 (host, engine, native credential directory) moves as a whole. Every scope row carries
@@ -2613,8 +2615,14 @@ score is `max(short, weekly)` used percent.
   engine (409 `account_switch_target_unavailable`). Requesting the bound account clears a pending request.
   Returns `{binding_generation, account_switch}`.
 - Acquire, heartbeat and `/auth` responses carry `binding_generation` and `account_switch`
-  `{account_id, account_label, binding_generation, reason, requested_at}` or null; a connected
-  communicator additionally receives `{type: "account_switch", engine, scope_id}`.
+  `{account_id, account_label, binding_generation, reason, requested_at, bound_account_usable}` or null; a
+  connected communicator additionally receives `{type: "account_switch", engine, scope_id}`.
+  `bound_account_usable: false` says the account being left is paused or not verified: the server no
+  longer confirms its credentials, so the wrapper (cxx 0.9.211) switches without that confirmation as
+  long as the local login is one the server already holds, accepted on upload, or refused for good.
+  Older wrappers ignore the field and keep waiting for the confirmation.
+- A launch that joins a live scope takes that scope's account, also a paused or unverified one: the
+  sessions share one credentials file. It is not bound elsewhere on its own; the policy moves the scope.
 - The wrapper waits for the next turn boundary, uploads any pending rotation of the old account, then
   calls `POST /auth/sessions/switch` `{engine, session_id, scope_id, account_id, binding_generation}`.
   The server compares account and generation (409 `account_switch_stale` otherwise), moves every row of

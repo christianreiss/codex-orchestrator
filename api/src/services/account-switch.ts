@@ -36,6 +36,12 @@ export interface SwitchDirective {
   binding_generation: number;
   reason: SwitchReason;
   requested_at: string | null;
+  /**
+   * False when the account the scope is leaving is paused or no longer
+   * verified. The server will not confirm that account's credentials any more,
+   * so the wrapper must not wait for that confirmation before it switches.
+   */
+  bound_account_usable: boolean;
 }
 
 export interface PoolAccount {
@@ -274,7 +280,7 @@ export class AccountSwitchService {
     }
   }
 
-  async directiveFor(row: Lease | undefined): Promise<SwitchDirective | null> {
+  async directiveFor(row: Lease | undefined, pool?: PoolAccount[]): Promise<SwitchDirective | null> {
     if (!row?.desiredAccountId || row.desiredAccountId === row.accountId) return null;
     return {
       account_id: row.desiredAccountId,
@@ -282,6 +288,7 @@ export class AccountSwitchService {
       binding_generation: generationOf(row),
       reason: (row.desiredReason as SwitchReason | null) ?? 'admin',
       requested_at: row.desiredAt ?? null,
+      bound_account_usable: this.usable(pool ?? (await this.pool(row.engine as Engine)), row.accountId),
     };
   }
 
@@ -481,6 +488,7 @@ export class AccountSwitchService {
         binding_generation: generation,
         reason,
         requested_at: requestedAt,
+        bound_account_usable: this.usable(pool, first.accountId),
       },
     };
   }
@@ -608,8 +616,9 @@ export class AccountSwitchService {
   }
 
   /** Live scopes of an engine with their binding (admin view). */
-  async scopes(engine: Engine) {
+  async scopes(engine: Engine, known?: PoolAccount[]) {
     const rows = await this.leases({ engine });
+    const pool = known ?? (rows.some((r) => r.desiredAccountId) ? await this.pool(engine) : undefined);
     const groups = new Map<string, Lease[]>();
     for (const row of rows.filter((r) => r.hostId > 0)) {
       const key = `${row.hostId}\u0000${row.scopeId}`;
@@ -632,7 +641,7 @@ export class AccountSwitchService {
           binding_generation: generationOf(first),
           sessions: group.length,
           bound_at: first.boundAt ?? first.createdAt,
-          account_switch: await this.directiveFor(first),
+          account_switch: await this.directiveFor(first, pool),
         };
       }),
     );
@@ -701,11 +710,14 @@ export class AccountSwitchService {
     const policy: AccountPolicy = await readAccountPolicy(this.db, engine);
     if (policy.mode !== 'auto') return 0;
     const pool = await this.pool(engine);
-    if (pool.filter((a) => a.state === 'enabled' && a.verified).length < 2) return 0;
+    // One usable account is enough to move a scope off an account that was
+    // paused or lost its verification; `rebalanceTarget` finds no target for a
+    // scope that already runs on the only usable one.
+    if (!pool.some((a) => a.state === 'enabled' && a.verified)) return 0;
     const candidates = this.candidates(pool);
     const limitPercent = await this.limitPercent();
     let requested = 0;
-    for (const scope of await this.scopes(engine)) {
+    for (const scope of await this.scopes(engine, pool)) {
       const pending = scope.account_switch;
       // Admin and agent requests stand; a policy request follows the readings.
       if (pending && pending.reason !== 'policy') continue;

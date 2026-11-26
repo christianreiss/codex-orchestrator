@@ -345,10 +345,15 @@ if (engine === ENGINE_KIMI) {
     }
     const row = await runnerValidation.resolveCanonicalPayload(engine, lease.account.id);
     const auth = row ? runnerValidation.canonicalAuthFromPayload(row) : null;
-    if (!row || !auth) {
-      await accounts.release(host.id, engine, sessionId);
-      throw new ServiceUnavailableError('Selected account is unavailable', 'account_unavailable');
-    }
+    // A launch that joins a live scope shares its credentials file and with it
+    // the scope's account, also one that was paused or lost its verification
+    // meanwhile. It cannot be bound elsewhere on its own; the policy moves the
+    // whole scope, and this launch then carries the directive like its siblings.
+    const unusable = lease.account.state !== 'enabled' || row?.verificationState !== 'verified';
+    if (!row || !auth) await accounts.release(host.id, engine, sessionId);
+    if (unusable && LIVE_SWITCH_ENGINES.has(engine))
+      await switches.evaluate(engine).catch((err) => app.log.warn({ err }, 'account policy evaluation failed'));
+    if (!row || !auth) throw new ServiceUnavailableError('Selected account is unavailable', 'account_unavailable');
     return {
       account_id: lease.account.id,
       account_label: lease.account.label,

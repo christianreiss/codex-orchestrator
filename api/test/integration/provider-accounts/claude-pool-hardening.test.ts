@@ -21,6 +21,7 @@ import { createRunnerValidationService } from '../../../src/services/runner-vali
 import { createPooledAuthStoreService } from '../../../src/services/pooled-auth-store.js';
 import { ProviderAccountsService } from '../../../src/services/provider-accounts.js';
 import { setClaudeIdentityFetch } from '../../../src/services/claude-identity.js';
+import { writeAccountPolicy } from '../../../src/services/account-policy.js';
 import { AccountSwitchService, SWITCH_STALE_READING_MS } from '../../../src/services/account-switch.js';
 import { CLAUDE_READING_HOLD_MS, ClaudeUsageService } from '../../../src/services/claude-usage.js';
 import type { RunnerClient } from '../../../src/services/runner-client.js';
@@ -333,6 +334,45 @@ describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
       // ... later two accounts may simply share a reset time.
       await db.update(providerAccountSessions).set({ boundAt: at(-240) });
       expect(await target()).toEqual({ accountId: b });
+    });
+  });
+
+  describe('a bound account that is no longer usable', () => {
+    const unverify = async (id: number) => {
+      const account = (await db.select().from(providerAccounts).where(eq(providerAccounts.id, id)))[0]!;
+      await db.update(authPayloads).set({ verificationState: 'failed' }).where(eq(authPayloads.id, account.payloadId!));
+    };
+
+    it('moves a scope off an account that lost its verification, onto the only usable one', async () => {
+      const a = (await put('alice-1')).account_id!;
+      const b = (await put('bob-1')).account_id!;
+      await writeAccountPolicy(db, 'claude', { mode: 'auto' });
+      const scope = 'scope-leave-aaaaaaaa';
+      const session = 'lease-leave-aaaaaaaa';
+      await accounts.acquire(1, 'claude', scope, session, 95, a);
+      expect(await switches.evaluate('claude')).toBe(0);
+      await unverify(a);
+      // One usable account is left; before, the policy stopped below two.
+      expect(await switches.evaluate('claude')).toBe(1);
+      const binding = await switches.sessionBinding(1, 'claude', session);
+      expect(binding.account_switch).toMatchObject({ account_id: b, reason: 'policy', bound_account_usable: false });
+      // The commit never depended on the old account; the wrapper no longer waits for its confirmation.
+      const committed = await switches.commitSwitch({ hostId: 1, engine: 'claude', sessionId: session, scopeId: scope, accountId: b, generation: binding.binding_generation! });
+      expect(committed).toMatchObject({ previous_account_id: a, account_id: b });
+      // On the only usable account there is nowhere left to go.
+      expect(await switches.evaluate('claude')).toBe(0);
+    });
+
+    it('moves a scope off a paused account and tells a usable origin apart', async () => {
+      const a = (await put('alice-1')).account_id!;
+      const b = (await put('bob-1')).account_id!;
+      const scope = 'scope-leave-bbbbbbbb';
+      const session = 'lease-leave-bbbbbbbb';
+      await accounts.acquire(1, 'claude', scope, session, 95, a);
+      const asked = await switches.requestSwitch({ hostId: 1, engine: 'claude', scopeId: scope, target: b, reason: 'admin' });
+      expect(asked.account_switch).toMatchObject({ account_id: b, bound_account_usable: true });
+      await accounts.update(a, { state: 'disabled' });
+      expect((await switches.sessionBinding(1, 'claude', session)).account_switch).toMatchObject({ account_id: b, bound_account_usable: false });
     });
   });
 });
