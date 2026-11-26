@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { logs, openaiApiKeys, versions } from '../../../src/db/schema.js';
+import { logs, openaiApiKeys, providerApiKeys, versions } from '../../../src/db/schema.js';
 import { registerAdminSettingsRoutes } from '../../../src/routes/admin/settings/index.js';
 import type { RouteContext } from '../../../src/routes/index.js';
 import { buildRouteApp } from '../../helpers/build-route-app.js';
@@ -14,19 +14,24 @@ async function buildApp(seed: Map<unknown, Array<Record<string, unknown>>> = new
 
 describe('/admin/api/surfaces', () => {
   it('lists every exposed API on its identity backend by default, with active key counts', async () => {
-    const { app } = await buildApp(new Map([[openaiApiKeys, [
+    const { app } = await buildApp(new Map<unknown, Array<Record<string, unknown>>>([[openaiApiKeys, [
       { id: 1, engine: 'codex', isActive: 1 },
       { id: 2, engine: 'codex', isActive: 0 },
       { id: 3, engine: 'claude', isActive: 1 },
+    ]], [providerApiKeys, [
+      { id: 1, provider: 'openai', state: 'active', verificationState: 'valid' },
+      { id: 2, provider: 'openai', state: 'active', verificationState: 'invalid' },
+      { id: 3, provider: 'openai', state: 'paused', verificationState: 'valid' },
+      { id: 4, provider: 'moonshot', state: 'active', verificationState: 'unverified' },
     ]]]));
     const reply = await app.inject({ method: 'GET', url: '/admin/api/surfaces' });
     expect(reply.statusCode).toBe(200);
     const body = JSON.parse(reply.payload);
     expect(body.surfaces).toEqual([
-      { surface: 'openai', label: 'OpenAI-compatible', base_path: '/v1', wire: 'openai', backend: 'codex', identity_backend: 'codex', disabled: false, key_count: 1 },
-      { surface: 'anthropic', label: 'Anthropic-compatible', base_path: '/anthropic/v1', wire: 'anthropic', backend: 'claude', identity_backend: 'claude', disabled: false, key_count: 1 },
-      { surface: 'grok', label: 'Grok (OpenAI-compatible)', base_path: '/grok/v1', wire: 'openai', backend: 'grok', identity_backend: 'grok', disabled: false, key_count: 0 },
-      { surface: 'kimi', label: 'Kimi Code (OpenAI-compatible)', base_path: '/kimi/v1', wire: 'openai', backend: 'kimi', identity_backend: 'kimi', disabled: true, key_count: 0 },
+      { surface: 'openai', label: 'OpenAI-compatible', base_path: '/v1', wire: 'openai', backend: 'codex', identity_backend: 'codex', disabled: false, key_count: 1, source: 'emulated', provider: 'openai', provider_label: 'OpenAI', provider_keys: { active: 2, usable: 1 } },
+      { surface: 'anthropic', label: 'Anthropic-compatible', base_path: '/anthropic/v1', wire: 'anthropic', backend: 'claude', identity_backend: 'claude', disabled: false, key_count: 1, source: 'emulated', provider: 'anthropic', provider_label: 'Anthropic', provider_keys: { active: 0, usable: 0 } },
+      { surface: 'grok', label: 'Grok (OpenAI-compatible)', base_path: '/grok/v1', wire: 'openai', backend: 'grok', identity_backend: 'grok', disabled: false, key_count: 0, source: 'emulated', provider: 'xai', provider_label: 'xAI', provider_keys: { active: 0, usable: 0 } },
+      { surface: 'kimi', label: 'Kimi Code (OpenAI-compatible)', base_path: '/kimi/v1', wire: 'openai', backend: 'kimi', identity_backend: 'kimi', disabled: true, key_count: 0, source: 'emulated', provider: 'moonshot', provider_label: 'Moonshot AI', provider_keys: { active: 1, usable: 1 } },
     ]);
     expect(body.backends.map((b: { engine: string }) => b.engine)).toEqual(['codex', 'claude', 'grok', 'kimi']);
     await app.close();

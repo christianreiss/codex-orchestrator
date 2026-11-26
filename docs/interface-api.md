@@ -339,8 +339,12 @@ so a change applies without a restart.
   backend's default model and reports it in the response `model` field. Other
   unknown ids, admin-disabled models and single-model lookups stay strict.
 - `GET /admin/api/surfaces` (`settings.read`) →
-  `{surfaces:[{surface,label,base_path,wire,backend,identity_backend,disabled,key_count}],
-  backends:[{engine,label}]}`; `key_count` counts active keys.
+  `{surfaces:[{surface,label,base_path,wire,backend,identity_backend,disabled,key_count,source,provider,provider_label,provider_keys:{active,usable}}],
+  backends:[{engine,label}]}`; `key_count` counts active gateway keys. `source` is
+  the surface default (`emulated`|`upstream`), `provider` its fixed upstream
+  provider (`openai`|`anthropic`|`xai`|`moonshot`), and `provider_keys` counts that
+  provider's stored keys that are `active`, and `active` and not `invalid`
+  (`usable`, the forward's candidates).
 - `POST /admin/api/surfaces/{surface}` (`settings.manage`) with
   `{backend?: "codex"|"claude"|"grok"|"kimi", disabled?: boolean}` (at least one) returns
   the updated row. Backend changes are audited as `admin.api.surface_backend`
@@ -348,6 +352,94 @@ so a change applies without a restart.
   under its legacy audit action. Unknown surfaces or engines return `422`.
   Routing a surface onto a backend that is switched off fleet-wide returns
   `409 engine_disabled` (`scope:"fleet"`); leaving it where it is stays allowed.
+
+### Upstream source (provider API keys)
+
+Besides its backend, every surface has a **source**. `emulated` (the default)
+is everything above: a subscription backend answers through the runner.
+`upstream` forwards the request 1:1 to the surface's fixed provider with a real
+provider API key stored server-side in `provider_api_keys` (see
+`docs/interface-db.md`); the backend row is then not consulted.
+
+| Surface | Provider | Default base URL | Provider auth | Engine master switch |
+|---|---|---|---|---|
+| `openai` (`/v1`) | `openai` (OpenAI) | `https://api.openai.com/v1` | `Authorization: Bearer` | `codex` |
+| `anthropic` (`/anthropic/v1`) | `anthropic` (Anthropic) | `https://api.anthropic.com/v1` | `x-api-key` (+ `anthropic-version`, default `2023-06-01`) | `claude` |
+| `grok` (`/grok/v1`) | `xai` (xAI) | `https://api.x.ai/v1` | `Authorization: Bearer` | `grok` |
+| `kimi` (`/kimi/v1`) | `moonshot` (Moonshot AI) | `https://api.moonshot.ai/v1` | `Authorization: Bearer` | `kimi` |
+
+- **Selection.** The surface default is the versions row
+  `api_surface_source_<surface>`: exactly `upstream`, anything else (or missing)
+  is `emulated`. A gateway key may pin `openai_api_keys.source`
+  (`emulated`|`upstream`; NULL follows the surface default; any other stored value
+  is `503 backend_unavailable`). The source is resolved once per authenticated
+  request (legacy DB routing caches it 1 s). Order on every route: surface kill
+  switch → gateway key → source → for `upstream`, the provider's fleet engine
+  master switch (`503 api_disabled`, `extra.reason:"provider_engine_disabled"`,
+  `extra.engine`) → key candidates → forward.
+- **Paths.** Under `upstream` the routes listed for each surface forward as well
+  as every other path below the base path: `GET /v1/*`, `POST /v1/*`,
+  `PUT /v1/*`, `PATCH /v1/*`, `DELETE /v1/*`, `GET /anthropic/v1/*`,
+  `POST /anthropic/v1/*`, `PUT /anthropic/v1/*`, `PATCH /anthropic/v1/*`,
+  `DELETE /anthropic/v1/*`, `GET /grok/v1/*`, `POST /grok/v1/*`,
+  `PUT /grok/v1/*`, `PATCH /grok/v1/*`, `DELETE /grok/v1/*`, `GET /kimi/v1/*`,
+  `POST /kimi/v1/*`, `PUT /kimi/v1/*`, `PATCH /kimi/v1/*`, `DELETE /kimi/v1/*`
+  (HEAD follows GET). The remainder after the base path and the raw query go to
+  `{base_url}{remainder}`; a `.`/`..` segment (also percent-encoded) or a
+  backslash is `400 invalid_request`. On an `emulated` request these catch-alls
+  answer `404 not_found` as before. Without a credential header they answer 404
+  without authenticating; a request that carries `authorization`/`x-api-key`, or
+  any request while the surface defaults to `upstream`, must present a valid
+  gateway key (`401` otherwise), because the key may pin `upstream`.
+- **Bodies.** On the known routes the exact JSON/text bytes are forwarded (the
+  route keeps its content types and the 32 MiB limit). Catch-alls run no body
+  parser, so multipart, binary and any content type stream through. Bodies up to
+  `GATEWAY_UPSTREAM_REPLAY_BYTES` (8 MiB) are buffered and replayed on failover;
+  larger ones stream to one key only, capped at `GATEWAY_UPSTREAM_MAX_UPLOAD_BYTES`
+  (512 MiB, `413 payload_too_large`).
+- **Headers.** To the provider only `accept`, `accept-encoding`, `content-type`,
+  `user-agent`, `idempotency-key`, `x-client-request-id`, `x-stainless-*`, plus
+  `anthropic-version`/`anthropic-beta` (Anthropic) or `openai-beta` (others), and
+  the provider key. The client's `authorization`/`x-api-key`, cookies,
+  `openai-organization`/`openai-project` and hop-by-hop/proxy headers are dropped.
+  To the client only `content-*`, `cache-control`, `etag`, `last-modified`,
+  `retry-after(-ms)`, `x-should-retry`, `request-id`, `x-request-id`,
+  `openai-processing-ms`, `openai-version`, `x-ratelimit-*` and
+  `anthropic-ratelimit-*` pass, over this gateway's own headers (CORS); the
+  provider's request id replaces ours, which moves to `x-gateway-request-id`.
+  Account-revealing headers (`openai-organization`, `openai-project`, `set-cookie`,
+  server/CDN identification) are stripped.
+- **Response.** Status and body bytes are the provider's, unchanged and
+  undecompressed; redirects are not followed. Provider error bodies keep the
+  provider's own shape, not this gateway's envelope. Usage is not recorded and no
+  body is logged; a key keeps `last_used_at` and `last_error_at/status/reason`.
+- **Keys and failover.** Candidates are the provider's `active` keys that are
+  not `verification_state=invalid`, ordered by `sort_order`, then id; keys cooling
+  down move last. Before the first byte reaches the client a connection failure,
+  `401`, `403` or `429` moves to the next key; the last key's answer is passed
+  through. A `429` cools the key for `retry-after-ms`/`retry-after` (1–300 s,
+  default 30 s). A `401` cools it 60 s and starts a background re-verification;
+  only that verification (`401`/`403` on `GET {base_url}/models`) marks the key
+  `invalid` (audit `provider_key.invalidated`), because restricted keys answer
+  `401` for a missing scope. Every other status, 5xx included, is committed.
+- **Errors before the commit.** `503 upstream_unconfigured` (no candidate key),
+  `502 upstream_unreachable` (every candidate failed to connect; `extra.reason:
+  "timeout"` when one timed out), `504 upstream_timeout` (no response headers
+  within `GATEWAY_UPSTREAM_HEADERS_TIMEOUT`), `503 backend_unavailable` (the
+  upstream forward is not wired on this server), all in the surface's envelope.
+  After the commit an error or a revoked authority (gateway key, kill switch,
+  engine switch, or the surface default leaving `upstream` for an unpinned
+  request) closes the connection.
+- **Network policy.** A key's optional `base_url` replaces the provider default:
+  `https` only (`http` only for a host in `GATEWAY_UPSTREAM_PRIVATE_HOSTS`), no
+  userinfo, query or fragment, at most 512 characters, never this server's own
+  `PUBLIC_BASE_URL`/`CONNECTOR_PUBLIC_BASE_URL`/`ADMIN_WS_PUBLIC_URL` host.
+  Every resolved address of every connection, the verification call included,
+  is checked: loopback, RFC1918, link-local, CGNAT, ULA, multicast, reserved,
+  documentation and IPv4-mapped/translated ranges are refused unless the host is
+  listed in `GATEWAY_UPSTREAM_PRIVATE_HOSTS`. Timeouts:
+  `GATEWAY_UPSTREAM_CONNECT_TIMEOUT` (10 s), `GATEWAY_UPSTREAM_HEADERS_TIMEOUT`
+  (900 s), `GATEWAY_UPSTREAM_BODY_IDLE_TIMEOUT` (300 s between body chunks).
 
 The API Access UI defaults to endpoints and key management. `#configuration` opens routing, collapsible backend defaults and the global API control. Existing anchors (`#service-availability`, `#exposed-apis`, `#claude-proxy`, `#grok-proxy`, including inner engine anchors) still open their matching controls. `?dialog=new&engine=openai|claude|grok` opens key creation and selects that API's key tab; key namespaces are independent of the selected backend. The creation dialog requires an explicit engine choice independently of API format. Its responsive connection summary shows the assigned engine, expiry, availability, copyable key, SDK base URL, models and generation URLs, plus a curl example with a model placeholder. The key list distinguishes assigned engines from Endpoint default. Configuration changes the default only for unassigned keys; endpoint switches apply to all keys.
 

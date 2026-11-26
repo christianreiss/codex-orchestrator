@@ -105,6 +105,10 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   // One backend set for all four surfaces: each engine's bundle — Grok's
   // single auth owner included — exists once, whichever surfaces route to it.
   const gateway = createGatewayWiring(ctx, app.log);
+  // The upstream forward's pooled provider connections close with the server.
+  app.addHook('onClose', async () => {
+    await gateway.upstream?.close();
+  });
   await registerOpenAiCompatRoutes(app, ctx, { gateway });
   await registerAdminOpenAiKeyRoutes(app, ctx);
   await registerAnthropicCompatRoutes(app, ctx, { gateway });

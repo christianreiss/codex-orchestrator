@@ -26,7 +26,8 @@ import { createGrokModelsService, GROK_MODEL_CONTEXT_TOKENS } from './grok-model
 import { createClaudeModelsService, modelObject as claudeModelObject, type ClaudeModel, type ClaudeModelLine } from './claude-models.js';
 import { buildModelObject, OPENAI_MODELS, resolveRequestedModel, UnsupportedModelError } from './openai-models.js';
 import { assertControlsSupported, capabilitiesFor } from './transport-capabilities.js';
-import { API_SURFACES, createSurfaceRouting, identityRouting, type ApiSurfaceId, type SurfaceRouting } from './api-surfaces.js';
+import { API_SURFACES, createSurfaceRouting, identityRouting, isApiSource, type ApiSource, type ApiSurfaceId, type SurfaceRouting } from './api-surfaces.js';
+import { createGatewayUpstream, type GatewayUpstream } from './gateway-upstream/index.js';
 import { readModelPolicy, applyModelPolicy, buildModelPolicy } from './model-policy.js';
 import { GROK_DEFAULT_MODEL } from './grok-models.js';
 import { SettingsService } from './settings.js';
@@ -71,13 +72,15 @@ export interface GatewayBackends {
   get(engine: Engine): GatewayBackend;
 }
 
-/** What the four gateway registrations share: one backend set, one routing. */
+/** What the four gateway registrations share: one backend set, one routing, one upstream. */
 export interface GatewayWiring {
   backends: GatewayBackends;
   routing: SurfaceRouting;
+  /** The provider-API-key forward; absent means no surface can use the `upstream` source. */
+  upstream?: GatewayUpstream;
 }
 
-type Log = { debug?: (obj: unknown, msg: string) => void };
+type Log = { debug?: (obj: unknown, msg: string) => void; warn?: (obj: unknown, msg: string) => void };
 
 /** The slice of the route context a backend needs. */
 export interface GatewayContext {
@@ -89,7 +92,28 @@ export interface GatewayContext {
 declare module 'fastify' {
   interface FastifyRequest {
     gatewayBackendEngine?: Engine;
+    gatewaySource?: ApiSource;
   }
+}
+
+/**
+ * Resolve the request's source exactly once after authentication: the key's
+ * `source` pin, else the surface default. An unauthenticated request (an
+ * unknown path without a key) gets the surface default.
+ */
+export async function resolveRequestSource(
+  req: FastifyRequest, routing: SurfaceRouting, surface: ApiSurfaceId,
+): Promise<ApiSource> {
+  if (req.gatewaySource) return req.gatewaySource;
+  const pinned = req.openaiKey?.source ?? req.claudeApiKey?.source;
+  if (pinned != null && !isApiSource(pinned)) {
+    throw new ApiError('API key has an invalid source assignment', {
+      status: 503, code: 'backend_unavailable', type: 'api_error',
+    });
+  }
+  const source = pinned ?? (routing.sourceFor ? await routing.sourceFor(surface) : 'emulated');
+  req.gatewaySource = source;
+  return source;
 }
 
 /** Resolve exactly once after authentication, shared by availability and execution. */
@@ -121,7 +145,7 @@ export async function assertRequestBackendEnabled(
 }
 
 export function createGatewayWiring(ctx: GatewayContext, log?: Log): GatewayWiring {
-  return { backends: createGatewayBackends(ctx, log), routing: createSurfaceRouting(ctx.db) };
+  return { backends: createGatewayBackends(ctx, log), routing: createSurfaceRouting(ctx.db), upstream: createGatewayUpstream(ctx, { log }) };
 }
 
 /**
@@ -130,7 +154,11 @@ export function createGatewayWiring(ctx: GatewayContext, log?: Log): GatewayWiri
  */
 export function defaultGatewayWiring(ctx: GatewayContext, log?: Log): GatewayWiring {
   const hasDb = typeof (ctx.db as { select?: unknown } | undefined)?.select === 'function';
-  return { backends: createGatewayBackends(ctx, log), routing: hasDb ? createSurfaceRouting(ctx.db) : identityRouting };
+  return {
+    backends: createGatewayBackends(ctx, log),
+    routing: hasDb ? createSurfaceRouting(ctx.db) : identityRouting,
+    ...(hasDb ? { upstream: createGatewayUpstream(ctx, { log }) } : {}),
+  };
 }
 
 export function createGatewayBackends(

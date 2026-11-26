@@ -28,6 +28,8 @@ export interface ClaudeApiKeyContext {
   keyPrefix: string;
   adminUserId: number | null;
   backendEngine?: string | null;
+  /** Gateway source pin (`emulated` | `upstream`); null follows the surface default. */
+  source?: string | null;
 }
 
 export interface ClaudeKeyResolver {
@@ -109,6 +111,7 @@ export function createClaudeKeyResolver(
       keyPrefix: row.keyPrefix,
       adminUserId: row.adminUserId ?? null,
       backendEngine: row.backendEngine ?? null,
+      source: row.source ?? null,
     };
   }
 

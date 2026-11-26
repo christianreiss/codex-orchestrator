@@ -2,7 +2,13 @@ import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fas
 import type { RouteContext } from '../index.js';
 import { ApiError } from '../../http/errors.js';
 import { createGatewayLifecycle } from '../../http/gateway-lifecycle.js';
-import { installGatewayBodyCapture } from '../../http/gateway-dispatch.js';
+import {
+  catchAllHandler,
+  installGatewayBodyCapture,
+  installRawBodyPassthrough,
+  makeCatchAllKeyHook,
+  makeGatewayDispatch,
+} from '../../http/gateway-dispatch.js';
 import { OpenAiKeyService } from '../../services/openai-keys.js';
 import { makeOpenAiKeyResolver } from '../../services/openai-key-resolver.js';
 import { makeOpenAiKillSwitch, type KillSwitch } from '../../services/openai-kill-switch.js';
@@ -85,9 +91,15 @@ async function mountOpenAiCompatRoutes(
   const killSwitch = overrides.killSwitch ?? makeOpenAiKillSwitch(ctx.db, surface.disabledFlag, surface.id === 'grok' ? 'Grok' : surface.id === 'kimi' ? 'Kimi Code' : 'OpenAI', surface.id === 'kimi');
   const keyResolver = makeOpenAiKeyResolver({ keys, engine: surface.keyEngine });
   const killSwitchHook = makeKillSwitchPreHandler(killSwitch);
-  const backendHook: preHandlerHookHandler = async (req) => {
-    await assertRequestBackendEnabled(ctx.db, req, gateway.routing, surface.id);
+  // Source switch: `upstream` forwards to the provider here and the handler
+  // never runs; `emulated` checks the backend engine and runs the handler.
+  const dispatch = {
+    surface: surface.id,
+    gateway,
+    run: runGeneration,
+    backendEnabled: (req: FastifyRequest) => assertRequestBackendEnabled(ctx.db, req, gateway.routing, surface.id),
   };
+  const backendHook = makeGatewayDispatch(dispatch);
 
   const identity = surface.identityBackend;
   const adapters = new Map<Engine, RunnerOpenAiAdapter | null>();
@@ -267,6 +279,23 @@ async function mountOpenAiCompatRoutes(
         : await backend.models.resolve(id);
       return openAiModelObject(backend.models.info(selected));
     },
+  });
+
+  // Every other path: forwarded 1:1 when the request's source is `upstream`
+  // (files, audio, images, batches, ...), 404 otherwise. Own scope without body
+  // parsers, so multipart and binary uploads stream through untouched.
+  const catchAll = [
+    killSwitchHook,
+    makeCatchAllKeyHook(keyResolver, gateway.routing, surface.id),
+    makeGatewayDispatch(dispatch, { catchAll: true }),
+  ];
+  await app.register(async (app) => {
+    installRawBodyPassthrough(app);
+    app.route({ method: 'GET', url: '/v1/*', preHandler: catchAll, handler: catchAllHandler });
+    app.route({ method: 'POST', url: '/v1/*', preHandler: catchAll, handler: catchAllHandler });
+    app.route({ method: 'PUT', url: '/v1/*', preHandler: catchAll, handler: catchAllHandler });
+    app.route({ method: 'PATCH', url: '/v1/*', preHandler: catchAll, handler: catchAllHandler });
+    app.route({ method: 'DELETE', url: '/v1/*', preHandler: catchAll, handler: catchAllHandler });
   });
 }
 

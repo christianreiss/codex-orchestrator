@@ -89,6 +89,11 @@ Gateway keys belong to the surface (key namespace), not to the engine that answe
 - `GET /v1/models/{model}` — gateway key: retrieve one model object
 - `POST /v1/embeddings` — gateway key: currently returns `501 not_implemented` for the bundled backend
 - `OPTIONS /v1/*` — public: CORS preflight catch-all for every OpenAI-compatible route
+- `GET /v1/*` — gateway key: any other path, forwarded 1:1 to OpenAI under the `upstream` source, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `POST /v1/*` — gateway key: any other path (multipart and binary bodies stream through), forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `PUT /v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `PATCH /v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `DELETE /v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
 - `POST /anthropic/v1/messages` — gateway key: anthropic-compatible Messages API ([spec](interface-api.md#post-anthropicv1messages))
 - `POST /anthropic/v1/messages/count_tokens` — gateway key: token count estimate for a prospective request ([spec](interface-api.md#post-anthropicv1messagescount_tokens))
 - `POST /anthropic/v1/completions` — gateway key: legacy text completion endpoint ([spec](interface-api.md#post-anthropicv1completions))
@@ -98,6 +103,11 @@ Gateway keys belong to the surface (key namespace), not to the engine that answe
 - `GET /anthropic/v1/models/{model_id}` — gateway key: retrieve one model ([spec](interface-api.md#get-anthropicv1modelsmodel_id))
 - `POST /anthropic/v1/embeddings` — gateway key: embeddings (not implemented by the backend) ([spec](interface-api.md#post-anthropicv1embeddings))
 - `OPTIONS /anthropic/v1/*` — public: CORS preflight catch-all for every Anthropic-compatible route ([spec](interface-api.md#cors-preflight))
+- `GET /anthropic/v1/*` — gateway key: any other path, forwarded 1:1 to Anthropic under the `upstream` source, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `POST /anthropic/v1/*` — gateway key: any other path (multipart and binary bodies stream through), forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `PUT /anthropic/v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `PATCH /anthropic/v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `DELETE /anthropic/v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
 - `OPTIONS /kimi/v1/*` — public: open CORS preflight, no gateway key required ([spec](interface-api.md#kimi-inference-gateway))
 - `POST /kimi/v1/chat/completions` — gateway key: text chat, scoped bearer required ([spec](interface-api.md#kimi-inference-gateway))
 - `POST /kimi/v1/responses` — gateway key: text Responses API, scoped bearer required ([spec](interface-api.md#kimi-inference-gateway))
@@ -105,6 +115,11 @@ Gateway keys belong to the surface (key namespace), not to the engine that answe
 - `POST /kimi/v1/embeddings` — gateway key: explicit `400 unsupported_endpoint` ([spec](interface-api.md#kimi-inference-gateway))
 - `GET /kimi/v1/models` — gateway key: enabled backend models (MoonshotAI catalog by default) ([spec](interface-api.md#kimi-inference-gateway))
 - `GET /kimi/v1/models/{model}` — gateway key: strict single-model lookup ([spec](interface-api.md#kimi-inference-gateway))
+- `GET /kimi/v1/*` — gateway key: any other path, forwarded 1:1 to Moonshot AI under the `upstream` source, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `POST /kimi/v1/*` — gateway key: any other path (multipart and binary bodies stream through), forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `PUT /kimi/v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `PATCH /kimi/v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `DELETE /kimi/v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
 - `OPTIONS /grok/v1/*` — public: CORS preflight, without gateway auth ([spec](interface-api.md#grok-endpoint-inventory))
 - `POST /grok/v1/chat/completions` — gateway key: grok subscription chat completion, scoped bearer required ([spec](interface-api.md#grok-endpoint-inventory))
 - `POST /grok/v1/responses` — gateway key: grok text response, scoped bearer required ([spec](interface-api.md#grok-endpoint-inventory))
@@ -112,6 +127,11 @@ Gateway keys belong to the surface (key namespace), not to the engine that answe
 - `POST /grok/v1/embeddings` — gateway key: unsupported endpoint, explicit non-retriable400 ([spec](interface-api.md#grok-endpoint-inventory))
 - `GET /grok/v1/models` — gateway key: enabled Grok native model catalog ([spec](interface-api.md#grok-endpoint-inventory))
 - `GET /grok/v1/models/{model}` — gateway key: retrieve an enabled native model ([spec](interface-api.md#grok-endpoint-inventory))
+- `GET /grok/v1/*` — gateway key: any other path, forwarded 1:1 to xAI under the `upstream` source, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `POST /grok/v1/*` — gateway key: any other path (multipart and binary bodies stream through), forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `PUT /grok/v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `PATCH /grok/v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
+- `DELETE /grok/v1/*` — gateway key: any other path, forwarded under `upstream`, else `404` ([spec](interface-api.md#upstream-source-provider-api-keys))
 
 ## External clients
 

@@ -12,9 +12,17 @@
  *   GET     /anthropic/v1/models/:model_id      (single-model lookup)
  *   POST    /anthropic/v1/responses             (SSE not implemented — same as PHP)
  *   POST    /anthropic/v1/embeddings            (501 — Anthropic has no embeddings API)
+ *   GET     /anthropic/v1/*                     (upstream forward, else 404)
+ *   POST    /anthropic/v1/*                     (upstream forward, else 404)
+ *   PUT     /anthropic/v1/*                     (upstream forward, else 404)
+ *   PATCH   /anthropic/v1/*                     (upstream forward, else 404)
+ *   DELETE  /anthropic/v1/*                     (upstream forward, else 404)
  *
  * Auth: `claude-key-resolver` preHandler (Bearer / x-api-key / raw).
  * Kill-switch: `makeOpenAiKillSwitch` preHandler (versions flag `claude_api_disabled`).
+ * Source: with source `upstream` (surface default or the key's pin) every
+ * route forwards 1:1 to Anthropic with a stored provider key instead of the
+ * emulated backend; see `gateway-dispatch.ts` and `gateway-upstream/`.
  *
  * Streaming: synthesised SSE events from the completed runner response, same
  * shape as the legacy PHP `AnthropicCompat::messageStreamEvents`.
@@ -24,7 +32,13 @@ import { randomBytes } from 'node:crypto';
 import type { RouteContext } from '../index.js';
 import { ApiError } from '../../http/errors.js';
 import { createGatewayLifecycle } from '../../http/gateway-lifecycle.js';
-import { installGatewayBodyCapture } from '../../http/gateway-dispatch.js';
+import {
+  catchAllHandler,
+  installGatewayBodyCapture,
+  installRawBodyPassthrough,
+  makeCatchAllKeyHook,
+  makeGatewayDispatch,
+} from '../../http/gateway-dispatch.js';
 import {
   createClaudeKeyResolver,
   type ClaudeKeyResolver,
@@ -179,6 +193,11 @@ async function mountAnthropicCompatRoutes(
     },
     backendEnabled: (req) => assertRequestBackendEnabled(ctx.db, req, gateway.routing, SURFACE.id),
   };
+  // Source switch after the key check: `upstream` forwards to Anthropic here
+  // (the provider validates `anthropic-version` and the body itself) and the
+  // handler never runs; `emulated` checks the backend engine and continues.
+  const dispatch = { surface: SURFACE.id, gateway, run: runGeneration, backendEnabled: deps.backendEnabled };
+  const dispatchHook = makeGatewayDispatch(dispatch);
 
   // OPTIONS preflight — CORS plugin handles headers; we just need a 204.
   app.route({
@@ -198,7 +217,7 @@ async function mountAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
-      backendEnabledHook(deps),
+      dispatchHook,
       versionHeaderHook(),
       messagesVersionRulesHook(),
     ],
@@ -258,7 +277,7 @@ async function mountAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
-      backendEnabledHook(deps),
+      dispatchHook,
       versionHeaderHook(),
       messagesVersionRulesHook(),
     ],
@@ -287,7 +306,7 @@ async function mountAnthropicCompatRoutes(
     requestIdHook(),
     killSwitchHook(deps),
     keyResolver.preHandler,
-    backendEnabledHook(deps),
+    dispatchHook,
     versionHeaderHook(),
   ];
   const completionsHandler = async (req: FastifyRequest, reply: FastifyReply) => runGeneration(reply, async (signal) => {
@@ -364,7 +383,7 @@ async function mountAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
-      backendEnabledHook(deps),
+      dispatchHook,
       versionHeaderHook(),
     ],
     handler: async (req) => {
@@ -381,7 +400,7 @@ async function mountAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
-      backendEnabledHook(deps),
+      dispatchHook,
       versionHeaderHook(),
     ],
     handler: async (req) => {
@@ -400,7 +419,7 @@ async function mountAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
-      backendEnabledHook(deps),
+      dispatchHook,
       versionHeaderHook(),
     ],
     handler: async (req, reply) => runGeneration(reply, async (signal) => {
@@ -442,7 +461,7 @@ async function mountAnthropicCompatRoutes(
       requestIdHook(),
       killSwitchHook(deps),
       keyResolver.preHandler,
-      backendEnabledHook(deps),
+      dispatchHook,
       versionHeaderHook(),
     ],
     handler: async () => {
@@ -453,16 +472,30 @@ async function mountAnthropicCompatRoutes(
       });
     },
   });
+
+  // Every other path: forwarded 1:1 when the request's source is `upstream`
+  // (files, batches, ...), 404 otherwise. Own scope without body parsers, so
+  // multipart and binary uploads stream through untouched.
+  const catchAll = [
+    requestIdHook(),
+    killSwitchHook(deps),
+    makeCatchAllKeyHook(keyResolver.preHandler, gateway.routing, SURFACE.id),
+    makeGatewayDispatch(dispatch, { catchAll: true }),
+  ];
+  await app.register(async (app) => {
+    installRawBodyPassthrough(app);
+    app.route({ method: 'GET', url: '/anthropic/v1/*', preHandler: catchAll, handler: catchAllHandler });
+    app.route({ method: 'POST', url: '/anthropic/v1/*', preHandler: catchAll, handler: catchAllHandler });
+    app.route({ method: 'PUT', url: '/anthropic/v1/*', preHandler: catchAll, handler: catchAllHandler });
+    app.route({ method: 'PATCH', url: '/anthropic/v1/*', preHandler: catchAll, handler: catchAllHandler });
+    app.route({ method: 'DELETE', url: '/anthropic/v1/*', preHandler: catchAll, handler: catchAllHandler });
+  });
 }
 
 function killSwitchHook(deps: AnthropicRouteDeps) {
   return async function checkKillSwitch(_req: FastifyRequest) {
     await deps.killSwitch.throwIfDisabled();
   };
-}
-
-function backendEnabledHook(deps: AnthropicRouteDeps) {
-  return async (req: FastifyRequest) => deps.backendEnabled(req);
 }
 
 /** Anthropic SDKs read this specific header for diagnostics/support requests —

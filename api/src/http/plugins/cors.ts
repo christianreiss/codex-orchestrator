@@ -61,6 +61,10 @@ export const corsPlugin = fp(
             'request-id',
             'x-codex-version',
             'retry-after',
+            // Upstream source: provider retry hint and this gateway's own id
+            // (the provider's request id replaces x-request-id there).
+            'retry-after-ms',
+            'x-gateway-request-id',
           ],
           credentials: true,
           maxAge: 86400,
