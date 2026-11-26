@@ -39,10 +39,13 @@ type Context struct {
 	PendingSwitch     *SwitchDirective
 	// PoolSize is the engine's account count from the last verified answer
 	// (0: unknown or a single account). Display only: the statusline names
-	// the bound account when it is above one.
-	PoolSize int
-	wake     chan struct{}
-	onAdopt  func(Adoption)
+	// the bound account when it is above one. poolKnown records that this
+	// process observed it; until then a save keeps the binding file's hint,
+	// which a sibling process may have refreshed since Load.
+	PoolSize  int
+	poolKnown bool
+	wake      chan struct{}
+	onAdopt   func(Adoption)
 }
 
 // binding is the scope's binding file. account_label and pool_size are
@@ -149,6 +152,7 @@ func (c *Context) observePoolLocked(raw json.RawMessage) {
 			Label string `json:"label"`
 		} `json:"accounts"`
 	}
+	c.poolKnown = true
 	if len(raw) == 0 || json.Unmarshal(raw, &pool) != nil {
 		c.PoolSize = 0
 		return
@@ -161,9 +165,25 @@ func (c *Context) observePoolLocked(raw json.RawMessage) {
 	}
 }
 
+// notePoolLocked records that a switch or adoption proved a pool of at
+// least two accounts.
+func (c *Context) notePoolLocked() {
+	if c.PoolSize < 2 {
+		c.PoolSize, c.poolKnown = 2, true
+	}
+}
+
 func (c *Context) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
 		return err
+	}
+	if !c.poolKnown {
+		if raw, err := os.ReadFile(c.path); err == nil {
+			var b binding
+			if json.Unmarshal(raw, &b) == nil {
+				c.PoolSize = b.PoolSize
+			}
+		}
 	}
 	raw, err := json.Marshal(binding{AccountID: c.AccountID, AccountLabel: c.AccountLabel, PoolSize: c.PoolSize})
 	if err != nil {

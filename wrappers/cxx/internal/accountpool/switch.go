@@ -61,6 +61,7 @@ func (c *Context) observeBindingLocked(f bindingFields, allowAdopt bool) *Adopti
 		adopted = &Adoption{PreviousAccountID: c.AccountID, AccountID: f.AccountID, AccountLabel: f.AccountLabel}
 		c.AccountID = f.AccountID
 		c.AccountLabel = f.AccountLabel
+		c.notePoolLocked()
 		_ = c.saveLocked()
 	} else if f.AccountID == c.AccountID && f.AccountLabel != "" {
 		c.AccountLabel = f.AccountLabel
@@ -255,6 +256,9 @@ func (c *Context) ApplySwitch(res *LeaseResponse) (int64, string, error) {
 	previous, label := c.AccountID, c.AccountLabel
 	c.AccountID = res.AccountID
 	c.AccountLabel = res.AccountLabel
+	if previous != res.AccountID {
+		c.notePoolLocked()
+	}
 	if res.BindingGeneration != nil && *res.BindingGeneration > c.BindingGeneration {
 		c.BindingGeneration = *res.BindingGeneration
 	}

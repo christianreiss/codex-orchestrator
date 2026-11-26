@@ -2124,7 +2124,9 @@ single account keeps the previous output unchanged.
   `.cxx-account-<server-hash>.json`, which now stores two display-only keys,
   `account_label` and `pool_size`, beside `account_id`:
   - They are refreshed from every verified `/auth` and `/sync/bootstrap`
-    answer and from lease and switch results.
+    answer and from lease and switch results. A process that has not seen a
+    pooled answer keeps the file's `pool_size`. A switch or adoption counts as
+    proof of at least two accounts.
   - Only `account_id` carries authority. Older binaries that rewrite the file
     drop the two keys, which only hides the segment until the next answer.
 - `clx accounts` messages are English, like the rest of the CLI.

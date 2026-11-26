@@ -326,6 +326,15 @@ band, automatic exhaust to 90 then 99 %, or manual) distributes sessions. Claude
 sessions switch accounts live at the next turn boundary; quota warnings and
 `quota_get` name the other accounts and only advise pausing when the whole pool is at
 its limit. See `docs/interface-api.md` → *Claude multiple accounts and live switching*.
+From cxx 0.9.208 the wrappers show any multi-account pool:
+- The launch quota picker and the startup card stay quiet while another account
+  has headroom.
+- The startup card, `status` and `doctor` list every account, the binding and
+  any pending switch.
+- The Claude statusline names the bound account.
+
+See `docs/interface-clx.md` → *Pools on the card, `status`, `doctor` and the
+statusline*.
 
 Dashboard provider accounts use a shared card and quota-meter layout for ChatGPT,
 Claude and Grok, with three columns on desktop, two on tablets and one on mobile.

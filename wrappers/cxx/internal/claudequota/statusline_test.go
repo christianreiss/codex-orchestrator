@@ -238,4 +238,29 @@ func TestStatusLineNamesTheBoundAccountOnlyInAPool(t *testing.T) {
 	}
 }
 
+func TestStatusLineKeepsThePoolHintAcrossSiblingSaves(t *testing.T) {
+	authPath := filepath.Join(t.TempDir(), ".credentials.json")
+	const base = "https://orchestrator.example"
+	accountpool.Load("claude", authPath, base).Observe("/auth", []byte(`{"status":"valid","account_id":1,"verification_state":"verified"}`))
+	stale := accountpool.Load("claude", authPath, base) // bound to #1 before the pool grew
+	accountpool.Load("claude", authPath, base).Observe("/auth", []byte(`{"status":"valid","account_id":1,"verification_state":"verified",
+		"quota_pool":{"accounts":[{"id":1,"label":"a@x"},{"id":8,"label":"b@x"}]}}`))
+	// The stale process saves the same account (no switch): the sibling's
+	// pool hint survives.
+	if _, _, err := stale.ApplySwitch(&accountpool.LeaseResponse{AccountID: 1, AccountLabel: "a@x"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := accountSegment(accountpool.Load("claude", authPath, base)); got != "#1 a@x" {
+		t.Fatalf("segment after a stale save = %q", got)
+	}
+	// A switch by a process that never saw a pooled answer proves a pool.
+	other := accountpool.Load("claude", filepath.Join(t.TempDir(), ".credentials.json"), base)
+	if _, _, err := other.ApplySwitch(&accountpool.LeaseResponse{AccountID: 3, AccountLabel: "c@x"}); err != nil {
+		t.Fatal(err)
+	}
+	if other.PoolSize < 2 {
+		t.Fatalf("a switch proves a pool: %d", other.PoolSize)
+	}
+}
+
 func intPtr(v int) *int { return &v }

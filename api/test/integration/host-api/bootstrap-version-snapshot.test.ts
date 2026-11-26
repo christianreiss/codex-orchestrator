@@ -161,6 +161,15 @@ describe('bootstrap request version snapshot', () => {
       expect(pool).toMatchObject({ bound_account_id: 1, headroom: true, launch_account_id: 8, live_switch: true,
         policy: { mode: 'auto', strategy: 'balanced' } });
       expect(pool.accounts.map((a: { id: number; score: number | null }) => [a.id, a.score])).toEqual([[1, 87], [8, null]]);
+      // The picker's copy: the requesting engine relative to its bound account,
+      // the alternative as a new launch would see it.
+      const advice = response.json().auth.quota_advice;
+      expect(advice.claude.pool).toEqual({ bound_account_id: 1, launch_account_id: 8, headroom: true, accounts: [
+        { id: 1, label: 'a1@example.com', usable: true, score: 87, short_used_percent: null, weekly_used_percent: 87 },
+        { id: 8, label: 'a8@example.com', usable: true, score: null, short_used_percent: null, weekly_used_percent: null },
+      ] });
+      expect(advice.codex.pool.headroom).toBe(true);
+      expect(poolView).toHaveBeenCalledWith('codex', null);
     } finally { await app.close(); }
   });
 
