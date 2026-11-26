@@ -159,5 +159,20 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
   if (scopeColumns.join() !== 'binding_generation,desired_account_id,desired_reason,desired_at,bound_at')
     throw new Error('Migration 0150 scope switch inventory changed; cannot project the bootstrap schema');
   for (const column of scopeColumns) tables.get('provider_account_sessions')!.add(column);
+  // Migration 0151 adds the server-side provider API keys and the per-key gateway source.
+  const providerKeys = splitSqlStatements(
+    readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0151_provider_api_keys.sql'), 'utf8'),
+  );
+  const providerCreate = providerKeys.find((s) => /^CREATE TABLE IF NOT EXISTS provider_api_keys/i.test(s.trim()));
+  if (!providerCreate) throw new Error('Migration 0151 must create provider_api_keys');
+  const providerColumns = [...providerCreate.matchAll(/^\s+([a-z_]+)\s+(?:bigint|varchar|longtext|char|int)\b/gm)].map((m) => m[1]!);
+  if (
+    providerColumns.join() !==
+      'id,provider,label,key_enc,key_hash,key_hint,base_url,sort_order,state,verification_state,verification_checked_at,verification_reason,last_used_at,last_error_at,last_error_status,last_error_reason,created_by_admin_user_id,created_at,updated_at' ||
+    !providerKeys.some((s) => /ALTER TABLE openai_api_keys ADD COLUMN source VARCHAR\(16\) NULL/.test(s))
+  )
+    throw new Error('Migration 0151 provider key inventory changed; cannot project the bootstrap schema');
+  tables.set('provider_api_keys', new Set(providerColumns));
+  tables.get('openai_api_keys')!.add('source');
   return tables;
 }

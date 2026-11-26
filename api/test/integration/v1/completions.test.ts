@@ -28,6 +28,7 @@ async function buildApp(): Promise<{ app: FastifyInstance; key: string }> {
     updatedAt: '2024-01-01T00:00:00Z',
     engine: 'codex',
     backendEngine: null,
+    source: null,
   };
 
   const adapter = {

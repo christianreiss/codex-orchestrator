@@ -33,6 +33,8 @@ export interface CreateKeyInput {
   expiresAt?: string | null;
   engine?: Engine;
   backendEngine?: Engine | null;
+  /** Per-key gateway source override; null/undefined follows the surface default. */
+  source?: 'emulated' | 'upstream' | null;
   prefix?: string;
 }
 
@@ -64,8 +66,8 @@ export class OpenAiKeyService {
 
     const owner=ownerRuntimeFor(this.deps.db);
     if(owner){
-      return await mutateOwnerState(owner,{kind:'gateway.key.issue',payload:{name,engine,backendEngine:input.backendEngine??null,keyHash,expiresAt:input.expiresAt??null},prepare(ctx){
-        let record:OpenaiApiKey;const row={name,keyPrefix:prefix,keyHash,keyEnc,adminUserId:input.adminUserId??null,isActive:1,useCount:0,lastUsedAt:null,expiresAt:input.expiresAt??null,engine,backendEngine:input.backendEngine??null,createdAt:now,updatedAt:now};
+      return await mutateOwnerState(owner,{kind:'gateway.key.issue',payload:{name,engine,backendEngine:input.backendEngine??null,source:input.source??null,keyHash,expiresAt:input.expiresAt??null},prepare(ctx){
+        let record:OpenaiApiKey;const row={name,keyPrefix:prefix,keyHash,keyEnc,adminUserId:input.adminUserId??null,isActive:1,useCount:0,lastUsedAt:null,expiresAt:input.expiresAt??null,engine,backendEngine:input.backendEngine??null,source:input.source??null,createdAt:now,updatedAt:now};
         ctx.write(async tx=>{const [inserted]=await tx.insert(openaiApiKeys).values(row);record={...row,id:Number(inserted.insertId)};ctx.draft.upsert('openaiApiKeys',record);});adminAudit(ctx,'gateway.key.issued',()=>({key_id:record.id,name,engine}));return ()=>({key,record});
       }}) as unknown as IssuedKey;
     }
@@ -80,6 +82,7 @@ export class OpenAiKeyService {
       expiresAt: input.expiresAt ?? null,
       engine,
       backendEngine: input.backendEngine ?? null,
+      source: input.source ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -128,7 +131,7 @@ export class OpenAiKeyService {
     const hash = sha256(bearerToken);
     const owner=ownerRuntimeFor(this.deps.db);if(owner){owner.assertOwner();const row=owner.state.snapshot().table('openaiApiKeys').by('keyHash',hash).find(row=>row.engine===engine);
       if(!row||row.isActive!==1||row.expiresAt&&Date.parse(row.expiresAt)<=Date.now())return null;
-      setOwnerRequestPrincipal({principal:`gateway-key:${row.id}`,revalidate(snapshot){const key=snapshot.table('openaiApiKeys').get(row.id);if(!key||key.keyHash!==hash||key.engine!==engine||key.backendEngine!==row.backendEngine||key.isActive!==1||key.expiresAt&&Date.parse(key.expiresAt)<=Date.now())throw new UnauthorizedError('Gateway key authority changed');}});
+      setOwnerRequestPrincipal({principal:`gateway-key:${row.id}`,revalidate(snapshot){const key=snapshot.table('openaiApiKeys').get(row.id);if(!key||key.keyHash!==hash||key.engine!==engine||key.backendEngine!==row.backendEngine||(key.source??null)!==(row.source??null)||key.isActive!==1||key.expiresAt&&Date.parse(key.expiresAt)<=Date.now())throw new UnauthorizedError('Gateway key authority changed');}});
       return {...row,keyEnc:null};
     }
     const now = nowIso();
@@ -188,6 +191,7 @@ export class OpenAiKeyService {
         expiresAt: openaiApiKeys.expiresAt,
         engine: openaiApiKeys.engine,
         backendEngine: openaiApiKeys.backendEngine,
+        source: openaiApiKeys.source,
         createdAt: openaiApiKeys.createdAt,
         updatedAt: openaiApiKeys.updatedAt,
       })

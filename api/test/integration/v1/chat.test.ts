@@ -52,6 +52,7 @@ async function buildHarness(opts: HarnessOverrides = {}): Promise<{
     updatedAt: '2024-01-01T00:00:00Z',
     engine: 'codex',
     backendEngine: null,
+    source: null,
     ...opts.keyOverrides,
   };
 

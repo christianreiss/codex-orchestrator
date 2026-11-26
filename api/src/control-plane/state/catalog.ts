@@ -82,6 +82,7 @@ export const TABLE_POLICY = {
   mcpSessionTokens: 'owned',
   versions: 'owned',
   openaiApiKeys: 'owned',
+  providerApiKeys: 'owned',
   wrapperSigningKeys: 'owned',
   agentNamePool: 'owned',
   agentNameLeases: 'owned',

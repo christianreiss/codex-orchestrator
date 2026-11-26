@@ -19,6 +19,9 @@ export const CORE_CONTENT_FIELDS: Partial<Record<OwnedTableName, readonly string
   coordProjectFeedback: ['body'],
   adminUsers: ['passwordHash'],
   secrets: ['valueEnc'],
+  // Provider API keys are decrypted only by the gateway upstream path; the
+  // admin API never returns the envelope or the value.
+  providerApiKeys: ['keyEnc'],
 };
 
 export type CoreContents = ReadonlyMap<string, string | null>;

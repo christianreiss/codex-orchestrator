@@ -290,6 +290,7 @@ describe('migrations against the test baseline', () => {
       'kimi_auth_refresh_state',
       'kimi_usage_snapshots',
       'coord_project_changelog',
+      'provider_api_keys',
     ]);
     expect(additions.filter((a) => a.column !== undefined).map((a) => `${a.table}.${a.column}`)).toEqual([
       'auth_payloads.generation',
@@ -449,6 +450,7 @@ describe('migrations against the test baseline', () => {
       'provider_account_sessions.desired_reason',
       'provider_account_sessions.desired_at',
       'provider_account_sessions.bound_at',
+      'openai_api_keys.source',
     ]);
   });
 

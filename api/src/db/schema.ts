@@ -1457,6 +1457,12 @@ export const openaiApiKeys = mysqlTable(
     updatedAt: varchar('updated_at', { length: 100 }).notNull().default(''),
     engine: varchar('engine', { length: 16 }).notNull().default('codex'),
     backendEngine: varchar('backend_engine', { length: 16 }),
+    /**
+     * Source override (0151): NULL follows the surface default
+     * (`api_surface_source_<surface>`), `emulated` answers through the runner,
+     * `upstream` forwards to the surface's provider with a provider API key.
+     */
+    source: varchar('source', { length: 16 }),
   },
   (t) => ({
     keyHashUnique: uniqueIndex('key_hash').on(t.keyHash),
@@ -1464,6 +1470,43 @@ export const openaiApiKeys = mysqlTable(
     prefixIdx: index('idx_openai_keys_prefix').on(t.keyPrefix),
     adminIdx: index('idx_openai_keys_admin').on(t.adminUserId),
     engineIdx: index('idx_openai_keys_engine').on(t.engine),
+  }),
+);
+
+/**
+ * Real provider API keys for the gateway surfaces' `upstream` source (0151).
+ * Server-side only: the value is a secretbox envelope (`key_enc`), never
+ * leased, synced or revealed; `key_hash` only deduplicates per provider and
+ * `key_hint` is all the admin API shows. `sort_order` is the failover order
+ * inside one provider. Telemetry columns hold a status code and a fixed
+ * reason vocabulary, never an upstream response body.
+ */
+export const providerApiKeys = mysqlTable(
+  'provider_api_keys',
+  {
+    id: bigint('id', { mode: 'number', unsigned: true }).primaryKey().autoincrement(),
+    provider: varchar('provider', { length: 16 }).notNull(),
+    label: varchar('label', { length: 255 }).notNull(),
+    keyEnc: longtext('key_enc').notNull(),
+    keyHash: char('key_hash', { length: 64 }).notNull(),
+    keyHint: varchar('key_hint', { length: 32 }).notNull(),
+    baseUrl: varchar('base_url', { length: 512 }),
+    sortOrder: int('sort_order').notNull().default(0),
+    state: varchar('state', { length: 16 }).notNull().default('active'),
+    verificationState: varchar('verification_state', { length: 16 }).notNull().default('unverified'),
+    verificationCheckedAt: varchar('verification_checked_at', { length: 100 }),
+    verificationReason: varchar('verification_reason', { length: 255 }),
+    lastUsedAt: varchar('last_used_at', { length: 100 }),
+    lastErrorAt: varchar('last_error_at', { length: 100 }),
+    lastErrorStatus: int('last_error_status'),
+    lastErrorReason: varchar('last_error_reason', { length: 255 }),
+    createdByAdminUserId: bigint('created_by_admin_user_id', { mode: 'number', unsigned: true }),
+    createdAt: varchar('created_at', { length: 100 }).notNull(),
+    updatedAt: varchar('updated_at', { length: 100 }).notNull(),
+  },
+  (t) => ({
+    hashUnique: uniqueIndex('uq_provider_api_keys_hash').on(t.provider, t.keyHash),
+    orderIdx: index('idx_provider_api_keys_order').on(t.provider, t.sortOrder),
   }),
 );
 
@@ -2215,7 +2258,8 @@ export type SharedMemory = typeof sharedMemories.$inferSelect;
 export type SharedMemoryChunk = typeof sharedMemoryChunks.$inferSelect;
 export type SharedMemoryRevision = typeof sharedMemoryRevisions.$inferSelect;
 export type OpenaiApiKey = typeof openaiApiKeys.$inferSelect;
-export type Secret = typeof secrets.$inferSelect;
+export type ProviderApiKey = typeof providerApiKeys.$inferSelect;
+export type Secret =typeof secrets.$inferSelect;
 export type Log = typeof logs.$inferSelect;
 export type Version = typeof versions.$inferSelect;
 export type SchemaMigration = typeof schemaMigrations.$inferSelect;
