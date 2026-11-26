@@ -39,6 +39,7 @@ import { API_SURFACES, storedSource, surfaceDisabled, type ApiSurfaceId } from '
 import { ENGINE_DISABLED_FLAGS, readFleetEngineState } from '../engine-switch.js';
 import { isTruthyFlagValue } from '../settings.js';
 import { ProviderApiKeyService, type ProviderKeyCandidate, type ProviderKeyMeta } from '../provider-api-keys.js';
+import { isConnectFailure } from './base-url.js';
 import { isReplayable, readUpstreamBody, UploadTooLargeError } from './body.js';
 import { createUpstreamAgent, upstreamConfigFromEnv, type UpstreamConfig } from './client.js';
 import {
@@ -69,7 +70,10 @@ export interface GatewayUpstream {
 export interface GatewayUpstreamOptions {
   log?: Log;
   config?: UpstreamConfig;
-  /** Test seam: a dispatcher in place of the guarded agent. */
+  /**
+   * Test seam: a dispatcher in place of the guarded agent. Its connection
+   * errors are not marked by the guarded connector, so they never fail over.
+   */
   dispatcher?: Dispatcher;
 }
 
@@ -105,19 +109,6 @@ export function upstreamPath(rawUrl: string, basePath: string): string {
 
 function isHeadersTimeout(err: unknown): boolean {
   return (err as { code?: unknown } | null)?.code === 'UND_ERR_HEADERS_TIMEOUT';
-}
-
-/**
- * Errors that can happen after the request reached the provider (a reset or
- * close on an established connection, a body that did not match its
- * length). The provider may already have acted on it, so another key must
- * not get the same request: only failures to connect fail over.
- */
-const AFTER_SEND_ERRORS = new Set(['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE', 'UND_ERR_REQ_CONTENT_LENGTH_MISMATCH']);
-
-function mayHaveBeenSent(err: unknown): boolean {
-  const code = (err as { code?: unknown } | null)?.code;
-  return typeof code === 'string' && AFTER_SEND_ERRORS.has(code);
 }
 
 function isUploadTooLarge(err: unknown): boolean {
@@ -233,7 +224,10 @@ export function createGatewayUpstream(
         if (isHeadersTimeout(err)) {
           throw new ApiError(`${provider.label} did not answer in time`, { status: 504, code: 'upstream_timeout', type: 'api_error' });
         }
-        if (mayHaveBeenSent(err)) {
+        // Only a failure to open the connection proves the provider never
+        // saw the request. Anything else (a reset, a close, an unparsable
+        // answer) may follow a request it already acted on: no other key.
+        if (!isConnectFailure(err)) {
           throw new ApiError(`${provider.label} closed the connection before answering`, {
             status: 502,
             code: 'upstream_connection_lost',

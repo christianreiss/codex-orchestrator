@@ -215,6 +215,17 @@ export function createGuardedLookup(policy: UpstreamNetworkPolicy, resolve: Reso
   };
 }
 
+const connectFailures = new WeakSet<object>();
+
+/**
+ * True for an error the guarded connector raised while opening a connection
+ * (refused or blocked address, DNS, TLS, connect timeout): no byte of the
+ * request was written, so another key may safely get the same request.
+ */
+export function isConnectFailure(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && connectFailures.has(err);
+}
+
 /** The undici connector every upstream socket (forward and verification) goes through. */
 export function createGuardedConnector(
   policy: UpstreamNetworkPolicy,
@@ -228,9 +239,14 @@ export function createGuardedConnector(
     const host = normalizeHost(opts.hostname);
     const exempt = policy.privateHosts.has(host);
     if (!exempt && (opts.protocol !== 'https:' || (isIP(host) !== 0 && isBlockedAddress(host)) || policy.ownHosts.has(host))) {
-      callback(new UpstreamAddressBlockedError(), null);
+      const err = new UpstreamAddressBlockedError();
+      connectFailures.add(err);
+      callback(err, null);
       return;
     }
-    connect(opts, callback);
+    connect(opts, (...args) => {
+      if (args[0]) connectFailures.add(args[0]);
+      callback(...args);
+    });
   };
 }

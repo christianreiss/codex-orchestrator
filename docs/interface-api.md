@@ -425,8 +425,10 @@ provider API key stored server-side in `provider_api_keys` (see
   not `verification_state=invalid`, ordered by `sort_order`, then id; keys cooling
   down move last. Before the first byte reaches the client a failure to connect,
   `401`, `403` or `429` moves to the next key; the last key's answer is passed
-  through. A connection lost after the request may have reached the provider is
-  never repeated on another key. A `429` cools the key for
+  through. Only a failure to open the connection (refused, DNS, TLS, blocked
+  address, connect timeout) counts as a connection failure; any later transport
+  error (reset, close, unparsable answer) may follow a request the provider
+  already acted on and is never repeated on another key. A `429` cools the key for
   `retry-after-ms`/`retry-after` (1–300 s, default 30 s). A `401` cools it 60 s
   and starts a background re-verification; only that verification marks the
   key `invalid` (audit `provider_key.invalidated`, rules under `verify` below),
@@ -434,8 +436,8 @@ provider API key stored server-side in `provider_api_keys` (see
   5xx and xAI's `400` for a wrong key included, is committed.
 - **Errors before the commit.** `503 upstream_unconfigured` (no candidate key),
   `502 upstream_unreachable` (every candidate failed to connect; `extra.reason:
-  "timeout"` when one timed out), `502 upstream_connection_lost` (the connection
-  closed after the request was sent), `504 upstream_timeout` (no response headers
+  "timeout"` when one timed out), `502 upstream_connection_lost` (a transport
+  error after the connection was open), `504 upstream_timeout` (no response headers
   within `GATEWAY_UPSTREAM_HEADERS_TIMEOUT`), `503 backend_unavailable` (the
   upstream forward is not wired on this server), all in the surface's envelope.
   After the commit an error or a revoked authority (gateway key, kill switch,

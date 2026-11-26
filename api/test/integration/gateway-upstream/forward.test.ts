@@ -4,8 +4,8 @@
  * `node:http` fake provider on 127.0.0.1 (listed as a private host).
  */
 import http from 'node:http';
+import net, { type AddressInfo } from 'node:net';
 import { once } from 'node:events';
-import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
@@ -402,6 +402,32 @@ describe('gateway upstream source', () => {
     expect(r.statusCode).toBe(502);
     expect(JSON.parse(r.payload).error.code).toBe('upstream_connection_lost');
     expect(provider.seen.map(keyOf)).toEqual([KEY_A]);
+  });
+
+  it('does not repeat a request whose answer cannot be parsed', async () => {
+    let requests = 0;
+    const server = net.createServer((socket) => {
+      socket.once('data', () => {
+        requests += 1;
+        socket.end('HTTP/1.1 abc\r\n\r\n');
+      });
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+    const h = await harness();
+    await h.addKey('openai', KEY_A, base);
+    await h.addKey('openai', KEY_B, base);
+    const r = await h.app.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${GW_UP}`, 'content-type': 'application/json' },
+      payload: '{"model":"gpt-x","messages":[]}',
+    });
+    expect(r.statusCode).toBe(502);
+    expect(JSON.parse(r.payload).error.code).toBe('upstream_connection_lost');
+    expect(requests).toBe(1);
   });
 
   it('answers 504 when the provider sends no headers in time', async () => {
