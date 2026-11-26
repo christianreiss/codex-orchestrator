@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
 	"strings"
 	"time"
 )
@@ -45,13 +46,80 @@ func watchdogHookFailure(v map[string]any) string {
 		if kind == "authentication_failed" || kind == "invalid_request" || kind == "billing_error" || kind == "model_not_found" || kind == "account_on_hold" || kind == "oauth_org_not_allowed" || kind == "max_output_tokens" {
 			return "blocked"
 		}
-		text := strings.ToLower(stringArg(v, "error_details") + stringArg(v, "errorDetails") + stringArg(v, "last_assistant_message") + stringArg(v, "lastAssistantMessage"))
-		if strings.Contains(text, "at capacity") || strings.Contains(text, "overloaded") || strings.Contains(text, "rate limit") || strings.Contains(text, "quota limit") {
+		text := strings.ToLower(stopFailureText(v))
+		if strings.Contains(text, "at capacity") || strings.Contains(text, "overloaded") || strings.Contains(text, "rate limit") || strings.Contains(text, "quota limit") || usageLimitHook() && usageLimitText(text) {
 			return "capacity"
 		}
 		return "crash"
 	}
 	return ""
+}
+
+// stopFailureText is the provider's own wording of a failed turn. It is only
+// classified here; none of it is forwarded.
+func stopFailureText(v map[string]any) string {
+	return strings.Join([]string{stringArg(v, "error_details"), stringArg(v, "errorDetails"), stringArg(v, "last_assistant_message"), stringArg(v, "lastAssistantMessage")}, "\n")
+}
+
+// usageLimitHook reports whether this hook runs under the engine whose account
+// limits are read here: its server can move the running session to another
+// account of the pool. Every other engine that sends StopFailure through this
+// command keeps the classification it had.
+func usageLimitHook() bool {
+	return strings.TrimSpace(os.Getenv("CXX_AGENT_PORTAL_ENGINE")) == "claude"
+}
+
+// usageLimitText recognises an account limit in lowercased provider wording:
+// "usage limit reached", "You've hit your session limit", "quota limit",
+// "rate limit". An organisation's spend cap is a billing matter with no window
+// that ends on its own, so it is not one.
+func usageLimitText(text string) bool {
+	if strings.Contains(text, "spend limit") {
+		return false
+	}
+	if strings.Contains(text, "usage limit") || strings.Contains(text, "quota limit") || strings.Contains(text, "rate limit") {
+		return true
+	}
+	// "hit your limit", "hit your weekly limit", "hit your 5-hour limit".
+	for rest := text; ; {
+		at := strings.Index(rest, "hit your ")
+		if at < 0 {
+			return false
+		}
+		rest = rest[at+len("hit your "):]
+		phrase := rest
+		if len(phrase) > 32 {
+			phrase = phrase[:32]
+		}
+		if end := strings.IndexAny(phrase, ".\n·"); end >= 0 {
+			phrase = phrase[:end]
+		}
+		if strings.Contains(phrase, "limit") {
+			return true
+		}
+	}
+}
+
+// watchdogHookQuotaLimit tells a provider usage limit of the bound account
+// from a transient capacity shortage. Only the former says anything about the
+// account: the server marks it exhausted and moves the scope to another one.
+func watchdogHookQuotaLimit(v map[string]any) bool {
+	if !usageLimitHook() || watchdogHookFailure(v) != "capacity" {
+		return false
+	}
+	event := stringArg(v, "hook_event_name")
+	if event == "" {
+		event = stringArg(v, "hookEventName")
+	}
+	kind := stringArg(v, "error")
+	if event != "StopFailure" || kind == "overloaded" {
+		return false
+	}
+	text := strings.ToLower(stopFailureText(v))
+	if strings.Contains(text, "at capacity") || strings.Contains(text, "overloaded") {
+		return false
+	}
+	return kind == "rate_limit" || usageLimitText(text)
 }
 func reportWatchdogEvent(stdin io.Reader) error {
 	raw, e := io.ReadAll(io.LimitReader(stdin, 65537))
@@ -88,7 +156,18 @@ func reportWatchdogEvent(stdin io.Reader) error {
 	if sessionEnd {
 		body["session_end"] = true
 	}
-	if retry := scheduleRetryAt(string(raw), time.Now()); retry != "" {
+	now := time.Now()
+	retry := scheduleRetryAt(string(raw), now)
+	if watchdogHookQuotaLimit(input) {
+		// Both fields are part of the activity contract since the quota
+		// recovery exists; a server without the account marker ignores them
+		// unless it has a full window on record, exactly as before.
+		body["quota_limit"] = true
+		if reset := quotaResetAt(stopFailureText(input), now); reset > retry {
+			retry = reset // Both are UTC RFC 3339 to the second: the later one wins.
+		}
+	}
+	if retry != "" {
 		body["retry_not_before"] = retry
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
