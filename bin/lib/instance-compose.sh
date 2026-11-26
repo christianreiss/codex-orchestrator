@@ -2,6 +2,14 @@
 # Shared by the local instance CLI, installer and deployment helper.
 # This file is sourced; env files are data, never shell programs.
 
+# Seconds `docker compose up --wait` may take when it starts the api. The api
+# healthcheck in docker-compose.yml gives owner-state hydration a 300 s
+# start_period and then marks it unhealthy after 3 x 30 s; this bound sits above
+# that (300 + 90 + 30) so Compose reports its own verdict first, and still ends
+# a crash loop, which restarts into `starting` and never turns unhealthy.
+# shellcheck disable=SC2034 # read by the scripts that source this file
+INSTANCE_API_WAIT_TIMEOUT=420
+
 instance_env_get() {
   local wanted="$1" line key value found=0 result=""
   [[ -f "$ENV_PATH" ]] || return 1

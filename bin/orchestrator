@@ -162,7 +162,7 @@ main() {
     start)
       [[ -n "$(instance_env_get AUTH_ENCRYPTION_KEY || true)$(instance_env_get AUTH_ENCRYPTION_KEYS || true)" && -n "$(instance_env_get DATA_ROOT || true)" ]] ||
         fail "setup is incomplete; run bin/orchestrator setup"
-      instance_compose up -d --no-build --wait --wait-timeout 180 || {
+      instance_compose up -d --no-build --wait --wait-timeout "$INSTANCE_API_WAIT_TIMEOUT" || {
         local start_rc=$?
         log 'Start failed; resume setup for missing images/schema, or inspect Docker service logs'
         return "$start_rc"

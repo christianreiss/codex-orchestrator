@@ -179,7 +179,7 @@ describe('local instance CLI', () => {
     expect(calls.some(c => c.args.includes('down') || c.args.includes('rm'))).toBe(false);
     expect(calls.find(c => c.args.includes('up'))!.args).toEqual(expect.arrayContaining([
       '--project-directory', f.repo, '-f', join(f.repo, 'docker-compose.yml'), '-p', 'codex-orchestrator',
-      '--no-build', '--wait', '--wait-timeout', '180',
+      '--no-build', '--wait', '--wait-timeout', '420',
     ]));
   });
 

@@ -324,8 +324,16 @@ The installer does this. To do it yourself:
 ```bash
 docker compose up -d --wait mysql auth-runner
 docker compose run --rm -T api node migrate.js --init-schema
-docker compose up -d --wait api media-worker slop-worker
+docker compose up -d --wait --wait-timeout 420 api media-worker slop-worker
 ```
+
+The API listens only after it has loaded owner state, which took about two
+minutes on a production database. Its healthcheck therefore allows a 300 s
+start period before the steady 30 s × 3 probe takes over, and every wait that
+starts the API (installer, `bin/orchestrator start`, deploy helper) is bounded
+at 420 s, a constant in `bin/lib/instance-compose.sh` rather than an
+environment variable. A container that is still starting or restarting at that
+point fails the wait.
 
 The media worker mounts only `store/agent-chat` and the Slop worker only
 `store/slop/runs` read-write. Both existing subdirectories must be writable
@@ -342,7 +350,8 @@ scripts/deploy.sh
 
 It checks the git worktree, fast-forwards from the configured upstream,
 quiesces writers for cutover, builds the compose services, restarts with
-`--wait` when supported, verifies MySQL, `auth-runner` and `/healthz`, scans
+`--wait` (bounded by the startup budget above) when supported, verifies MySQL,
+`auth-runner` and `/healthz`, scans
 fresh logs for critical failures, and prunes unused Docker build artifacts. Add
 `--caddy` when this checkout owns the bundled Caddy profile, `--service api` for
 an API-only restart, or `--skip-git` only when intentionally deploying a local
