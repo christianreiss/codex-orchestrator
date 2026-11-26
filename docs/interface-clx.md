@@ -2032,7 +2032,7 @@ preview.
 
 ## Multiple provider accounts (cxx 0.9.7)
 
-A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Launch-time account changes use strict generation CAS and require an idle native child lease (live switching below is the only exception); overlapping invocations with the same host/engine/auth-directory scope share their live account. Legacy timed leases heartbeat every 90 seconds (cxx 0.9.121) and expire after five minutes if a wrapper disappears; connection-owned leases follow the communicator connection; normal exit releases the reservation. The server removes one that has had neither its provider attachment nor a heartbeat for five minutes, but only when its holder has sent a heartbeat before: that is the switch supervisor (cxx 0.9.207), which also re-reserves a lease it finds missing. The lease of an older wrapper, which only redials its attachment, stays until release. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
+A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Launch-time account changes use strict generation CAS and require an idle native child lease (live switching below is the only exception); overlapping invocations with the same host/engine/auth-directory scope share their live account. Legacy timed leases heartbeat every 90 seconds (cxx 0.9.121) and expire after five minutes if a wrapper disappears; connection-owned leases follow the communicator connection; normal exit releases the reservation. The server removes one that has had neither its provider attachment nor a heartbeat for five minutes, but only when its holder has sent a heartbeat before: that is the switch supervisor (cxx 0.9.207), which also re-reserves a lease it finds missing. The lease of an older wrapper, which only redials its attachment, stays until release. From cxx 0.9.211 the re-reservation asks for a connection-owned lease again (0.9.207 to 0.9.210 get a timed one, renewed by the supervisor's heartbeat, and their attachment stays refused), a launch whose attachment keeps being refused heartbeats every 30 refusals so that it re-reserves without a supervisor too, and a re-reserved lease takes the generation the server answers with, also a lower one. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
 
 Quota gating reads the selected account; with more than one account, advice and the quota warnings also weigh the rest of the pool (see *Pools on the card, `status`, `doctor` and the statusline* below). The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. OAuth login sessions are not separate provider accounts. Fresh opaque Claude OAuth tokens reuse the sole account or their session/host assignment; known access/refresh lineage also identifies previous credentials. With multiple accounts and no assignment, use Replace credentials on the intended account. Use Add account or an untargeted seed command to explicitly enroll another opaque account.
 
@@ -2059,16 +2059,47 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   `~/.claude/.credentials.json` moves together. A pending switch arrives in acquire/heartbeat/`/auth`
   responses; a communicator `account_switch` frame triggers an immediate heartbeat. The wrapper waits for a
   turn boundary: the receiver hooks report no running turn (a `UserPromptSubmit` waits while the switch is
-  written) and every transcript of the scope written in the last 15 minutes has ended its turn and been
-  quiet for 20 s, so sibling sessions and launches without a receiver are covered. It then flushes a pending rotation of the old account, commits with `POST /auth/sessions/switch`
+  written), no sibling launch reports one, and every transcript of the scope written in the last 15 minutes
+  has ended its turn and been quiet for 20 s, so launches without a receiver are covered. It then flushes a pending rotation of the old account, commits with `POST /auth/sessions/switch`
   (generation-fenced), writes the new account's credentials through `WriteSwitchedAccountIfCurrent`
-  (strict CAS, active child allowed, logout intent respected). `oauthAccount` in `~/.claude.json` is left to
-  Claude Code, which refetches the profile itself. Claude Code reloads credentials when the file's mtime changes, so the next prompt runs on the new account
+  (strict CAS, active child allowed, logout intent respected). The wrapper does not write `oauthAccount`
+  in `~/.claude.json`; Claude Code refetches the profile itself. Claude Code reloads credentials when the file's mtime changes, so the next prompt runs on the new account
   without a restart; the transcript is kept, the organization-scoped prompt cache is rebuilt once. The
   agent receives an auth notice naming the new account.
-- When the commit succeeded but the credential write did not (CAS miss, logout intent), the wrapper keeps the
-  committed binding and retries the write with sync paused, up to 20 times every 15 s; afterwards normal sync
-  delivers the new account's credentials at the next idle sync or launch.
+- **Sibling turns (cxx 0.9.211).** Every launch with receiver hooks publishes its own turn in its session
+  marker (`turn`: `busy` or `idle`, written inside the hook, so a starting turn is published before its
+  first request). A switch waits while any live sibling says `busy` and looks again with its own turn gate
+  held, immediately before the write. A sibling that publishes nothing (no receiver hooks, or a wrapper
+  before 0.9.211) is unknown, never idle; for it the transcript check above is all there is.
+- **Commit and write are two steps (cxx 0.9.211).** A repair flag `.cxx-account-<server-hash>.repair` beside
+  the binding file is set before the commit and cleared by the write, so it outlives the process and is
+  seen by every wrapper of the scope. Whatever goes wrong in between ends the same way: a supervisor of the
+  scope writes the bound account's credentials at a turn boundary.
+  - The answer to the commit was lost: the directive is still pending, the wrapper repeats the commit and
+    the server answers with the same credentials (`replayed`).
+  - The write did not happen (CAS miss, logout intent, a turn that would not end): the wrapper keeps the
+    committed binding and retries with sync paused, up to 20 times every 15 s. Then it tells the server
+    (`credential_write: "unfinished"`, one audit row), resumes sync and tries again at every 60 s poll for
+    as long as the flag is set.
+  - The process died between commit and write: a sibling adopts the new binding from its heartbeat, sets
+    the flag and, after the 10 s settle, checks instead of assuming that the dead process wrote. Without a
+    sibling, the next launch writes the leased account's head as every launch does and clears the flag.
+  - The check is one session sync. The server answers for the account the scope is bound to; when the
+    local file is a login it holds for another account it says so (`presented_account_id`) and sends the
+    bound account's head. That head is authoritative whatever the two `last_refresh` values are. A
+    background sync (auth watcher, communicator, `clx auth-sync`) that meets this answer never writes next
+    to a running session: it sets the flag and reports the mismatch. With no live session marker and no
+    active native child it writes the head itself, fenced on the exact file the server recognised.
+  - An upload of the old account's rotation is filed under that login's own account and its answer looks
+    like any other, so a flush that uploaded asks once more before it counts as confirmed.
+  - A scope without a binding is not judged this way: the answer then is for the server's default
+    account, and the previous `last_refresh` rule applies to it.
+- **Leaving an unusable account (cxx 0.9.211).** When the directive says `bound_account_usable: false` the
+  account being left is paused, removed or no longer verified, and its head can confirm nothing. The flush
+  then also passes when the server already knows the local file, accepted its upload, or refused it for
+  good (422, or 400 `validation_failed`). A conflict (409, including `account_removed`), 503 (including
+  `account_identity_unavailable`) or a network error still fails and is retried: the upload may yet succeed.
+  Against a server that does not send the field the flush stays strict.
 - `clx accounts use <id|auto>`, the agent tools `account_status` / `account_switch` (fleet Skill
   `#account-switch`) and the Accounts page request switches; Codex, Grok and Kimi report
   `account_switch_unsupported_engine` and keep the launch-time selection.
