@@ -17,6 +17,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeargs"
 	orchestrator "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/poolview"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/pelletier/go-toml"
@@ -34,6 +35,8 @@ type startupAuth struct {
 	Versions             *orchestrator.VersionSummary `json:"versions"`
 	Host                 *startupHost                 `json:"host"`
 	GrokUsage            *grokUsageReading            `json:"grok_usage,omitempty"`
+	// QuotaPool lists the engine's accounts when it has more than one.
+	QuotaPool *poolview.QuotaPool `json:"quota_pool,omitempty"`
 }
 
 type grokUsageReading struct {
@@ -168,6 +171,15 @@ func startupScreen(in startupInput) terminalui.ScreenInput {
 		}
 		extraRows, emulationNotice := quotaemulation.Display(in.Auth.QuotaSnapshot, time.Now())
 		ui.QuotaRows = append(ui.QuotaRows, extraRows...)
+		// The server's default quota limit (95) colours the account list.
+		accounts, poolNote := poolview.Card(in.Auth.QuotaPool, in.Auth.AccountID, 85, 95, time.Now())
+		ui.QuotaAccounts = accounts
+		if poolNote != "" {
+			if ui.QuotaNote != "" {
+				ui.QuotaNote += "; "
+			}
+			ui.QuotaNote += poolNote
+		}
 		if emulationNotice != "" {
 			if ui.QuotaNote != "" {
 				ui.QuotaNote += "; "

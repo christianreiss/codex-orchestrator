@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_ACCOUNT_POLICY,
   parseStoredPolicy,
+  poolHeadroomTarget,
   poolRecommendation,
   rebalanceTarget,
   selectForLaunch,
@@ -85,5 +86,17 @@ describe('pool-aware quota recommendation', () => {
     const r = poolRecommendation(policy(), view(1, 99), [view(1, 99), view(2, 10)], 85, 95, false, null);
     expect(r).toMatchObject({ action: 'continue' });
     expect(r.message).toContain('next launch');
+  });
+
+  it('headroom: a usable sibling below the ceiling, unmeasured counting as unused', () => {
+    // Production shape: bound at 87%, a freshly enrolled sibling without a reading.
+    expect(poolHeadroomTarget(policy(), [view(1, 87), view(8, null)], 1, 95)?.id).toBe(8);
+    // Paused/unverified siblings and siblings at the ceiling never count.
+    expect(poolHeadroomTarget(policy(), [view(1, 87), view(8, 0, false), view(9, 96)], 1, 95)).toBeNull();
+    // Without a bound account the question is whether any account can take a launch.
+    expect(poolHeadroomTarget(policy(), [view(1, 87), view(8, 99)], null, 95)?.id).toBe(1);
+    expect(poolHeadroomTarget(policy(), [view(1, 97), view(8, 99)], null, 95)).toBeNull();
+    // exhaust uses its hard ceiling.
+    expect(poolHeadroomTarget(policy({ strategy: 'exhaust' }), [view(1, 99), view(2, 97)], 1, 95)?.id).toBe(2);
   });
 });

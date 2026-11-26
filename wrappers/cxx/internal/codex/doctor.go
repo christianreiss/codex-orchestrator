@@ -16,6 +16,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/launcherdoctor"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/poolview"
 )
 
 // Doctor runs the full diagnostic and writes a terminal-aware report.
@@ -46,10 +47,16 @@ func Doctor(ctx context.Context, cfg *config.Config, w io.Writer, wrapperVersion
 	report.Rows = append(report.Rows, checkMCP(&hints))
 
 	// API + Latency
-	apiRow, latRow, syncTone, syncDetail := checkAPI(ctx, cfg)
+	apiRow, latRow, syncTone, syncDetail, poolRow := probeAPI(ctx, cfg)
 	report.Rows = append(report.Rows, ui.DoctorRow{Label: "Sync", Tone: syncTone, Value: syncDetail})
 	report.Rows = append(report.Rows, apiRow)
 	report.Rows = append(report.Rows, latRow)
+	if poolRow != nil {
+		report.Rows = append(report.Rows, poolRow.row)
+		if poolRow.hint != "" {
+			hints = append(hints, poolRow.hint)
+		}
+	}
 
 	// Engine: the fleet master switch. Only shown while it is off.
 	if row, hint, suspended := engineSuspensionRow(cfg, syncDetail); suspended {
@@ -141,6 +148,17 @@ func checkMCP(hints *[]string) ui.DoctorRow {
 }
 
 func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorRow, ui.Tone, string) {
+	api, latency, tone, detail, _ := probeAPI(ctx, cfg)
+	return api, latency, tone, detail
+}
+
+// doctorPool is the optional "Accounts" row of a multi-account pool.
+type doctorPool struct {
+	row  ui.DoctorRow
+	hint string
+}
+
+func probeAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorRow, ui.Tone, string, *doctorPool) {
 	client, err := orchestrator.New(orchestrator.Options{
 		BaseURL:       cfg.Orchestrator.BaseURL,
 		APIKey:        cfg.Orchestrator.APIKey,
@@ -149,7 +167,7 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 	if err != nil {
 		return ui.DoctorRow{Label: "API", Tone: ui.ToneFail, Value: err.Error()},
 			ui.DoctorRow{Label: "Latency", Tone: ui.ToneFail, Value: "-"},
-			ui.ToneFail, err.Error()
+			ui.ToneFail, err.Error(), nil
 	}
 	apiRow, latRow := launcherdoctor.ProbeAPI(ctx, cfg.Orchestrator.BaseURL, client.Do)
 
@@ -157,7 +175,7 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 	digest, _ := LocalDigest()
 	ar, err := client.AuthRetrieve(ctx, digest)
 	if err != nil {
-		return apiRow, latRow, ui.ToneFail, "auth probe failed: " + err.Error()
+		return apiRow, latRow, ui.ToneFail, "auth probe failed: " + err.Error(), nil
 	}
 	var secure *bool
 	if ar.Host != nil {
@@ -165,9 +183,17 @@ func checkAPI(ctx context.Context, cfg *config.Config) (ui.DoctorRow, ui.DoctorR
 		secure = &value
 	}
 	if securityErr := UpdateActiveAuthSessionSecurity(ar.Status, secure); securityErr != nil {
-		return apiRow, latRow, ui.ToneFail, "auth session security update failed: " + securityErr.Error()
+		return apiRow, latRow, ui.ToneFail, "auth session security update failed: " + securityErr.Error(), nil
 	}
-	return apiRow, latRow, launcherdoctor.SyncTone(ar.Status), fmt.Sprintf("auth=%s", ar.Status)
+	var pool *doctorPool
+	// AuthRetrieve bound client.Pool to this scope; quota_pool marks an
+	// engine with more than one account. cdx has no `accounts add`.
+	if ar.QuotaPool != nil && len(ar.QuotaPool.Accounts) > 1 {
+		if row, hint, ok := poolview.DoctorRow(ctx, client, client.Pool, "codex", ar.QuotaLimitPercent, ""); ok {
+			pool = &doctorPool{row: row, hint: hint}
+		}
+	}
+	return apiRow, latRow, launcherdoctor.SyncTone(ar.Status), fmt.Sprintf("auth=%s", ar.Status), pool
 }
 
 func checkCLI(ctx context.Context, cfg *config.Config, runningWrapperVersion string) ui.DoctorRow {

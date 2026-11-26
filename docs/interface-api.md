@@ -2389,7 +2389,26 @@ Settings are central; remembered selections are local to an OS user and
 orchestrator URL. `off` and `hint` never apply remembered selections. Advice does
 not relax existing authentication, local credential handling or quota hard-fail.
 
-`/auth` selects alternative quota advice from an enabled verified account of the correct engine (most recently selected first). Current-engine telemetry stays bound to its requested account; disabled/unlimited advice skips alternative history reads. No provider refresh or account lease is acquired for advice.
+`/auth` selects alternative quota advice from an enabled verified account of the correct engine. Current-engine telemetry stays bound to its requested account; disabled/unlimited advice skips alternative history reads. No provider refresh or account lease is acquired for advice.
+
+**Pools (cxx 0.9.208).** When an engine has more than one account, its provider
+object adds `pool: {bound_account_id, launch_account_id, headroom, accounts: [{id,
+label, usable, score, short_used_percent, weekly_used_percent}]}`. A null score or
+percentage means the account has no reading.
+
+- `usable` means the account is enabled and verified.
+- `headroom` is true when another usable account (other than the bound one) is
+  below the policy ceiling. This is the rule `recommendation` uses, with an
+  unmeasured account counting as unused. The ceiling is the quota limit, or
+  `hard_ceiling` under automatic exhaust.
+- `launch_account_id` is the account a new, unpinned launch would get under the
+  current policy. Budget-blocked accounts are skipped while any other candidate
+  is admitted.
+- The alternative engine's windows are now read from its `launch_account_id`.
+  Previously they came from the most recently selected account.
+- Wrappers ask nothing while the current engine's pool has headroom. They
+  never recommend an engine whose whole pool has no headroom.
+- Single-account engines omit `pool`.
 
 ## Automatic receiver protocol (0.8.10)
 
@@ -2564,9 +2583,22 @@ score is `max(short, weekly)` used percent.
 - Usage reports for an account the session no longer holds return `{status: "ignored", reason: "stale_account"}`.
 
 `GET /auth/accounts` (`?engine=claude&session_id=…`) returns `{engine, policy, bound_account_id, binding_generation,
-account_switch, live_switch, accounts[], recommendation}`. With more than one account, `/auth` retrieve adds
-`quota_pool {recommendation, policy{mode,strategy}, accounts[]}` and the agent `quota_get` answer adds
-`pool`. `recommendation` is `{action: continue|switch|pause, account_id, message}`: `pause` only when every
+account_switch, live_switch, accounts[], recommendation}`. With more than one account, `/auth` retrieve and store
+add `quota_pool`, and the agent `quota_get` answer adds `pool`. From cxx 0.9.208 the auth block of
+`/sync/bootstrap` (`include_auth`) carries `quota_pool` too, because a launch usually reuses that block after its
+account lease.
+
+- `quota_pool` contains `{recommendation, policy{mode,strategy}, bound_account_id, headroom, launch_account_id,
+  live_switch, accounts[]}`. Each account is `{id, label, state, verified, short_used_percent, short_resets_at,
+  weekly_used_percent, weekly_resets_at, fetched_at, score, emulation_blocked}`.
+- `headroom` and `launch_account_id` mean the same as in `quota_advice.<engine>.pool` above.
+- A bootstrap that carries a live `session_id` also gains `binding_generation` and `account_switch` in its auth
+  block, exactly as `/auth` does. The wrapper's binding observer treats them the same way: a fenced update,
+  without adopting a different account.
+- Wrappers use these fields only for display (card, `status`, `doctor`, statusline) and for the quota-warning
+  gate.
+
+`recommendation` is `{action: continue|switch|pause, account_id, message}`: `pause` only when every
 usable account is at its limit, so one account near its quota no longer tells agents to stop. QUOTA/1
 notices in a pool name the other accounts and carry the same recommendation.
 

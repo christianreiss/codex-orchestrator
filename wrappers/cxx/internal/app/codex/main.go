@@ -41,6 +41,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/uninstall"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/update"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/poolview"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
@@ -1527,6 +1528,11 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		resp.Message = "Explicitly logged out locally; run `cdx login` to authenticate again."
 		authSynced = false
 	}
+	var pool *poolview.State
+	if resp != nil && !resp.QuotaUnlimited {
+		// AuthRetrieve bound client.Pool to this scope's binding file.
+		pool = poolview.ForStatus(ctx, client, client.Pool, "codex", resp.QuotaPool, resp.AccountID)
+	}
 	state := summary.Build(ctx, summary.Inputs{
 		Config:         cfg,
 		WrapperVersion: wrapperVersion,
@@ -1534,6 +1540,7 @@ func cmdStatus(ctx context.Context, cfg *config.Config, wrapperVersion string, s
 		AuthErr:        authErr,
 		AuthSynced:     authSynced,
 		StatusOnly:     true,
+		Pool:           pool,
 	})
 	if logoutHold {
 		state.ResultLabel = "Explicitly logged out locally; run `cdx login` to authenticate again."

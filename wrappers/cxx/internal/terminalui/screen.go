@@ -36,11 +36,14 @@ type ScreenInput struct {
 	ConcurrentNote string
 	Dots           []HealthDot
 
-	QuotaRows   []QuotaRow
-	QuotaNote   string
-	QuotaWarn   string
-	QuotaBlock  string
-	SessionRows []SessionRow
+	QuotaRows []QuotaRow
+	// QuotaAccounts lists the engine's provider pool (only with more than
+	// one account); empty keeps the single-account layout unchanged.
+	QuotaAccounts []QuotaAccount
+	QuotaNote     string
+	QuotaWarn     string
+	QuotaBlock    string
+	SessionRows   []SessionRow
 
 	ResultLabel string
 	ResultTone  Tone
@@ -219,12 +222,15 @@ func printBootScreen(w io.Writer, in ScreenInput, caps Caps) {
 		renderPlainText(c, strOr(in.ConcurrentNote, "Managed content sync paused; auth freshness remains active."))
 	}
 
-	if len(in.QuotaRows) > 0 || in.QuotaNote != "" || in.QuotaWarn != "" || in.QuotaBlock != "" {
+	if len(in.QuotaRows) > 0 || len(in.QuotaAccounts) > 0 || in.QuotaNote != "" || in.QuotaWarn != "" || in.QuotaBlock != "" {
 		c.divider("quota")
 		for _, row := range in.QuotaRows {
 			for _, line := range formatQuotaLines(caps, row, c.inner) {
 				c.line(line)
 			}
+		}
+		for _, line := range formatAccountLines(caps, in.QuotaAccounts, c.inner) {
+			c.line(line)
 		}
 		if in.QuotaNote != "" {
 			renderToneText(c, ToneDim, in.QuotaNote)
@@ -465,6 +471,9 @@ func printMinimalScreen(w io.Writer, in ScreenInput, caps Caps) {
 			line += fmt.Sprintf(" | elapsed=%.0f%%", 100*elapsed)
 		}
 		printPlainLine(w, caps, line)
+	}
+	for _, account := range in.QuotaAccounts {
+		printPlainLine(w, caps, accountPlainLine(account))
 	}
 	if in.QuotaNote != "" {
 		printPlainLine(w, caps, "quota | "+PlainInline(in.QuotaNote))

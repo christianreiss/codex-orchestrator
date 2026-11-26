@@ -167,6 +167,42 @@ func TestCheckAPITruthfulHTTPAndTransportTones(t *testing.T) {
 	})
 }
 
+func TestDoctorReportsThePoolOnlyForRealProblems(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CXX_PROVIDER_SESSION_ID", "")
+	accounts := `[{"id":1,"label":"a@example.com","state":"enabled","verified":true,"weekly_used_percent":87,"score":87},{"id":8,"label":"b@example.com","state":"enabled","verified":true,"score":null}]`
+	serve := func(list string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/auth":
+				_, _ = w.Write([]byte(`{"status":"valid","account_id":1,"quota_limit_percent":95,"quota_pool":{"accounts":` + list + `}}`))
+			case "/auth/accounts":
+				_, _ = w.Write([]byte(`{"engine":"claude","policy":{"mode":"auto","strategy":"balanced"},"bound_account_id":null,"accounts":` + list + `,"recommendation":{"action":"continue","message":"No account is bound."}}`))
+			default:
+				_, _ = w.Write([]byte(`{}`))
+			}
+		}))
+	}
+	healthy := serve(accounts)
+	defer healthy.Close()
+	_, _, _, _, pool := probeAPI(context.Background(), doctorConfig(healthy.URL))
+	if pool == nil || pool.row.Label != "Accounts" || pool.row.Tone != ui.ToneOK || !strings.Contains(pool.row.Value, "2 accounts, 2 usable; policy auto/balanced") {
+		t.Fatalf("one high account in a healthy pool: %+v", pool)
+	}
+	broken := serve(`[{"id":1,"label":"a","state":"paused","verified":true},{"id":8,"label":"b","state":"enabled","verified":false}]`)
+	defer broken.Close()
+	_, _, _, _, pool = probeAPI(context.Background(), doctorConfig(broken.URL))
+	if pool == nil || pool.row.Tone != ui.ToneFail || !strings.Contains(pool.row.Value, "no usable account") || !strings.Contains(pool.hint, "clx accounts add") {
+		t.Fatalf("no usable account: %+v", pool)
+	}
+	single := serve(`[{"id":1,"state":"enabled","verified":true}]`)
+	defer single.Close()
+	if _, _, _, _, pool = probeAPI(context.Background(), doctorConfig(single.URL)); pool != nil {
+		t.Fatalf("single account added a row: %+v", pool)
+	}
+}
+
 func doctorConfig(baseURL string) *config.Config {
 	return &config.Config{Orchestrator: config.Orchestrator{BaseURL: baseURL, APIKey: "test-key"}}
 }

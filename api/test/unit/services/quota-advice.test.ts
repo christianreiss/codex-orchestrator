@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  advicePool,
   DEFAULT_QUOTA_ADVICE,
   parseQuotaAdvice,
   quotaAdviceSnapshot,
@@ -75,5 +76,30 @@ describe('comparison boundary', () => {
     expect(result.codex.limit_reached).toBe(true);
     expect(result.claude.available).toBe(false);
     expect(result.claude.status).toBe('unavailable');
+  });
+
+  it('carries an engine pool only when given, with usable derived from state and verification', () => {
+    const pool = advicePool({
+      bound_account_id: 1,
+      launch_account_id: 8,
+      headroom: true,
+      accounts: [
+        { id: 1, label: 'a@example.com', state: 'enabled', verified: true, score: 87, short_used_percent: 12, weekly_used_percent: 87 },
+        { id: 8, label: 'b@example.com', state: 'enabled', verified: true, score: null, short_used_percent: null, weekly_used_percent: null },
+        { id: 9, label: 'c@example.com', state: 'paused', verified: true, score: 5, short_used_percent: 5, weekly_used_percent: 1 },
+      ],
+    });
+    const result = quotaAdviceSnapshot(DEFAULT_QUOTA_ADVICE, ['codex', 'claude'], { status: 'ok' }, { status: 'ok' }, { claude: pool });
+    expect(result.claude.pool).toEqual({
+      bound_account_id: 1,
+      launch_account_id: 8,
+      headroom: true,
+      accounts: [
+        { id: 1, label: 'a@example.com', usable: true, score: 87, short_used_percent: 12, weekly_used_percent: 87 },
+        { id: 8, label: 'b@example.com', usable: true, score: null, short_used_percent: null, weekly_used_percent: null },
+        { id: 9, label: 'c@example.com', usable: false, score: 5, short_used_percent: 5, weekly_used_percent: 1 },
+      ],
+    });
+    expect('pool' in result.codex).toBe(false);
   });
 });

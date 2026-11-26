@@ -173,5 +173,6 @@ describe.skipIf(!handle)('Claude account identity and live switching on MySQL', 
     expect(binding.account_switch).toMatchObject({ account_id: b, reason: 'policy' });
     const view = await switches.poolView('claude', a, 60);
     expect(view.recommendation).toMatchObject({ action: 'switch', account_id: b });
+    expect(view).toMatchObject({ bound_account_id: a, headroom: true, launch_account_id: b });
   });
 });

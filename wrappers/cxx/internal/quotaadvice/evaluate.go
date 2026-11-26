@@ -27,7 +27,37 @@ type Snapshot struct {
 	FetchedAt    string   `json:"fetched_at"`
 	LimitReached bool     `json:"limit_reached"`
 	Windows      []Window `json:"windows"`
+	// Pool is present when the engine has more than one provider account.
+	// The windows above then belong to the bound account (requesting engine)
+	// or to the account a new launch would get (other engine).
+	Pool *Pool `json:"pool,omitempty"`
 }
+
+// PoolAccount is one account of an engine's provider pool.
+type PoolAccount struct {
+	ID         int64    `json:"id"`
+	Label      string   `json:"label"`
+	Usable     bool     `json:"usable"`
+	Score      *float64 `json:"score"`
+	ShortUsed  *float64 `json:"short_used_percent"`
+	WeeklyUsed *float64 `json:"weekly_used_percent"`
+}
+
+// Pool is the server's view of an engine's provider pool. Headroom is the
+// server's verdict (same rule as the pool recommendation): another usable
+// account of the requesting engine, or any usable account of the other
+// engine, is below the pool policy's ceiling. Unmeasured accounts count as
+// unused.
+type Pool struct {
+	BoundAccountID  *int64        `json:"bound_account_id"`
+	LaunchAccountID *int64        `json:"launch_account_id"`
+	Headroom        bool          `json:"headroom"`
+	Accounts        []PoolAccount `json:"accounts"`
+}
+
+// Multi reports a pool with more than one account.
+func (p *Pool) Multi() bool { return p != nil && len(p.Accounts) > 1 }
+
 type Comparison struct {
 	Settings Settings `json:"settings"`
 	Codex    Snapshot `json:"codex"`

@@ -82,6 +82,40 @@ func TestCheckAPITruthfulHTTPAndTransportTones(t *testing.T) {
 	})
 }
 
+func TestDoctorReportsACodexPoolProblem(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("CXX_PROVIDER_SESSION_ID", "")
+	serve := func(list string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch r.URL.Path {
+			case "/auth":
+				_, _ = w.Write([]byte(`{"status":"valid","account_id":2,"quota_limit_percent":95,"quota_pool":{"accounts":` + list + `}}`))
+			case "/auth/accounts":
+				if r.URL.Query().Get("engine") != "codex" {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				_, _ = w.Write([]byte(`{"engine":"codex","policy":{"mode":"manual"},"bound_account_id":null,"accounts":` + list + `}`))
+			default:
+				_, _ = w.Write([]byte(`{}`))
+			}
+		}))
+	}
+	healthy := serve(`[{"id":2,"state":"enabled","verified":true,"score":88},{"id":5,"state":"enabled","verified":true,"score":20}]`)
+	defer healthy.Close()
+	if _, _, _, _, pool := probeAPI(context.Background(), doctorConfig(healthy.URL)); pool == nil || pool.row.Tone != ui.ToneOK || pool.row.Value != "2 accounts, 2 usable; policy manual; #2 88%, #5 20%" {
+		t.Fatalf("healthy pool: %+v", pool)
+	}
+	broken := serve(`[{"id":2,"state":"paused","verified":true},{"id":5,"state":"enabled","verified":false}]`)
+	defer broken.Close()
+	_, _, _, _, pool := probeAPI(context.Background(), doctorConfig(broken.URL))
+	if pool == nil || pool.row.Tone != ui.ToneFail || strings.Contains(pool.hint, "accounts add") {
+		t.Fatalf("no usable account: %+v", pool)
+	}
+}
+
 func doctorConfig(baseURL string) *config.Config {
 	return &config.Config{Orchestrator: config.Orchestrator{BaseURL: baseURL, APIKey: "test-key"}}
 }

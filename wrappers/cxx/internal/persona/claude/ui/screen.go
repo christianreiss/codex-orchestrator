@@ -29,6 +29,8 @@ type ScreenInput struct {
 	BypassPermissions bool
 	Dots              []HealthDot
 	QuotaRows         []QuotaRow
+	QuotaAccounts     []terminalui.QuotaAccount
+	QuotaNote         string
 	QuotaWarn         string
 	QuotaBlock        string
 	SessionRows       []SessionRow
@@ -60,6 +62,8 @@ func sharedScreen(in ScreenInput) terminalui.ScreenInput {
 		BypassPermissions: in.BypassPermissions,
 		Dots:              in.Dots,
 		QuotaRows:         in.QuotaRows,
+		QuotaAccounts:     in.QuotaAccounts,
+		QuotaNote:         in.QuotaNote,
 		QuotaWarn:         in.QuotaWarn,
 		QuotaBlock:        in.QuotaBlock,
 		SessionRows:       in.SessionRows,

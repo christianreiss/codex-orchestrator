@@ -143,9 +143,36 @@ func extractRateLimits(p statusPayload) (fiveHour, sevenDay *reportWindow) {
 	return p.RateLimits.FiveHour.resolve(), p.RateLimits.SevenDay.resolve()
 }
 
+// accountLabelRunes keeps the account segment compact; longer labels are
+// cut at the end.
+const accountLabelRunes = 24
+
+// accountSegment names the bound account when the scope's engine has more
+// than one ("#8 b@example.com"); empty for a single account or no binding.
+func accountSegment(binding *accountpool.Context) string {
+	if binding == nil || binding.AccountID <= 0 || binding.PoolSize < 2 {
+		return ""
+	}
+	label := strings.Join(strings.Fields(binding.AccountLabel), " ")
+	label = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, label)
+	if runes := []rune(label); len(runes) > accountLabelRunes {
+		label = string(runes[:accountLabelRunes-1]) + "…"
+	}
+	if label == "" {
+		return fmt.Sprintf("#%d", binding.AccountID)
+	}
+	return fmt.Sprintf("#%d %s", binding.AccountID, label)
+}
+
 // renderStatusLine never returns an empty string: Claude Code renders
 // whatever this prints verbatim, and a blank status bar reads as broken.
-func renderStatusLine(p statusPayload, fiveHour, sevenDay *reportWindow) string {
+// account is the optional bound-account segment (see accountSegment).
+func renderStatusLine(p statusPayload, fiveHour, sevenDay *reportWindow, account ...string) string {
 	var segments []string
 
 	model := strings.TrimSpace(p.Model.DisplayName)
@@ -166,6 +193,11 @@ func renderStatusLine(p statusPayload, fiveHour, sevenDay *reportWindow) string 
 
 	if quota := formatQuotaSegment(fiveHour, sevenDay); quota != "" {
 		segments = append(segments, quota)
+	}
+	for _, a := range account {
+		if a != "" {
+			segments = append(segments, a)
+		}
 	}
 
 	if len(segments) == 0 {
@@ -244,20 +276,27 @@ func stateFilePath(account int64) (string, error) {
 	return filepath.Join(home, ".clx", "state", name), nil
 }
 
-// reportAccount names the account a report belongs to. A live account switch
+// boundAccount names the account a report belongs to. A live account switch
 // leaves the inherited CXX_PROVIDER_ACCOUNT_ID stale, so the scope's binding
 // file wins whenever it exists; the environment is the fallback.
-func reportAccount(cfg *config.Config) int64 {
+func boundAccount(binding *accountpool.Context) int64 {
 	account, _ := strconv.ParseInt(os.Getenv("CXX_PROVIDER_ACCOUNT_ID"), 10, 64)
-	if cfg == nil {
-		return account
-	}
-	if authPath, err := claude.AuthPath(); err == nil {
-		if bound := accountpool.Load("claude", authPath, cfg.Orchestrator.BaseURL).AccountID; bound > 0 {
-			return bound
-		}
+	if binding != nil && binding.AccountID > 0 {
+		return binding.AccountID
 	}
 	return account
+}
+
+// loadBinding reads the scope's binding file (nil without config).
+func loadBinding(cfg *config.Config) *accountpool.Context {
+	if cfg == nil {
+		return nil
+	}
+	authPath, err := claude.AuthPath()
+	if err != nil {
+		return nil
+	}
+	return accountpool.Load("claude", authPath, cfg.Orchestrator.BaseURL)
 }
 
 func loadReportConfig() *config.Config {
@@ -341,14 +380,15 @@ func RunCommand(stdin io.Reader, stdout, _ io.Writer) int {
 	payload := parsePayload(raw)
 	fiveHour, sevenDay := extractRateLimits(payload)
 
-	fmt.Fprintln(stdout, renderStatusLine(payload, fiveHour, sevenDay))
+	cfg := loadReportConfig()
+	binding := loadBinding(cfg)
+	fmt.Fprintln(stdout, renderStatusLine(payload, fiveHour, sevenDay, accountSegment(binding)))
 
 	if fiveHour == nil && sevenDay == nil {
 		return 0
 	}
 
-	cfg := loadReportConfig()
-	account := reportAccount(cfg)
+	account := boundAccount(binding)
 	statePath, err := stateFilePath(account)
 	if err != nil {
 		return 0

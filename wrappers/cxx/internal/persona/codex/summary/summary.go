@@ -14,6 +14,8 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/poolview"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 )
 
 // Inputs is what callers pass when building a screen state.
@@ -45,6 +47,9 @@ type Inputs struct {
 	// are recent-host / managed-sync activity, not proven engine launches.
 	// Nil hides the block; LocalNow is computed wrapper-side.
 	Sessions *SessionCounts
+	// Pool is the account pool from GET /auth/accounts (`cdx status`); nil
+	// falls back to the auth answer's quota_pool.
+	Pool *poolview.State
 }
 
 // ResourceSync is the per-run outcome for one boot-screen resource marker.
@@ -119,7 +124,8 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	var apiCalls int64
 	var dots []ui.HealthDot
 	var quotaRows []ui.QuotaRow
-	var warnText, blockText string
+	var quotaAccounts []terminalui.QuotaAccount
+	var warnText, blockText, quotaNote string
 	var forecastTone ui.Tone
 	result := "Ready — all systems operational."
 	if in.StatusOnly {
@@ -163,7 +169,17 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		}
 
 		dots = buildDots(auth, in)
-		quotaRows, warnText, blockText = buildQuota(auth)
+		pool := in.Pool
+		if pool == nil && !auth.QuotaUnlimited {
+			pool = poolview.FromQuotaPool(auth.QuotaPool, auth.AccountID, nil, nil)
+		}
+		limit, warnAt := quotaLimits(auth)
+		headroom := pool.HasHeadroom(limit)
+		quotaRows, warnText, blockText = buildQuotaFor(auth, headroom)
+		if pool.Multi() {
+			quotaAccounts = pool.Rows(warnAt, limit, time.Now())
+			quotaNote = pool.Note(limit)
+		}
 		extraRows, emulationNotice := quotaemulation.Display(auth.QuotaSnapshot, time.Now())
 		quotaRows = append(quotaRows, extraRows...)
 		if emulationNotice != "" {
@@ -290,6 +306,8 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		ConcurrentNote: in.ConcurrentNote,
 		Dots:           dots,
 		QuotaRows:      quotaRows,
+		QuotaAccounts:  quotaAccounts,
+		QuotaNote:      quotaNote,
 		QuotaWarn:      warnText,
 		QuotaBlock:     blockText,
 		SessionRows:    sessionRows(in.Sessions),
@@ -468,6 +486,24 @@ func worstTone(dots []ui.HealthDot, extra ...ui.Tone) ui.Tone {
 }
 
 func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string, string) {
+	return buildQuotaFor(auth, false)
+}
+
+// quotaLimits are the bar thresholds: the fleet quota limit (100 when the
+// server sent none) and the warning level ten points below it.
+func quotaLimits(auth *orchestrator.AuthRetrieveResponse) (limit, warnAt int) {
+	limit = 100
+	if auth != nil && auth.QuotaLimitPercent != nil {
+		limit = max(50, min(100, *auth.QuotaLimitPercent))
+	}
+	return limit, max(50, limit-10)
+}
+
+// buildQuotaFor renders the bound account's windows. poolHeadroom (another
+// account of the pool is below its ceiling; Codex moves there at the next
+// launch) keeps a high reading or forecast from raising attention. A reached
+// limit still blocks or warns: this run stays on the bound account.
+func buildQuotaFor(auth *orchestrator.AuthRetrieveResponse, poolHeadroom bool) ([]ui.QuotaRow, string, string) {
 	if auth != nil && auth.QuotaUnlimited {
 		return nil, "", ""
 	}
@@ -479,14 +515,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 	telemetryWarning := quotaTelemetryWarning(q, now)
 	activeLane := effectiveQuotaLane(auth)
 	rows := []ui.QuotaRow{}
-	limitPct := 100
-	if auth.QuotaLimitPercent != nil {
-		limitPct = max(50, min(100, *auth.QuotaLimitPercent))
-	}
-	warnAt := limitPct - 10
-	if warnAt < 50 {
-		warnAt = 50
-	}
+	limitPct, warnAt := quotaLimits(auth)
 
 	var warnText, blockText string
 	activeWindowStale := false
@@ -533,9 +562,13 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 		if row.Projection != "" {
 			row.ProjectionTone = ui.ToneDim
 			projected := ui.ProjectUsage(*used, limSec, resetSec)
-			if projected >= limitPct {
+			switch {
+			case poolHeadroom:
+				// The next launch moves to an account with headroom: the
+				// forecast stays as dim context.
+			case projected >= limitPct:
 				row.ProjectionTone = ui.ToneFail
-			} else if projected >= warnAt {
+			case projected >= warnAt:
 				row.ProjectionTone = ui.ToneWarn
 			}
 		}
@@ -548,7 +581,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 		}
 		if *used >= limitPct && blockText == "" {
 			blockText = fmt.Sprintf("%s quota reached (%d%% used%s)", strings.TrimSpace(label), *used, quotaResetDetail(row.ResetAfter))
-		} else if *used >= warnAt && warnText == "" {
+		} else if *used >= warnAt && warnText == "" && !poolHeadroom {
 			warnText = fmt.Sprintf("%s quota high (%d%% used%s)", strings.TrimSpace(label), *used, quotaResetDetail(row.ResetAfter))
 		}
 	}
@@ -589,7 +622,7 @@ func buildQuota(auth *orchestrator.AuthRetrieveResponse) ([]ui.QuotaRow, string,
 			if !stale && activeLane == "normal" {
 				if used >= limitPct && blockText == "" {
 					blockText = fmt.Sprintf("daily allowance reached (%d%% of allowance; resets at UTC midnight)", used)
-				} else if used >= warnAt && warnText == "" {
+				} else if used >= warnAt && warnText == "" && !poolHeadroom {
 					warnText = fmt.Sprintf("daily allowance high (%d%% of allowance)", used)
 				}
 			} else if stale && warnText == "" {

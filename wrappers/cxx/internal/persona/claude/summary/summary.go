@@ -13,6 +13,8 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/operatorerror"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/claude/ui"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/poolview"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 )
 
 type Inputs struct {
@@ -39,6 +41,9 @@ type Inputs struct {
 	BypassPermissions bool
 	// Sessions is nil when the server omitted its historical activity block.
 	Sessions *SessionCounts
+	// Pool is the account pool from GET /auth/accounts (`clx status`); nil
+	// falls back to the auth answer's quota_pool.
+	Pool *poolview.State
 }
 
 // ResourceSync is the per-run outcome for one boot-screen resource marker.
@@ -105,7 +110,8 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 	var apiCalls int64
 	var dots []ui.HealthDot
 	var quotaRows []ui.QuotaRow
-	var quotaWarning string
+	var quotaAccounts []terminalui.QuotaAccount
+	var quotaWarning, quotaNote string
 	result := "Ready — all systems operational."
 	if in.StatusOnly {
 		result = "API and auth checks passed."
@@ -139,9 +145,34 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 			}
 		}
 		dots = buildDots(auth, in)
-		quotaRows, quotaWarning = buildQuota(auth, time.Now())
-		extraRows, emulationNotice := quotaemulation.Display(auth.QuotaSnapshot, time.Now())
-		emulationNotice = poolQuotaAdvice(auth, emulationNotice)
+		now := time.Now()
+		pool := in.Pool
+		if pool == nil && !auth.QuotaUnlimited {
+			pool = poolview.FromQuotaPool(auth.QuotaPool, auth.AccountID, auth.AccountSwitch, nil)
+		}
+		limit, warnAt := quotaLimits(auth)
+		headroom := pool.HasHeadroom(limit)
+		quotaRows, quotaWarning = buildQuotaFor(auth, now, headroom)
+		if pool.Multi() {
+			quotaAccounts = pool.Rows(warnAt, limit, now)
+			quotaNote = pool.Note(limit)
+			// A freshly bound account has no report until its first turn; in a
+			// pool with room that is expected, not a telemetry fault. A stale
+			// or partial report keeps its warning.
+			if u := auth.ClaudeUsage; headroom && u != nil && strings.EqualFold(strings.TrimSpace(u.Status), "unavailable") &&
+				strings.TrimSpace(u.FetchedAt) == "" && u.FiveHourUsed == nil && u.SevenDayUsed == nil {
+				quotaWarning = ""
+				quotaNote = "No usage reported yet for the bound account. " + quotaNote
+			}
+		}
+		extraRows, emulationNotice := quotaemulation.Display(auth.QuotaSnapshot, now)
+		if headroom && pool.LiveSwitch && strings.Contains(emulationNotice, "pause") {
+			// The live switch moves this session at a turn boundary; the pool
+			// note says so, and a local pause suggestion would contradict it.
+			emulationNotice = ""
+		} else {
+			emulationNotice = poolQuotaAdvice(auth, emulationNotice)
+		}
 		quotaRows = append(quotaRows, extraRows...)
 		if emulationNotice != "" {
 			if quotaWarning != "" {
@@ -266,6 +297,8 @@ func Build(ctx context.Context, in Inputs) ui.ScreenInput {
 		ConcurrentNote:    in.ConcurrentNote,
 		Dots:              dots,
 		QuotaRows:         quotaRows,
+		QuotaAccounts:     quotaAccounts,
+		QuotaNote:         quotaNote,
 		QuotaWarn:         quotaWarning,
 		SessionRows:       sessionRows(in.Sessions),
 		ResultLabel:       result,

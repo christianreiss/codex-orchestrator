@@ -37,11 +37,20 @@ type Context struct {
 	AccountLabel      string
 	BindingGeneration int64
 	PendingSwitch     *SwitchDirective
-	wake              chan struct{}
-	onAdopt           func(Adoption)
+	// PoolSize is the engine's account count from the last verified answer
+	// (0: unknown or a single account). Display only: the statusline names
+	// the bound account when it is above one.
+	PoolSize int
+	wake     chan struct{}
+	onAdopt  func(Adoption)
 }
+
+// binding is the scope's binding file. account_label and pool_size are
+// display hints for the statusline; only account_id carries authority.
 type binding struct {
-	AccountID int64 `json:"account_id"`
+	AccountID    int64  `json:"account_id"`
+	AccountLabel string `json:"account_label,omitempty"`
+	PoolSize     int    `json:"pool_size,omitempty"`
 }
 
 // leaseHeartbeatEvery renews a launch's account lease (server TTL 5 minutes).
@@ -58,7 +67,7 @@ func Load(engine, authPath, baseURL string) *Context {
 	if raw, err := os.ReadFile(c.path); err == nil {
 		var b binding
 		if json.Unmarshal(raw, &b) == nil {
-			c.AccountID = b.AccountID
+			c.AccountID, c.AccountLabel, c.PoolSize = b.AccountID, b.AccountLabel, b.PoolSize
 		}
 	}
 	return c
@@ -121,16 +130,42 @@ func (c *Context) Observe(path string, raw []byte) {
 	if id <= 0 || state != "verified" || (c.SessionID != "" && c.AccountID != id) {
 		return
 	}
+	if id != c.AccountID {
+		c.AccountLabel = ""
+	}
 	c.AccountID = id
+	c.observePoolLocked(doc["quota_pool"])
 	_ = c.saveLocked()
 	c.cacheWeeklyLocked(doc)
+}
+
+// observePoolLocked records the pool size and the bound account's label from
+// an answer's quota_pool, which the server sends only for more than one
+// account; its absence means a single account (or no pool details).
+func (c *Context) observePoolLocked(raw json.RawMessage) {
+	var pool struct {
+		Accounts []struct {
+			ID    int64  `json:"id"`
+			Label string `json:"label"`
+		} `json:"accounts"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &pool) != nil {
+		c.PoolSize = 0
+		return
+	}
+	c.PoolSize = len(pool.Accounts)
+	for _, a := range pool.Accounts {
+		if a.ID == c.AccountID && a.Label != "" {
+			c.AccountLabel = a.Label
+		}
+	}
 }
 
 func (c *Context) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
 		return err
 	}
-	raw, err := json.Marshal(binding{AccountID: c.AccountID})
+	raw, err := json.Marshal(binding{AccountID: c.AccountID, AccountLabel: c.AccountLabel, PoolSize: c.PoolSize})
 	if err != nil {
 		return err
 	}

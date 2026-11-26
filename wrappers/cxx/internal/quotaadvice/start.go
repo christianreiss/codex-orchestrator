@@ -175,6 +175,16 @@ func (u *Chooser) Choose(ctx context.Context, c *Comparison, current string, has
 		}
 	}
 	if selected == "" {
+		pools := []namedPool{
+			{name: Name(current), pool: c.Snapshot(current).Pool},
+			{name: Name(other(current)), pool: c.Snapshot(other(current)).Pool},
+		}
+		// A pool with room handles one high account itself (live switch or
+		// the next launch's selection): another provider is recommended only
+		// when the whole pool is high, and never one whose whole pool is.
+		if pools[0].pool.Multi() && pools[0].pool.Headroom {
+			return stay, nil
+		}
 		a := Evaluate(c.Snapshot(current), c.Settings, u.Now)
 		b := Evaluate(c.Snapshot(other(current)), c.Settings, u.Now)
 		if !a.Valid || !b.Valid {
@@ -183,13 +193,13 @@ func (u *Chooser) Choose(ctx context.Context, c *Comparison, current string, has
 				Name(other(current))+": "+b.Description(u.Now))
 			return stay, nil
 		}
-		if !Recommend(a, b, c.Settings) || !u.Available(other(current)) {
+		if !Recommend(a, b, c.Settings) || !u.Available(other(current)) || (pools[1].pool.Multi() && !pools[1].pool.Headroom) {
 			return stay, nil
 		}
-		details := []string{
+		details := append([]string{
 			Name(current) + ": " + a.Description(u.Now),
 			Name(other(current)) + ": " + b.Description(u.Now),
-		}
+		}, poolDetails(pools...)...)
 		if !u.Interactive || c.Settings.Mode != "ask" {
 			say(terminalui.ToneWarn, "Recommend "+Name(other(current)), details...)
 			return stay, nil
@@ -217,10 +227,10 @@ func (u *Chooser) Choose(ctx context.Context, c *Comparison, current string, has
 			Prefix: prefix, Topic: terminalui.TopicQuota, Tone: terminalui.ToneWarn,
 			Title:   "Recommend " + Name(other(current)),
 			Details: details,
-			Body: terminalui.QuotaCompareLines(caps, []terminalui.QuotaCompare{
+			Body: append(terminalui.QuotaCompareLines(caps, []terminalui.QuotaCompare{
 				a.Compare(Name(current), u.Now),
 				b.Compare(Name(other(current)), u.Now),
-			}, width),
+			}, width), poolBody(caps, width, pools...)...),
 		}, options, def)
 		if err != nil {
 			return Choice{Cancel: true}, nil

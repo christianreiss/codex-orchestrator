@@ -175,6 +175,23 @@ export interface PoolRecommendation {
 }
 
 /**
+ * The usable account (enabled and verified) other than `excludeId` that the
+ * policy would hand work to below its ceiling, or null when there is none.
+ * This is the pool's headroom verdict: unmeasured accounts count as unused,
+ * paused or unverified ones never count. `excludeId` is the bound account, or
+ * null to ask whether any account of the pool can take a new launch.
+ */
+export function poolHeadroomTarget<T extends PoolAccountView>(
+  policy: AccountPolicy,
+  accounts: T[],
+  excludeId: number | null,
+  limitPercent: number,
+): T | null {
+  const others = accounts.filter((a) => a.usable && a.id !== excludeId);
+  return preferredTarget(policy, others, policyCeiling(policy, limitPercent)) ?? null;
+}
+
+/**
  * The single source for quota warnings in a pool: agents keep working while
  * any usable account has headroom; pausing is advised only when the whole pool
  * is at its limit. `warnPercent` is the level from which the bound account
@@ -190,7 +207,6 @@ export function poolRecommendation(
   liveSwitch: boolean,
   plannedTarget: number | null,
 ): PoolRecommendation {
-  const ceiling = policyCeiling(policy, limitPercent);
   const pct = (score: number | null) => (score === null ? 'unknown' : `${Math.round(score)}%`);
   const others = accounts.filter((a) => a.usable && a.id !== bound?.id);
   const boundScore = bound ? effective(bound.score) : 0;
@@ -200,7 +216,7 @@ export function poolRecommendation(
     .join(', ');
   if (!bound || boundScore < warnPercent)
     return { action: 'continue', account_id: null, message: bound ? `Account ${bound.label} is at ${pct(bound.score)}.` : 'No account is bound.' };
-  const best = preferredTarget(policy, others, ceiling);
+  const best = poolHeadroomTarget(policy, accounts, bound.id, limitPercent);
   if (!best)
     return {
       action: 'pause',

@@ -17,9 +17,11 @@ import { emulationBlocks } from './quota-emulation.js';
 import { ProviderAccountsService } from './provider-accounts.js';
 import { SettingsService } from './settings.js';
 import {
+  poolHeadroomTarget,
   poolRecommendation,
   readAccountPolicy,
   rebalanceTarget,
+  selectForLaunch,
   type AccountPolicy,
   type PoolRecommendation,
 } from './account-policy.js';
@@ -48,6 +50,8 @@ export interface PoolAccount {
   short_resets_at: string | null;
   weekly_used_percent: number | null;
   weekly_resets_at: string | null;
+  /** When the newest usage reading of the account was taken (null: never). */
+  fetched_at: string | null;
   score: number | null;
   emulation_blocked: boolean;
   active_sessions: number;
@@ -126,6 +130,7 @@ export class AccountSwitchService {
             short_resets_at: str(usage.short_resets_at),
             weekly_used_percent: num(usage.weekly_used_percent),
             weekly_resets_at: str(usage.weekly_resets_at),
+            fetched_at: str(usage.fetched_at),
             score: unlimited ? 0 : blocked ? 100 : scores.length ? Math.max(...scores) : null,
             emulation_blocked: blocked,
             active_sessions: a.sessions.length,
@@ -444,7 +449,13 @@ export class AccountSwitchService {
     );
   }
 
-  /** Pool view and the warning recommendation for one bound account. */
+  /**
+   * Pool view and the warning recommendation for one bound account.
+   * `headroom` says whether another usable account (any usable account when
+   * nothing is bound) can take work below the policy ceiling: the CLI's single
+   * verdict for "the whole pool is high". `launch_account_id` is the account a
+   * new launch would be assigned now (same selection as `POST /auth/sessions`).
+   */
   async poolView(engine: Engine, boundAccountId: number | null, warnPercent?: number) {
     const [policy, pool, limitPercent] = await Promise.all([
       readAccountPolicy(this.db, engine),
@@ -453,8 +464,9 @@ export class AccountSwitchService {
     ]);
     const view = (a: PoolAccount) => ({ id: a.id, label: a.label, score: a.score, usable: a.state === 'enabled' && a.verified });
     const bound = pool.find((a) => a.id === boundAccountId) ?? null;
+    const candidates = this.candidates(pool);
     const planned = bound
-      ? rebalanceTarget(policy, bound.id, this.candidates(pool), null, Date.now(), limitPercent)?.id ?? null
+      ? rebalanceTarget(policy, bound.id, candidates, null, Date.now(), limitPercent)?.id ?? null
       : null;
     const recommendation: PoolRecommendation = poolRecommendation(
       policy,
@@ -465,7 +477,17 @@ export class AccountSwitchService {
       LIVE_SWITCH_ENGINES.has(engine),
       planned,
     );
-    return { policy, accounts: pool, recommendation };
+    const blocked = new Set(pool.filter((a) => a.emulation_blocked).map((a) => a.id));
+    const admitted = candidates.filter((c) => !blocked.has(c.id));
+    const launch = selectForLaunch(policy, admitted.length ? admitted : candidates, limitPercent, Date.now());
+    return {
+      policy,
+      accounts: pool,
+      recommendation,
+      bound_account_id: bound?.id ?? null,
+      headroom: poolHeadroomTarget(policy, pool.map(view), bound?.id ?? null, limitPercent) !== null,
+      launch_account_id: launch?.id ?? null,
+    };
   }
 
   /** The fleet quota limit (`/admin/quota-mode`), clamped like the auth routes. */
