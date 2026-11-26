@@ -326,7 +326,7 @@ band, automatic exhaust to 90 then 99 %, or manual) distributes sessions. Claude
 sessions switch accounts live at the next turn boundary; quota warnings and
 `quota_get` name the other accounts and only advise pausing when the whole pool is at
 its limit. See `docs/interface-api.md` → *Claude multiple accounts and live switching*.
-From cxx 0.9.208 the wrappers show any multi-account pool:
+From cxx 0.9.209 the wrappers show any multi-account pool:
 - The launch quota picker and the startup card stay quiet while another account
   has headroom.
 - The startup card, `status` and `doctor` list every account, the binding and

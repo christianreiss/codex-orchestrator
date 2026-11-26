@@ -1556,7 +1556,7 @@ working directory after the original wrapper releases its auth leases. No prompt
 resume identifier or launch arguments transfer. If the original invocation has
 options or a conversation to resume, confirm their loss on every switch.
 
-**Account pools (cxx 0.9.208).** When an engine has more than one account, the
+**Account pools (cxx 0.9.209).** When an engine has more than one account, the
 recommendation reads the whole pool, not only the account in use. The server
 sends each account's usage and its headroom verdict in
 `quota_advice.<engine>.pool`. The verdict uses the same rule as the pool
@@ -1757,7 +1757,7 @@ A launch reserves one verified account from this engine's pool before starting t
 Quota gating reads the selected account; with more than one account, advice and the quota warnings also weigh the rest of the pool (see *Pools on the card, `status` and `doctor`* below). The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. Client uploads with a distinct provider identity can enroll another verified account; a new login for the same identity retains its existing account, including after migration. Opaque tokens reuse the sole or assigned account. Additional opaque accounts require explicit Add account or an untargeted seed command; unassigned opaque uploads into a multiple-account pool require an account assignment.
 
 
-### Pools on the card, `status` and `doctor` (cxx 0.9.208)
+### Pools on the card, `status` and `doctor` (cxx 0.9.209)
 
 With more than one Codex account, `quota_pool` drives these surfaces the same
 way as for clx (see `docs/interface-clx.md` → *Pools on the card, `status`,

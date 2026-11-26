@@ -2394,7 +2394,7 @@ not relax existing authentication, local credential handling or quota hard-fail.
 
 `/auth` selects alternative quota advice from an enabled verified account of the correct engine. Current-engine telemetry stays bound to its requested account; disabled/unlimited advice skips alternative history reads. No provider refresh or account lease is acquired for advice.
 
-**Pools (cxx 0.9.208).** When an engine has more than one account, its provider
+**Pools (cxx 0.9.209).** When an engine has more than one account, its provider
 object adds `pool: {bound_account_id, launch_account_id, headroom, accounts: [{id,
 label, usable, score, short_used_percent, weekly_used_percent}]}`. A null score or
 percentage means the account has no reading.
@@ -2587,7 +2587,7 @@ score is `max(short, weekly)` used percent.
 
 `GET /auth/accounts` (`?engine=claude&session_id=…`) returns `{engine, policy, bound_account_id, binding_generation,
 account_switch, live_switch, accounts[], recommendation}`. With more than one account, `/auth` retrieve and store
-add `quota_pool`, and the agent `quota_get` answer adds `pool`. From cxx 0.9.208 the auth block of
+add `quota_pool`, and the agent `quota_get` answer adds `pool`. From cxx 0.9.209 the auth block of
 `/sync/bootstrap` (`include_auth`) carries `quota_pool` too, because a launch usually reuses that block after its
 account lease.
 

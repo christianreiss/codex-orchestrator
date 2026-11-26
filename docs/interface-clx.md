@@ -1761,7 +1761,7 @@ working directory after the original wrapper releases its auth leases. No prompt
 resume identifier or launch arguments transfer. If the original invocation has
 options or a conversation to resume, confirm their loss on every switch.
 
-**Account pools (cxx 0.9.208).** When an engine has more than one account, the
+**Account pools (cxx 0.9.209).** When an engine has more than one account, the
 recommendation reads the whole pool, not only the account in use. The server
 sends each account's usage and its headroom verdict in
 `quota_advice.<engine>.pool`. The verdict uses the same rule as the pool
@@ -2075,7 +2075,7 @@ On hosts whose requests go through the communicator, the live switch and `accoun
 - The statusline reads the account from the binding file, so usage after a switch is reported for the new
   account; reports for an account the session no longer holds are ignored by the server.
 
-### Pools on the card, `status`, `doctor` and the statusline (cxx 0.9.208)
+### Pools on the card, `status`, `doctor` and the statusline (cxx 0.9.209)
 
 With more than one account, `quota_pool` (on `/auth` and on the
 `/sync/bootstrap` auth block that a launch reuses) drives these surfaces. A

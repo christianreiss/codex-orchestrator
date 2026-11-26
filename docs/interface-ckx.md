@@ -369,7 +369,7 @@ and reject controls requiring exact telemetry instead of inventing values.
   `five_hour` maps to the short quota window and `weekly` to the long one.
   Fresh 5-hour and weekly terminal quota bars mark elapsed time and color usage
   beyond that share amber. Monthly windows show usage and the reset countdown.
-  From cxx 0.9.208, an answer carrying `quota_pool` (more than one account)
+  From cxx 0.9.209, an answer carrying `quota_pool` (more than one account)
   also lists every account under the bar. The list uses the clx/cdx rows and
   dim pool note (see `docs/interface-clx.md` → *Pools on the card, `status`,
   `doctor` and the statusline*). The bound account is the leased one, even when
