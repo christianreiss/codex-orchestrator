@@ -581,6 +581,14 @@ test("Overview lists what needs you, counted like the owning pages and linked to
   await expect(page).toHaveURL(/[?&]open=claude/);
   await expect(page.getByRole("row", { name: /claude-2/ })).toBeVisible();
   await expect(page.getByRole("row", { name: /codex-1/ })).toBeVisible();
+  // The expanded groups survive a tab switch and come back with the Provider tab.
+  await page.getByRole("tab", { name: "Engines" }).click();
+  await expect(page).toHaveURL(/[?&]tab=engines/);
+  await expect(page).toHaveURL(/[?&]open=claude/);
+  await page.getByRole("tab", { name: "Provider" }).click();
+  await expect(page).not.toHaveURL(/[?&]tab=/);
+  await expect(page).toHaveURL(/[?&]open=claude/);
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await list.getByRole("link", { name: /waiting for temporary access approval/ }).click();
   await expect(page.getByRole("dialog", { name: "Insecure access" })).toBeVisible();
 });

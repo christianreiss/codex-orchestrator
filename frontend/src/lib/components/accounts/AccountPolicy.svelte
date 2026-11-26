@@ -28,12 +28,15 @@
   let saved = $state(false);
   const dirty = $derived(draft !== null && JSON.stringify(draft) !== baseline);
 
-  // Adopt the server value, but never over unsaved edits.
+  // Adopt the server value, but never over unsaved edits. Never read `draft` here: the effect
+  // would depend on the object it just wrote and rerun forever (effect_update_depth_exceeded),
+  // which froze the whole Accounts page after its first render.
   $effect(() => {
     const server = $query.data;
     if (!server || untrack(() => dirty)) return;
-    draft = { ...server };
-    baseline = JSON.stringify(draft);
+    const next = { ...server };
+    draft = next;
+    baseline = JSON.stringify(next);
   });
 
   const issues = $derived(draft ? policyIssues(draft) : {});

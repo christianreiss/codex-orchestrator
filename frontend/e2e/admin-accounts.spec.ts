@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { installOwnerUpdates } from "./owner-stream";
 
 const reset = "2026-10-01T12:00:00Z";
 function account(id: number, engine: "claude" | "codex" | "grok" | "kimi", label: string, percent: number | null) {
@@ -109,6 +110,30 @@ test("the engine filter is always visible, scopes the list and keeps engine-spec
   await expect(rowOf(page, /Claude Alpha/)).toHaveCount(0);
   await page.getByRole("textbox", { name: "Search accounts" }).fill("zzz");
   await expect(page.getByText("No matches", { exact: true })).toBeVisible();
+});
+
+test("a login enrolled after load appears without a reload and joins its engine group", async ({ page }) => {
+  // The page once froze after its first render (the policy form's effect looped), so a second
+  // Claude account enrolled later never appeared and the first kept its default label.
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await fixtures(page);
+  let listed = [account(1, "claude", "Claude", 87)];
+  await page.route("**/admin/accounts", (route) =>
+    ["fetch", "xhr"].includes(route.request().resourceType()) ? route.fulfill({ json: { status: "ok", data: { accounts: listed } } }) : route.continue());
+  const emit = await installOwnerUpdates(page);
+  await page.goto("/admin/accounts");
+  // A default label never reads like the provider itself.
+  await expect(rowOf(page, /Claude account #1/)).toBeVisible();
+  await expect(page.getByTestId("account-group")).toHaveCount(0);
+  listed = [account(1, "claude", "Claude", 87), account(8, "claude", "ops@example.test", 5)];
+  await emit("accounts.updated");
+  const group = page.getByTestId("account-group");
+  await expect(group).toContainText("Claude 2 accounts");
+  await expect(group).toContainText("OK");
+  await expect(group).toContainText("Least used: ops@example.test (5%)");
+  await expect(page.locator("main dl dd").first()).toHaveText("2");
+  expect(errors).toEqual([]);
 });
 
 test("accounts that need attention are listed first and counted", async ({ page }) => {
