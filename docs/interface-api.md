@@ -2507,7 +2507,7 @@ Operator-consolidated duplicate account IDs remain same-engine compatibility ali
 
 ChatGPT (`codex`) and Claude (`claude`) have independent account pools. Provider identities identify accounts; access/refresh fingerprints identify credentials and login lineage, not distinct subscriptions. Migrated identities are recovered from their canonical head when `identity_key` is unset. Fresh opaque tokens reuse the sole non-retired engine account or their explicit session/host assignment. A distinct provider identity can enroll another account automatically; additional opaque accounts require explicit `POST /admin/accounts` or an untargeted seed command. With multiple accounts, an unassigned opaque upload returns HTTP 409 `account_assignment_required` without creating an account. Replacing a known account can explicitly supply `account_id`; known cross-account identity/lineage conflicts remain HTTP 409 `account_identity_mismatch`. Existing runner validation, quarantine, generation/CAS, replay protection and secretbox encryption apply within each account.
 
-- `GET /admin/accounts` — session-gated metadata list: `accounts[]` with `id`, `engine`, `label`, lifecycle state, verification verdict/reason/time, generation, normalized short/weekly quota percentages, reset times, observation time/staleness, and active host sessions. Never returns credential bytes or provider identity fingerprints. The same URL serves the Accounts SPA for HTML navigation. Every row carries `pool: {score, short, weekly, usable, emulation_blocked}`, computed by the same rule as the live-switching pool (`poolPosition` in `account-switch.ts`): `short` and `weekly` are the windows as scored (`null` once their reset has passed or without a reading), `score` is their maximum, `0` for an unlimited account, `100` when an emulated budget blocks it and `null` without a reading; `usable` means enabled and verified. The console judges an engine with more than one usable account as a pool: its accounts at 80% or more count as "near quota" (Overview Needs you, Accounts and Engines totals) only when no usable account of that engine is below 80% or still unmeasured. Single-account engines keep the per-account rule. Accounts and the Overview's Provider usage show an engine with several accounts as one collapsible group whose header averages `short`/`weekly` over the usable accounts reporting them.
+- `GET /admin/accounts` — session-gated metadata list: `accounts[]` with `id`, `engine`, `label`, lifecycle state, verification verdict/reason/time, generation, normalized short/weekly quota percentages, reset times, observation time/staleness, and active host sessions. Never returns credential bytes or provider identity fingerprints. The same URL serves the Accounts SPA for HTML navigation. Every row carries `pool: {score, short, weekly, usable, emulation_blocked}`, computed by the same rule as the live-switching pool (`poolPosition` in `account-switch.ts`): `short` and `weekly` are the windows as scored (`null` once their reset has passed or without a reading), `score` is their maximum, `0` for an unlimited account, `100` when an emulated budget blocks it or the provider has refused the account with its usage limit (`exhausted_until`, see *Provider usage-limit refusals and continuing on another account*) and `null` without a reading; `usable` means enabled and verified. The console judges an engine with more than one usable account as a pool: its accounts at 80% or more count as "near quota" (Overview Needs you, Accounts and Engines totals) only when no usable account of that engine is below 80% or still unmeasured. Single-account engines keep the per-account rule. Accounts and the Overview's Provider usage show an engine with several accounts as one collapsible group whose header averages `short`/`weekly` over the usable accounts reporting them.
 
   Codex and Claude usage also include nullable `short_limit_seconds` and
   `weekly_limit_seconds`. Codex readings, durations and resets are projected
@@ -2652,7 +2652,9 @@ binding file and ignores every answer below it).
 - Each agent session that followed gets one server notice (`ACCOUNT/1 switched: …`, idempotent per
   scope and binding generation) naming the new and the previous account with their 5h and weekly
   usage, the reason, and that work continues. The notice is best effort: if it fails, the switch
-  still stands and the failure is logged.
+  still stands and the failure is logged. A session that waits to continue a quota-failed turn gets
+  no notice; its continuation names the account (see *Provider usage-limit refusals and continuing on
+  another account*).
 - A pending request ends without a switch when it is taken back, when its target is paused, removed or
   no longer verified, or when an operator, host or agent request has waited 24 hours for a turn boundary
   (checked on every evaluator pass, also under the `manual` policy). Each such end writes
@@ -2689,7 +2691,7 @@ account lease.
 
 - `quota_pool` contains `{recommendation, policy{mode,strategy}, bound_account_id, headroom, launch_account_id,
   live_switch, accounts[]}`. Each account is `{id, label, state, verified, short_used_percent, short_resets_at,
-  weekly_used_percent, weekly_resets_at, fetched_at, score, emulation_blocked}`.
+  weekly_used_percent, weekly_resets_at, fetched_at, score, emulation_blocked, exhausted_until}`.
 - `headroom` and `launch_account_id` mean the same as in `quota_advice.<engine>.pool` above.
 - A bootstrap that carries a live `session_id` also gains `binding_generation` and `account_switch` in its auth
   block, exactly as `/auth` does. The wrapper's binding observer treats them the same way: a fenced update,
@@ -2705,6 +2707,111 @@ Admin: `GET /admin/accounts/policy/:engine` and `POST /admin/accounts/policy/:en
 re-evaluates immediately); `GET /admin/accounts/scopes` (`?engine=claude`) lists running scopes with host, bound account, generation and
 pending switch; `POST /admin/accounts/scopes/switch` `{engine, host_id, scope_id, account_id|"auto"}`
 requests a switch with reason `admin`.
+
+### Provider usage-limit refusals and continuing on another account (cxx 0.9.213)
+
+A statusline reading is what the last successful response said. An account the provider has just refused
+can therefore still read 93 %, and the pool would send more work to it. The refusal itself is recorded.
+
+**Exhaustion marker.** `POST /host/agent-sessions/:id/watchdog/activity` accepts `quota_limit: true`
+next to `failure: "capacity"`: the provider refused the turn with a usage limit of the account (not an
+overload). `retry_not_before` then carries the reset the provider printed, when the wrapper could read it.
+For an engine with live switching (Claude) the server marks the session's account as exhausted:
+
+- Stored in `versions` as `account_quota_exhausted_<account id>` (JSON `{at, until, window, source,
+  short_resets_at, long_resets_at, host_id, session_id}`), so it survives a restart. No schema change.
+- `until` is the stated reset when it lies ahead and at most 8 days away (`source: "provider_reset"`).
+  Otherwise it is the reset of the measured window that is furthest along, if that is at 75 % or more,
+  capped at 5 hours (`window_reset`). Otherwise it is 30 minutes (`default`), after which the account is
+  simply tried again.
+- Not marked: other engines, unlimited (PayG) accounts, removed accounts and accounts the reporting host
+  holds no live lease on. A second refusal never replaces a stronger or longer marker.
+- While it holds, the account scores 100 wherever the pool is scored: launch selection, the live-switch
+  evaluator, `quota_pool`, `GET /auth/accounts` and `GET /admin/accounts` (`pool.score`). The evaluator
+  runs at once, so scopes on the account get a pending `policy` switch without the dwell, as for any
+  account at the limit. Under the `manual` policy the marker still steers new launches; nothing moves.
+- It ends at `until`. Before that, only a stored Claude usage report whose reset for the marked window
+  is more than 60 s later than the one on record at marking ends it (a new window has begun). The same
+  or a lower percentage never does: sessions that have not asked the provider since keep repeating old
+  figures. There is no operator action to clear it.
+- `GET /admin/accounts` rows carry `quota_exhausted` (the marker or `null`) and `pool.exhausted_until`;
+  pool accounts in `quota_pool` and `GET /auth/accounts` carry `exhausted_until`. The stored percentages
+  are unchanged.
+- Audit actions `provider_account.quota_exhausted` (`until`, `window`, `source`, `replaced`) and
+  `provider_account.quota_exhaustion_cleared` (`reason` `new_window` or `expired`); both publish
+  `accounts.updated`.
+
+Wrappers before cxx 0.9.213 never send `quota_limit`, so no marker is written for them; the account is
+then held back only by its readings, as before.
+
+**Quota gate of a recovery.** The account a turn failed on is where the interruption was observed, not
+where the recovery has to happen. For an engine with live switching, the `auto` account policy and at
+least one other usable account, the gate that every quota recovery passes before its continuation is
+queued reads the pool:
+
+- Ready when the session now runs on a usable account below the policy's limit (its switch is
+  committed), when the account it failed on has room again, or when the session has ended and a new
+  launch would get an account with room.
+- Another account has room but the session has not moved: checked again every 15 s
+  (`last_error: "quota_switch_wait"`) for at most 20 minutes. After that the gate of the failed account
+  applies (`quota_wait`), looked at every 5 minutes so that a late switch still ends the wait.
+- No usable account has room: wait until 60 s after the earliest account gets room back (its marker or
+  its full window). Only accounts whose quota policy lets a recovery wait for that window count
+  (`short_auto_resume` / `long_auto_resume`); if none does, the recovery stops with
+  `quota_auto_resume_disabled`.
+- Unchanged on every path: a changed native session stops with `quota_native_session_changed`, the
+  attempt budget (one attempt plus three retries after 5, 15 and 30 minutes), deadlines.
+- Where the pool decides, the reset of the failed account is not a due time. A recovery, and an
+  agent's own watchdog whose turn failed on a usage limit, is first checked after the usual 5 minutes
+  (with jitter), also when the provider stated a reset or the account's window is full; the gate
+  produces whatever wait the pool needs. Elsewhere the first check stays at that reset.
+
+Other engines, the `manual` policy and a pool with one usable account keep the gate of the single
+account described under *Account quota warnings and reset recovery*.
+
+**Reset recovery on the refusal alone.** Reset recovery is armed by a failed turn plus a fresh reading of
+100 %. A refused account often reads less. With cxx 0.9.213 the marker counts as that proof when all of
+this holds: its `window` is known, the quota policy's auto-resume switch for that window is on, the host
+has a resident daemon for the user (reset recovery terminates the session and only that daemon resumes
+it), and the session is not a `peer_delivery` one. The recovery is the existing `quota:<native session
+id>` watchdog with `quota.reset_at` set to the marker's `until`. A marker without a known window, or a
+window whose auto-resume is off, arms nothing, as before.
+
+**Continuing the failed turn.** When a turn of a live Claude session fails on a quota limit (the marker
+was written, or the account's stored window is exhausted) and another usable account has room, the
+server arms one continuation for that session instead of the reset recovery:
+
+- Conditions: account policy `auto`; not a `peer_delivery` session; the session's channel receiver is
+  attached and can take peer messages; no live watchdog and no running persistent wake on the agent.
+  Otherwise the reset recovery applies, with the gate above.
+- It is a watchdog row with `task_key` `quota-switch:<native session id>:<time>` and `created_by`
+  `quota:<session id>`, in `capacity_wait` with `last_error: "quota_switch"`. The session is alive and
+  idle: this watchdog never sets `terminate_requested` and has no progress timeout.
+- It passes the gate above. After the committed switch one message (`kind: "schedule"`) is delivered
+  into the same native session: "The previous turn failed on a provider quota limit and now continues
+  on account <label> (#<id>). Continue where you left off; check quota_get before heavy work; do not
+  invent new work. …". It carries no `watchdog_finish` instruction; the watchdog completes with its
+  delivery. A host without a resident daemon is served through the live receiver, and the continuation
+  waits while there is none.
+- At most one per failed turn, and only while that turn is the newest activity of the session. A turn
+  that began more than 15 s after the failure (a typed prompt, a delivered message) drops it
+  (`disabled`, `last_error: "quota_continue_superseded"`); a turn still running defers it. The session's
+  native turn proof decides: `active`, or a finished `idle`, observed after the failure is a new turn.
+  `unknown` is not (the failed turn leaves it, and so does a reconnect), and neither is the activity
+  state decaying to `unknown` after 45 s without a hook. A session without a turn proof is judged by
+  its activity state the same way. An agent that enables its own watchdog supersedes the continuation
+  too. The fence is checked when the message is queued and again when the session claims it.
+- The `ACCOUNT/1 switched` notice is not sent to a session with a pending continuation: it would start
+  a turn of its own, and the continuation names the account.
+- If every account is full instead, the continuation waits for the earliest reset as above and its
+  deadline (2 hours) is extended to one day after that reset.
+- A session that ended with the failure (not a user stop, which disables the continuation) is resumed
+  with it on a host with a resident daemon, as reset recovery does; the new launch takes an account
+  with room. Elsewhere the continuation waits for a receiver until its deadline.
+
+Which setting decides: continuing on **another** account follows the account policy (`mode: "auto"`).
+Waiting for a **reset** follows the quota policy (`short_auto_resume`, default on; `long_auto_resume`,
+default off). A fleet with `manual` distribution gets today's behaviour.
 
 ### Provider subscription plans
 
@@ -3274,7 +3381,10 @@ closes the stream rather than buffering unbounded frames; Fastify shutdown drain
 
 Activity reports real output/CPU/tools and classified failure only; heartbeat is not
 progress. Failure is `capacity|crash|hang|user_stop|blocked`, with optional native ID
-and provider `retry_not_before`. Stale native hooks are ignored. Capacity/crash/hang
+and provider `retry_not_before`. `quota_limit: true` with `capacity` says the provider
+refused the turn with a usage limit of the account, as opposed to an overload (cxx 0.9.213
+sends it from the Claude `StopFailure` hook; see *Provider usage-limit refusals and
+continuing on another account*). Stale native hooks are ignored. Capacity/crash/hang
 create one pending encrypted internal once schedule; recovery starts after 5 minutes
 with positive jitter, backs off exponentially through the existing schedule worker,
 and observes later provider reset hints. Healthy sessions have no periodic model wakes.
@@ -4424,6 +4534,7 @@ Responses include canonical IDs, versions and an authenticated `report_url`; cla
 - Readings include account, engine, policy, status, short/long windows with percentage, actual duration, source, observation timestamp and reset. Missing is not zero; readings older than ten minutes or past reset are stale. Codex/Grok refreshes retain existing throttles; Claude reads only native statusline reports. Grok can report weekly or monthly usage; short-window emulation is opt-in and requires weekly evidence.
 - Fresh threshold crossings notify active sessions of the same account once per session/window/reset/severity. QUOTA/1 notices are informational, bound to the current lifecycle, and never wake an offline session.
 - A native capacity failure plus a fresh exhausted quota window arms reset recovery when enabled. Overload alone and usage without a failed turn cannot arm it. A known long blocker takes precedence. Unknown scope is left for the operator.
+- Claude with several accounts under the `auto` account policy: the failed turn continues on another account instead, and a recovery waits for the earliest reset in the pool rather than for the account it failed on. See *Provider usage-limit refusals and continuing on another account (cxx 0.9.213)*. The rules in this section are the single-account case and apply unchanged to Codex, Grok and Kimi Code, to the `manual` policy and to a pool of one usable account.
 - Recovery reuses the Watchdog schedule and native-session executor. It waits at least 60 seconds beyond all known blocking resets, rechecks effective policy and attempts, and stops on task completion, cancel, manual stop, changed native binding or missing transcript. PayG or a disabled policy cancels queued quota recovery. Initial attempt plus at most three retries (5, 15, 30 minutes when no newer reset exists); only persistent hosts start automatically. Stale post-reset readings permit a bounded probe. No replacement session or independent replacement subagent is created.
 - `agent_watchdogs` exposes nullable `quota` metadata (account, window, reset, attempts and last attempt). Engine quota defaults live in Usage limits, account overrides in Accounts, and recovery state in the existing Watchdog panel. Warning thresholds do not force a pause. Managed instructions require quota_get before heavy work/delegation.
 

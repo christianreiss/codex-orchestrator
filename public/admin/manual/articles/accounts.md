@@ -50,6 +50,19 @@ Usage per account is the higher of its short and weekly window. Live switching o
 
 **Active Claude scopes** lists every host and user with a live Claude session: the host, the bound account, the number of sessions and a pending switch with its target. Sessions of one user on one host share a single credential file, so they always run on the same account and a switch moves them all. **Switch to…** offers the enabled, verified Claude accounts; the switch applies at the next turn boundary (never during a turn), with a prompt-cache rebuild per session. Agents can ask for the same through the account-switch skill; in automatic mode the minimum dwell still applies.
 
+### When Claude hits a usage limit mid-turn
+
+A usage reading is what the provider said with its last successful answer. An account can therefore still show 93 % at the moment the provider refuses the next request. From cxx 0.9.213 the refusal itself counts:
+
+- The account is treated as full until the reset the provider named (or, without one, until its fullest window resets, at most five hours; with no reading at all, 30 minutes). The percentages on this page do not change; the pool simply stops using the account. A reading from a new quota window ends this early.
+- In **Automatic** mode the scope switches to an account with room at once, without the minimum dwell, and the interrupted session receives one message telling it to continue where it left off on the new account. The session keeps running; nothing is restarted. In the Watchdog panel this shows as a watchdog named `quota-switch:…`.
+- That message is not sent when somebody typed into the session in the meantime, when the session was stopped, or when the agent armed its own watchdog. It is sent once per failed turn.
+- When every account is full, interrupted work waits for the first account in the pool to reset, not for the one the turn happened to fail on.
+
+Two settings decide this. **Mode: Automatic** allows continuing on another account. **Resume interrupted work after reset** in the account's quota policy (below) allows waiting for a reset. With **Manual** mode nothing switches, and work waits for its own account as before.
+
+This applies to Claude only, because only Claude sessions can change account while running.
+
 Account rows show the provider login e-mail when it is known. **Identity unknown** means no provider identity is recorded yet, so a later login cannot be matched to that account automatically; use **Replace credentials** or log in again.
 
 ## Permissions and rollout
@@ -62,6 +75,7 @@ Migration `0035_provider_accounts.sql` preserves each previous canonical head as
 
 - api/src/services/provider-accounts.ts
 - api/src/services/account-selection.ts
+- api/src/services/quota-exhaustion.ts, api/src/services/quota-pool.ts (usage-limit refusals, continuing on another account)
 - api/src/routes/admin/accounts/index.ts
 - api/src/routes/auth/index.ts
 - wrappers/cxx/internal/accountpool/context.go
@@ -78,7 +92,7 @@ Enable **PayG / unlimited** for an account whose provider billing permits contin
 
 Agents call **quota_get** before heavy work or large delegations. It returns available short/long readings, reset times, observation age and the effective policy. Missing readings are unknown; a displayed zero is an actual reading. Claude measurements come from its native statusline, so a paused client may have stale data.
 
-A warning asks for a checkpoint and does not force a pause. Confirmed quota interruptions can resume the original native session after reset on persistent hosts. The Watchdog panel shows the window, next wake, attempts and any failure. Manual stop, task completion, changed identity or a missing transcript prevents further recovery. No replacement session or independent replacement subagent is started.
+A warning asks for a checkpoint and does not force a pause. Confirmed quota interruptions can resume the original native session after reset on persistent hosts. For Claude with several accounts in Automatic mode, work continues on another account first and only waits for a reset when the whole pool is full (see *When Claude hits a usage limit mid-turn* above). The Watchdog panel shows the window, next wake, attempts and any failure. Manual stop, task completion, changed identity or a missing transcript prevents further recovery. No replacement session or independent replacement subagent is started.
 
 
 ## Emulated short quotas

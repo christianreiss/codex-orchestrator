@@ -2120,6 +2120,47 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   switch or a generation-fenced adoption moves it. Communicator auth watches registered before a switch
   send the current binding, because the server resolves a leased request from its session.
 
+### Continuing a quota-failed turn on another account (cxx 0.9.213)
+
+Claude only: this builds on the live switch, which no other engine has. Codex, Grok and Kimi Code keep
+their recovery unchanged (their servers ignore the marker, and the hook sends them nothing new).
+Wire contract: `docs/interface-api.md` → *Provider usage-limit refusals and continuing on another account*.
+
+A turn that dies on the account's usage limit used to stay where it was: the statusline reading that
+feeds the pool is the last successful response (say 93 %), so the server kept the scope on the
+exhausted account, and the quota recovery waited for that account's reset even when another had room.
+
+1. **The refusal is fed back.** The `StopFailure` hook reports `quota_limit: true` and the printed reset
+   (see *Watchdog*). The server marks the account exhausted until that reset, scores it 100 and requests
+   a switch for its scopes at once. New launches skip it.
+2. **The scope switches.** `StopFailure` is a turn boundary, so the switch supervisor commits the pending
+   switch as described above; nothing in the wrapper's switch changes. Mid-turn credential swaps stay
+   out of scope.
+3. **The turn continues.** After the commit the server delivers one message through the channel
+   receiver into the same native session: "The previous turn failed on a provider quota limit and now
+   continues on account <label> (#<id>). Continue where you left off; check quota_get before heavy
+   work; do not invent new work. …". The session is not terminated and no `ACCOUNT/1 switched` notice
+   precedes it.
+
+Conditions for step 3: account policy `auto`, another usable account with room, a session with an
+attached channel receiver (not a `peer_delivery` worker), no watchdog or persistent wake already
+running for the agent. It is dropped when a new turn began after the failure (you typed, or a message
+arrived), when you stop the session, or after two hours. A session on a host without a resident daemon
+is served as long as its receiver is attached.
+
+When no account has room, a recovery waits for the earliest reset in the pool instead of the reset of
+the account the turn failed on. Which setting decides what:
+
+| Decision | Setting |
+| --- | --- |
+| Continue on another account now | Account policy mode `auto` (Accounts → distribution policy) |
+| Wait for a reset and resume then | Quota policy `short_auto_resume` / `long_auto_resume` |
+
+Older wrappers: without `quota_limit` the server writes no marker. A turn whose account already reads
+100 % still continues elsewhere; one whose reading lags behaves as before 0.9.213. A server without
+this feature accepts both fields, writes no marker and treats `retry_not_before` as it always did: a
+watchdog's next attempt is not before it.
+
 ### Pools on the card, `status`, `doctor` and the statusline (cxx 0.9.209)
 
 With more than one account, `quota_pool` (on `/auth` and on the
@@ -2403,6 +2444,27 @@ same records; Portal status is read-only. See `docs/interface-api.md` for the wi
 Claude native observation hooks forward root `StopFailure` and explicit `SessionEnd`
 through the private bridge. Capacity/overload is retriable; permanent provider errors
 block; hooks return no decision and never change permission policy.
+
+From cxx 0.9.213 the `StopFailure` hook tells a usage limit of the account from a
+transient shortage, for Claude only (`CXX_AGENT_PORTAL_ENGINE=claude`; Grok sends
+`StopFailure` through the same command and its reports are unchanged):
+
+- A usage limit is `error: "rate_limit"`, or wording such as "usage limit", "You've hit
+  your limit", "hit your session / 5-hour / weekly / Opus limit", "quota limit", "rate
+  limit". "usage limit" and "hit your … limit" without a telling error kind were
+  classified as `crash` before; they are `capacity` now. "overloaded" and "at capacity"
+  stay a transient shortage, and an organisation's "spend limit" stays a billing matter.
+- A usage limit is reported with `quota_limit: true`. Nothing of the provider's wording
+  leaves the hook.
+- The reset Claude Code prints becomes `retry_not_before` when it can be placed exactly:
+  "resets 3pm (Europe/Berlin)", "resets 3:30pm (…)", "resets at 3pm (…)", "resets Nov 28,
+  3pm (…)", "resets Jan 2, 2027, 9am (…)" and the legacy "usage limit reached|<epoch
+  seconds>". A clock time without a date is its next occurrence. A reset without a named
+  IANA zone, with an unknown zone, in the past, or more than 31 days ahead is left out;
+  nothing is guessed. Of several resets in one message the latest is sent.
+
+What the server does with it is described under *Continuing a quota-failed turn on another
+account* below.
 Hook payload contract: [Claude hooks reference](https://code.claude.com/docs/en/hooks).
 
 ### Host update output (cxx 0.9.40)
@@ -2968,7 +3030,7 @@ notification totals remain client-specific; the bound is on peer continuation de
 
 ## Account quota lifecycle (cxx 0.9.112)
 
-`quota_get` on cxx-agent reports the current lifecycle's bound provider account, short/long usage, reset, freshness and effective quota policy. Check before heavy workloads and large delegations. Start a new managed lifecycle through the updated wrapper to supply the verified provider lease binding; older sessions return unavailable. Engine defaults and complete account overrides configure warnings and short/long auto-resume independently. PayG/unlimited suppresses quota actions, including existing startup blocks. A quota warning only requests a checkpoint. Confirmed quota interruptions use existing Watchdog recovery for the same native transcript on persistent hosts, with bounded retries and no fresh-session fallback. Native subagent restoration depends on the native parent's resume implementation; no independent helpers are spawned. See [API contract](interface-api.md#account-quota-warnings-and-reset-recovery-cxx-09112).
+`quota_get` on cxx-agent reports the current lifecycle's bound provider account, short/long usage, reset, freshness and effective quota policy. Check before heavy workloads and large delegations. Start a new managed lifecycle through the updated wrapper to supply the verified provider lease binding; older sessions return unavailable. Engine defaults and complete account overrides configure warnings and short/long auto-resume independently. PayG/unlimited suppresses quota actions, including existing startup blocks. A quota warning only requests a checkpoint. Confirmed quota interruptions use existing Watchdog recovery for the same native transcript on persistent hosts, with bounded retries and no fresh-session fallback. Native subagent restoration depends on the native parent's resume implementation; no independent helpers are spawned. With several Claude accounts under the automatic distribution policy a quota-failed turn continues on another account first (cxx 0.9.213; see *Continuing a quota-failed turn on another account*). See [API contract](interface-api.md#account-quota-warnings-and-reset-recovery-cxx-09112).
 
 ## Workflow clarification (cxx 0.9.114)
 

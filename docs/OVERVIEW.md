@@ -326,6 +326,11 @@ band, automatic exhaust or expiring-first to 90 then 99 %, or manual) distribute
 sessions switch accounts live at the next turn boundary; quota warnings and
 `quota_get` name the other accounts and only advise pausing when the whole pool is at
 its limit. See `docs/interface-api.md` → *Claude multiple accounts and live switching*.
+A Claude turn that dies on its account's usage limit (cxx 0.9.213) marks that account
+exhausted, whatever its last reading said, and under the automatic policy continues in the
+same session on the next account with room; a recovery waits for the earliest reset in the
+pool only when every account is full. See `docs/interface-api.md` → *Provider usage-limit
+refusals and continuing on another account*.
 From cxx 0.9.209 the wrappers show any multi-account pool:
 - The launch quota picker and the startup card stay quiet while another account
   has headroom.
