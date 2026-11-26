@@ -135,6 +135,33 @@ describe('cors origin policy', () => {
     await app.close();
   });
 
+  it('grants the headers a browser SDK asks for on the open surface only', async () => {
+    const requested = 'authorization, content-type, x-stainless-os, x-stainless-retry-count, idempotency-key, openai-beta';
+    const app = await buildProbe(LISTED);
+    for (const url of OPEN_ROUTES) {
+      const pre = await app.inject({
+        method: 'OPTIONS',
+        url,
+        headers: { origin: UNLISTED, 'access-control-request-method': 'POST', 'access-control-request-headers': requested },
+      });
+      expect(pre.statusCode, url).toBe(204);
+      expect(pre.headers['access-control-allow-headers'], url).toBe(requested);
+      expect(String(pre.headers.vary), url).toMatch(/access-control-request-headers/i);
+    }
+    // A listed origin on a restricted route keeps the fixed list.
+    const pre = await app.inject({
+      method: 'OPTIONS',
+      url: '/admin/hosts',
+      headers: { origin: LISTED, 'access-control-request-method': 'POST', 'access-control-request-headers': requested },
+    });
+    expect(pre.statusCode).toBe(204);
+    const granted = String(pre.headers['access-control-allow-headers']).split(',').map((name) => name.trim());
+    expect(granted).toContain('authorization');
+    expect(granted).not.toContain('x-stainless-os');
+    expect(granted).not.toContain('idempotency-key');
+    await app.close();
+  });
+
   it('exposes the provider headers the upstream source passes through', async () => {
     const app = await buildProbe('');
     const res = await get(app, '/v1/messages', UNLISTED);

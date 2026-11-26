@@ -33,6 +33,17 @@ const PROVIDER_QUOTA_HEADERS = [
   'x-should-retry',
 ];
 
+const RESTRICTED_ALLOWED_HEADERS = [
+  'authorization',
+  'content-type',
+  'x-api-key',
+  'x-request-id',
+  'anthropic-version',
+  'anthropic-beta',
+  'openai-organization',
+  'openai-project',
+];
+
 function isOpenRoute(url: string): boolean {
   return OPEN_PATH_PREFIXES.some((prefix) => url.startsWith(prefix));
 }
@@ -56,16 +67,16 @@ export const corsPlugin = fp(
             originCb(null, allowedOrigins.includes(origin));
           },
           methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-          allowedHeaders: [
-            'authorization',
-            'content-type',
-            'x-api-key',
-            'x-request-id',
-            'anthropic-version',
-            'anthropic-beta',
-            'openai-organization',
-            'openai-project',
-          ],
+          // The open surface leaves allowedHeaders unset, so @fastify/cors
+          // reflects the preflight's requested headers: provider SDKs in a
+          // browser send a moving set of them (`x-stainless-*`,
+          // `idempotency-key`, `openai-beta`,
+          // `anthropic-dangerous-direct-browser-access`) and CORS has no prefix
+          // wildcard. What reaches a provider is still decided by the upstream
+          // header allowlist. The key must be absent, not undefined: the plugin
+          // spreads these options over its defaults. Every other route keeps
+          // the fixed list.
+          ...(open ? {} : { allowedHeaders: RESTRICTED_ALLOWED_HEADERS }),
           exposedHeaders: [
             'x-request-id',
             // Anthropic SDKs read `request-id` (distinct from x-request-id) to

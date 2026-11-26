@@ -1862,11 +1862,13 @@ All Anthropic endpoint errors use this envelope (distinct from the OpenAI `{"err
 
 ### CORS Preflight
 
-Registered as the single catch-all `OPTIONS /anthropic/v1/*`, so `OPTIONS /anthropic/v1/messages`, `OPTIONS /anthropic/v1/models`, `OPTIONS /anthropic/v1/completions`, `OPTIONS /anthropic/v1/responses` and `OPTIONS /anthropic/v1/embeddings` all return 204 with headers:
+Registered as the single catch-all `OPTIONS /anthropic/v1/*`, so `OPTIONS /anthropic/v1/messages`, `OPTIONS /anthropic/v1/models`, `OPTIONS /anthropic/v1/completions`, `OPTIONS /anthropic/v1/responses` and `OPTIONS /anthropic/v1/embeddings` all return 204. A preflight on any open surface (`/v1`, `/anthropic/v1`, `/grok/v1`, `/kimi/v1`) reflects the request's `Origin` with credentials and echoes its `Access-Control-Request-Headers` (with `Vary: Access-Control-Request-Headers`), because browser SDKs send a varying set such as `x-stainless-*`, `idempotency-key`, `openai-beta` and `anthropic-dangerous-direct-browser-access`; which headers reach a provider is still decided by the upstream allowlist above. Routes outside the open surface keep the fixed list `authorization, content-type, x-api-key, x-request-id, anthropic-version, anthropic-beta, openai-organization, openai-project`.
 ```
-Access-Control-Allow-Origin: *
-Access-Control-Allow-Headers: Content-Type, Authorization, x-api-key, anthropic-version
-Access-Control-Allow-Methods: GET, POST, OPTIONS
+Access-Control-Allow-Origin: <request Origin>
+Access-Control-Allow-Credentials: true
+Access-Control-Allow-Headers: <request Access-Control-Request-Headers>
+Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS
+Access-Control-Max-Age: 86400
 ```
 
 ## Admin access control
