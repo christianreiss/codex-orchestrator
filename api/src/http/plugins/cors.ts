@@ -20,6 +20,19 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
  */
 const OPEN_PATH_PREFIXES = ['/v1/', '/anthropic/v1/', '/grok/v1/', '/kimi/v1/'];
 
+/**
+ * Rate-limit headers the upstream source passes through from OpenAI-compatible
+ * providers (`x-ratelimit-*`) and Anthropic (`anthropic-ratelimit-*`), plus the
+ * SDKs' retry hint, exposed by name to browser callers.
+ */
+const PROVIDER_QUOTA_HEADERS = [
+  ...['limit', 'remaining', 'reset'].flatMap((kind) => ['requests', 'tokens'].map((unit) => `x-ratelimit-${kind}-${unit}`)),
+  ...['requests', 'tokens', 'input-tokens', 'output-tokens'].flatMap((unit) =>
+    ['limit', 'remaining', 'reset'].map((kind) => `anthropic-ratelimit-${unit}-${kind}`),
+  ),
+  'x-should-retry',
+];
+
 function isOpenRoute(url: string): boolean {
   return OPEN_PATH_PREFIXES.some((prefix) => url.startsWith(prefix));
 }
@@ -65,6 +78,9 @@ export const corsPlugin = fp(
             // (the provider's request id replaces x-request-id there).
             'retry-after-ms',
             'x-gateway-request-id',
+            // Upstream source: the provider's rate-limit headers, which the
+            // forward passes through (CORS has no wildcard with credentials).
+            ...PROVIDER_QUOTA_HEADERS,
           ],
           credentials: true,
           maxAge: 86400,

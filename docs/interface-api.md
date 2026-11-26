@@ -412,7 +412,10 @@ provider API key stored server-side in `provider_api_keys` (see
   `openai-processing-ms`, `openai-version`, `x-ratelimit-*` and
   `anthropic-ratelimit-*` pass, over this gateway's own headers (CORS); the
   provider's request id replaces ours, which moves to `x-gateway-request-id`.
-  Account-revealing headers (`openai-organization`, `openai-project`, `set-cookie`,
+  CORS exposes `x-gateway-request-id`, `retry-after(-ms)`, `x-should-retry` and
+  the documented `x-ratelimit-{limit,remaining,reset}-{requests,tokens}` and
+  `anthropic-ratelimit-{requests,tokens,input-tokens,output-tokens}-{limit,remaining,reset}`
+  names to browser callers. Account-revealing headers (`openai-organization`, `openai-project`, `set-cookie`,
   server/CDN identification) are stripped.
 - **Response.** Status and body bytes are the provider's, unchanged and
   undecompressed; redirects are not followed. Provider error bodies keep the
@@ -479,11 +482,15 @@ provider body.
   (`param` names the field); `400 gateway_key_not_allowed` when the key is one
   of this orchestrator's own gateway keys (by shape or by stored hash);
   `400 invalid_base_url`; `409 provider_key_duplicate` when the same key is
-  already stored for this provider.
+  already stored for this provider; `409 engine_disabled` while the
+  provider's engine is suspended fleet-wide.
 - `PATCH /admin/provider-keys/{id}` (`keys.manage`) with at least one of
   `{label, key, base_url}` → `ProviderKey`. Send `base_url` as null or `""` to
   return to the provider default. Changing the key or the base URL resets
-  verification to `unverified`. An unknown id is `404 provider_key_not_found`.
+  verification to `unverified`. Rotating the key (`key` present) is
+  `409 engine_disabled` while the provider's engine is suspended; label and
+  base URL changes, state, order and delete always work. An unknown id is
+  `404 provider_key_not_found`.
 - `POST /admin/provider-keys/{id}/state` (`keys.manage`) with
   `{state: "active"|"paused"}` → `ProviderKey`. A paused key is never a
   candidate.

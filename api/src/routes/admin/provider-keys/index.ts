@@ -120,8 +120,15 @@ export async function registerAdminProviderKeyRoutes(
     });
   });
 
+  // Adding, rotating and verifying a key need the provider's engine on;
+  // renaming, pausing, reordering and deleting always work.
+  const assertEngineEnabled = async (provider: unknown) => {
+    if (isProviderId(provider)) await assertFleetEngineEnabledForAdmin(ctx.db, PROVIDERS[provider].engine);
+  };
+
   app.post('/admin/provider-keys', { preHandler: app.requireAdmin }, async (req: FastifyRequest) => {
     const body = objectBody(req.body);
+    await assertEngineEnabled(body.provider);
     const saved = await keys.create({
       provider: body.provider,
       label: body.label,
@@ -135,6 +142,11 @@ export async function registerAdminProviderKeyRoutes(
   app.patch('/admin/provider-keys/:id', { preHandler: app.requireAdmin }, async (req: FastifyRequest) => {
     const id = parseId(req.params);
     const body = objectBody(req.body);
+    if (body.key !== undefined) {
+      const current = await keys.get(id);
+      if (!current) throw new NotFoundError('Provider key not found', 'provider_key_not_found');
+      await assertEngineEnabled(current.provider);
+    }
     const saved = await keys.update(id, { label: body.label, key: body.key, base_url: body.base_url });
     return ok(toAdminProviderKey(saved));
   });
@@ -149,7 +161,7 @@ export async function registerAdminProviderKeyRoutes(
     const current = await keys.get(id);
     if (!current) throw new NotFoundError('Provider key not found', 'provider_key_not_found');
     // A verification is a provider call: a suspended engine makes none.
-    if (isProviderId(current.provider)) await assertFleetEngineEnabledForAdmin(ctx.db, PROVIDERS[current.provider].engine);
+    await assertEngineEnabled(current.provider);
     const verified = await upstream.verify(id);
     if (!verified) throw new NotFoundError('Provider key not found', 'provider_key_not_found');
     return ok(await record(id));

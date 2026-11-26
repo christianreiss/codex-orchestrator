@@ -134,4 +134,22 @@ describe('cors origin policy', () => {
     }
     await app.close();
   });
+
+  it('exposes the provider headers the upstream source passes through', async () => {
+    const app = await buildProbe('');
+    const res = await get(app, '/v1/messages', UNLISTED);
+    const exposed = String(res.headers['access-control-expose-headers']).split(',').map((name) => name.trim());
+    expect(exposed).toEqual(
+      expect.arrayContaining([
+        'x-gateway-request-id',
+        'retry-after-ms',
+        'x-should-retry',
+        'x-ratelimit-remaining-requests',
+        'x-ratelimit-reset-tokens',
+        'anthropic-ratelimit-requests-remaining',
+        'anthropic-ratelimit-output-tokens-reset',
+      ]),
+    );
+    await app.close();
+  });
 });

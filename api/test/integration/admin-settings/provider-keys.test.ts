@@ -8,6 +8,7 @@ import type { RouteContext } from '../../../src/routes/index.js';
 import { createGatewayUpstream } from '../../../src/services/gateway-upstream/index.js';
 import { upstreamConfigFromEnv } from '../../../src/services/gateway-upstream/client.js';
 import { sha256 } from '../../../src/security/hash.js';
+import { SettingsService } from '../../../src/services/settings.js';
 import { wsPublisher } from '../../../src/ws/publisher.js';
 import { buildRouteApp } from '../../helpers/build-route-app.js';
 import { memoryOwner, persisted } from '../../helpers/memory-owner.js';
@@ -188,9 +189,13 @@ describe('/admin/provider-keys', () => {
   });
 
   it('switches a surface source only with a usable key and an enabled engine', async () => {
-    const h = await harness([['claude_engine_disabled', '1']]);
+    const h = await harness();
     const set = (surface: string, source: unknown) =>
       h.app.inject({ method: 'POST', url: `/admin/api/surfaces/${surface}/source`, payload: { source } });
+    const anthropic = (
+      await h.app.inject({ method: 'POST', url: '/admin/provider-keys', payload: { provider: 'anthropic', label: 'k', key: 'sk-ant-api03-ABCDEFGHIJKLMNOP' } })
+    ).json().data;
+    await new SettingsService(h.db).setFlag('claude_engine_disabled', true);
 
     const none = await set('openai', 'upstream');
     expect(none.statusCode).toBe(409);
@@ -202,18 +207,26 @@ describe('/admin/provider-keys', () => {
     expect(h.state.snapshot().setting('api_surface_source_openai')).toBe('upstream');
     expect((await set('openai', 'emulated')).json().data.source).toBe('emulated');
 
-    const anthropic = (
-      await h.app.inject({ method: 'POST', url: '/admin/provider-keys', payload: { provider: 'anthropic', label: 'k', key: 'sk-ant-api03-ABCDEFGHIJKLMNOP' } })
-    ).json().data;
     const off = await set('anthropic', 'upstream');
     expect(off.statusCode).toBe(409);
     expect(off.json()).toMatchObject({ code: 'engine_disabled', engine: 'claude' });
-    // A suspended engine makes no provider call, not even a verification.
-    const verify = await h.app.inject({ method: 'POST', url: `/admin/provider-keys/${anthropic.id}/verify` });
-    expect(verify.statusCode).toBe(409);
-    expect(verify.json()).toMatchObject({ code: 'engine_disabled', engine: 'claude' });
+    // A suspended engine makes no provider call, not even a verification, and
+    // takes no new or rotated key; the rest of the key's lifecycle still works.
+    const refused = [
+      await h.app.inject({ method: 'POST', url: `/admin/provider-keys/${anthropic.id}/verify` }),
+      await h.app.inject({ method: 'POST', url: '/admin/provider-keys', payload: { provider: 'anthropic', label: 'k2', key: 'sk-ant-api03-QRSTUVWXYZABCDEF' } }),
+      await h.app.inject({ method: 'PATCH', url: `/admin/provider-keys/${anthropic.id}`, payload: { key: 'sk-ant-api03-QRSTUVWXYZABCDEF' } }),
+    ];
+    for (const reply of refused) {
+      expect(reply.statusCode, reply.body).toBe(409);
+      expect(reply.json()).toMatchObject({ code: 'engine_disabled', engine: 'claude' });
+    }
+    expect((await h.app.inject({ method: 'PATCH', url: `/admin/provider-keys/${anthropic.id}`, payload: { label: 'renamed' } })).statusCode).toBe(200);
+    expect((await h.app.inject({ method: 'POST', url: `/admin/provider-keys/${anthropic.id}/state`, payload: { state: 'paused' } })).statusCode).toBe(200);
+    expect((await h.app.inject({ method: 'PATCH', url: '/admin/provider-keys/999', payload: { key: 'sk-ant-api03-QRSTUVWXYZABCDEF' } })).statusCode).toBe(404);
     expect((await h.app.inject({ method: 'POST', url: '/admin/provider-keys/999/verify' })).statusCode).toBe(404);
     expect((await set('anthropic', 'emulated')).statusCode).toBe(200);
+    expect((await h.app.inject({ method: 'DELETE', url: `/admin/provider-keys/${anthropic.id}` })).statusCode).toBe(200);
 
     expect((await set('claude', 'upstream')).statusCode).toBe(400);
     expect((await set('openai', 'proxy')).statusCode).toBe(400);
