@@ -33,18 +33,35 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 		pool:      pool,
 		heartbeat: func(c context.Context) error { return pool.Heartbeat(c, client) },
 		idle: func() bool {
-			// Hook evidence (receiver launches) decides for this session; the
-			// transcript check covers every session sharing the credentials.
+			// Hook evidence decides for this session and for every sibling
+			// that publishes its own (session markers). The transcript check
+			// stays on top: it is all there is for a sibling that publishes
+			// nothing, and it never makes a busy scope look idle.
 			if idle, known := connection.ClaudeTurnIdle(); known && !idle {
+				return false
+			}
+			if busy, _ := pool.SiblingTurns(); busy {
 				return false
 			}
 			return scopeTranscriptsQuiet(projects, time.Now())
 		},
-		flush: func(c context.Context) (claude.AuthGeneration, error) {
-			fctx, cancel := context.WithTimeout(c, 20*time.Second)
+		flush: func(c context.Context, relaxed bool) (flushResult, error) {
+			fctx, cancel := context.WithTimeout(c, 30*time.Second)
 			defer cancel()
-			return flushAccountAuth(fctx, client, logger)
+			flushed, err := flushAccountAuth(fctx, client, logger, relaxed)
+			if bound, _ := pool.Binding(); err == nil && flushed.Bound != nil && flushed.Bound.AccountID == bound {
+				flushed.Bound.AccountLabel = pool.Label()
+			}
+			return flushed, err
 		},
+		report: func(c context.Context, d accountpool.SwitchDirective) error {
+			rctx, cancel := context.WithTimeout(c, 20*time.Second)
+			defer cancel()
+			return pool.ReportUnfinishedSwitch(rctx, client, d)
+		},
+		markRepair:    pool.MarkRepair,
+		clearRepair:   pool.ClearRepair,
+		repairPending: pool.RepairPending,
 		commit: func(c context.Context, d accountpool.SwitchDirective) (*accountpool.LeaseResponse, error) {
 			cctx, cancel := context.WithTimeout(c, 20*time.Second)
 			defer cancel()
@@ -59,7 +76,13 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 			defer release()
 			var generation claude.AuthGeneration
 			var applied bool
+			siblingBusy := false
 			ran, _, err := connection.WhileClaudeTurnIdle(func() error {
+				// A sibling's prompt hook publishes its turn before it returns:
+				// look once more with the own turn gate held.
+				if siblingBusy, _ = pool.SiblingTurns(); siblingBusy {
+					return nil
+				}
 				// Short bound: a native prompt hook may be queued behind us.
 				wctx, cancel := context.WithTimeout(c, 2*time.Second)
 				defer cancel()
@@ -67,7 +90,7 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 				generation, applied, werr = claude.WriteSwitchedAccountIfCurrent(wctx, res.Auth, res.CanonicalDigest, res.VerificationState, expected)
 				return werr
 			})
-			if !ran {
+			if !ran || siblingBusy {
 				return claude.AuthGeneration{}, false, errTurnBusy
 			}
 			return generation, applied, err
@@ -86,6 +109,9 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 			// credentials change, so ~/.claude.json (oauthAccount) is left to
 			// it: the switch response carries no profile to write there.
 			detail := accountSwitchNotice(previousID, previousLabel, res.AccountID, res.AccountLabel, reason)
+			if previousID == res.AccountID {
+				detail = accountRepairNotice(res.AccountID, res.AccountLabel)
+			}
 			if err := authnotice.PublishDetail("claude", generation.Digest, detail); err != nil {
 				logger.Warn("Claude account switch notice unavailable", "err", err)
 			}
@@ -96,9 +122,13 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 		gateEvery:  accountSwitchGateEvery,
 		retryEvery: accountSwitchRetryEvery,
 	}
-	// A sibling in the same scope already wrote the credentials and published
-	// the notice to the shared mailbox; only the auth registration follows.
+	// A sibling in the same scope committed the switch and normally wrote the
+	// credentials and published the notice to the shared mailbox; the auth
+	// registration follows here. Normally: the sibling may have died between
+	// its commit and its write, so the adoption is checked like any other
+	// binding the file may not follow yet.
 	pool.OnAdopt(func(a accountpool.Adoption) {
+		pool.MarkRepair()
 		// The sibling writes right after its commit (no network in between,
 		// scope already quiet); a short settle keeps the re-registered
 		// watcher from starting on the old account's file. Losing that race
@@ -106,11 +136,14 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 		go func() {
 			if sleepContext(ctx, accountAdoptSettle) {
 				watch.Restart()
+				pool.Poke()
 			}
 		}()
 		logger.Info("Claude account switch adopted from sibling session", "from", a.PreviousAccountID, "to", a.AccountID)
 	})
 	connection.SetAccountHandler(accountToolHandler(client, pool))
+	// Siblings read this launch's turn from its session marker.
+	connection.SetClaudeTurnObserver(pool.SetSessionTurn)
 	sctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
@@ -125,20 +158,16 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 		stopped = true
 		cancel()
 		<-done
+		connection.SetClaudeTurnObserver(nil)
 	}
 }
 
-// flushAccountAuth runs the regular session sync and succeeds only when the
-// local credentials are exactly a head the server confirmed for the bound
-// account. Its generation fences the switched write.
-func flushAccountAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Logger) (claude.AuthGeneration, error) {
-	result, err := SyncSessionAuth(ctx, client, logger)
-	if err != nil {
-		return claude.AuthGeneration{}, err
-	}
-	if result.Deferred {
-		return claude.AuthGeneration{}, errors.New("local Claude credentials are not settled (native change or logout)")
-	}
+// sessionAuthSync is SyncSessionAuth, replaceable in tests.
+var sessionAuthSync = SyncSessionAuth
+
+// confirmedAuthGeneration returns the local generation once the server has
+// confirmed exactly that file.
+var confirmedAuthGeneration = func(ctx context.Context) (claude.AuthGeneration, error) {
 	snap, err := claude.ReadAuthForRetrieveSnapshotContext(ctx)
 	if err != nil {
 		return claude.AuthGeneration{}, err
@@ -147,6 +176,47 @@ func flushAccountAuth(ctx context.Context, client *orchestrator.Client, logger *
 		return claude.AuthGeneration{}, errors.New("local Claude credentials are not yet confirmed by the server")
 	}
 	return snap.Generation, nil
+}
+
+// flushAccountAuth runs the regular session sync and succeeds only when
+// nothing of the local credentials is left to upload: they are exactly a head
+// the server confirmed. Its generation fences the switched write.
+//
+// The server answers for the account it has the scope bound to. When the
+// local file is another account's login it says so (BoundAccountMismatch);
+// that file is flushed all the same, and the result carries the bound
+// account's head. An upload is filed by the login's own identity and its
+// answer cannot tell, so one more exchange follows it.
+//
+// relaxed (the account being left is paused, removed or unverified) also
+// accepts a file the server knows, accepted or definitively refused although
+// it confirms no head for that account. A conflict, an unavailable server or
+// a network error still fail: the upload may yet succeed.
+func flushAccountAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, relaxed bool) (flushResult, error) {
+	result, err := sessionAuthSync(ctx, client, logger)
+	if err == nil && result.Uploaded {
+		result, err = sessionAuthSync(ctx, client, logger)
+	}
+	var mismatch *BoundAccountMismatch
+	if errors.As(err, &mismatch) {
+		return flushResult{Generation: mismatch.Generation, Bound: &accountpool.LeaseResponse{
+			AccountID: mismatch.BoundAccountID, Auth: mismatch.Auth,
+			CanonicalDigest: mismatch.CanonicalDigest, VerificationState: mismatch.VerificationState,
+		}}, nil
+	}
+	if err != nil {
+		nothingLeft := orchestrator.IsDefinitiveAuthCandidateRejection(err) ||
+			(errors.Is(err, ErrSessionAuthUnverified) && (result.ServerKnown || result.Uploaded || result.Rejected))
+		if relaxed && nothingLeft && !result.Deferred && result.Generation.Exists {
+			return flushResult{Generation: result.Generation}, nil
+		}
+		return flushResult{}, err
+	}
+	if result.Deferred {
+		return flushResult{}, errors.New("local Claude credentials are not settled (native change or logout)")
+	}
+	generation, err := confirmedAuthGeneration(ctx)
+	return flushResult{Generation: generation}, err
 }
 
 // accountToolHandler serves account_status and account_switch for the agent.

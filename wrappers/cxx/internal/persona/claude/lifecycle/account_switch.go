@@ -6,6 +6,13 @@
 // flushes the old account's pending native rotation, commits the switch
 // server-side and only then writes the new credentials. Claude Code reloads
 // the credentials file when its mtime changes, before its next request.
+//
+// Commit and write are two steps on two machines. The server answers a
+// repeated commit with the same credentials, and a repair flag next to the
+// binding file is set before the commit and cleared by the write, so a lost
+// answer, a killed process or a sibling that adopted the new binding all end
+// in the same place: a supervisor of the scope writes the bound account's
+// head at a turn boundary.
 package lifecycle
 
 import (
@@ -44,6 +51,15 @@ const (
 	switchIncomplete
 )
 
+// flushResult is what the server confirmed about the local credentials.
+type flushResult struct {
+	// Generation is the exact local file with nothing left to upload.
+	Generation claude.AuthGeneration
+	// Bound is set when that file is a login of another account than the one
+	// the server has this scope bound to: the bound account's verified head.
+	Bound *accountpool.LeaseResponse
+}
+
 // switchPool is the slice of accountpool.Context the supervisor uses.
 type switchPool interface {
 	Pending() *accountpool.SwitchDirective
@@ -59,10 +75,18 @@ type accountSwitchDeps struct {
 	heartbeat func(context.Context) error
 	// idle reports that no Claude turn is running in this scope.
 	idle func() bool
-	// flush uploads any pending native rotation of the bound account and
-	// returns the exact local generation the server has confirmed.
-	flush  func(context.Context) (claude.AuthGeneration, error)
+	// flush uploads any pending native rotation and returns the exact local
+	// generation the server has confirmed. relaxed: the account being left
+	// cannot confirm anything (paused, removed, unverified); it is enough
+	// that the server knows, accepted or definitively refused the local file.
+	flush  func(ctx context.Context, relaxed bool) (flushResult, error)
 	commit func(context.Context, accountpool.SwitchDirective) (*accountpool.LeaseResponse, error)
+	// report tells the server that a committed switch could not be written.
+	report func(context.Context, accountpool.SwitchDirective) error
+	// The repair flag of the scope (accountpool.Context.MarkRepair).
+	markRepair    func()
+	clearRepair   func()
+	repairPending func() bool
 	// apply records the committed switch locally (binding file, Context).
 	apply func(*accountpool.LeaseResponse) (int64, string, error)
 	// write stores the new credentials with a strict generation CAS while
@@ -94,6 +118,9 @@ type committedSwitch struct {
 	previousID    int64
 	previousLabel string
 	attempts      int
+	// repair: found by a sync, not committed by this supervisor. There is no
+	// directive, and a later flush that finds no mismatch means it is done.
+	repair bool
 }
 
 // performAccountSwitch is the one place that performs a pending directive.
@@ -104,7 +131,7 @@ func performAccountSwitch(ctx context.Context, d *accountSwitchDeps, directive a
 	if !d.idle() {
 		return switchRetry, nil, nil
 	}
-	expected, err := d.flush(ctx)
+	flushed, err := d.flush(ctx, directive.LeavesUnusableAccount())
 	if err != nil {
 		return switchRetry, nil, fmt.Errorf("flush current account: %w", err)
 	}
@@ -112,6 +139,11 @@ func performAccountSwitch(ctx context.Context, d *accountSwitchDeps, directive a
 		return switchRetry, nil, nil
 	}
 	d.pauseSync()
+	// From here the server may hold the new binding while the file is still
+	// the old account's, also when the answer is lost or this process dies.
+	// The flag stays on a refusal too: an earlier attempt may have gone
+	// through, and one sync that finds everything in place clears it.
+	d.markRepair()
 	res, err := d.commit(ctx, directive)
 	if err != nil {
 		d.resumeSync()
@@ -122,7 +154,7 @@ func performAccountSwitch(ctx context.Context, d *accountSwitchDeps, directive a
 		}
 		return switchRetry, nil, fmt.Errorf("commit account switch: %w", err)
 	}
-	return finishAccountSwitch(ctx, d, &committedSwitch{res: res, directive: directive, expected: expected})
+	return finishAccountSwitch(ctx, d, &committedSwitch{res: res, directive: directive, expected: flushed.Generation})
 }
 
 // finishAccountSwitch writes committed credentials, then records the binding
@@ -146,8 +178,15 @@ func finishAccountSwitch(ctx context.Context, d *accountSwitchDeps, c *committed
 			return switchIncomplete, c, errors.New("account switch committed but the new credentials are not written yet; retrying")
 		}
 		d.resumeSync()
-		return switchIncomplete, nil, errors.New("account switch committed but the new credentials could not be written; they arrive with the next idle sync or launch")
+		if !c.repair {
+			if err := d.report(ctx, c.directive); err != nil {
+				d.logger.Warn("unfinished account switch not reported", "err", err)
+			}
+		}
+		// The repair flag is still set: every poll tries again.
+		return switchIncomplete, nil, errors.New("account switch committed but the new credentials could not be written; retrying at every poll")
 	}
+	d.clearRepair()
 	d.resumeSync()
 	d.done(c.previousID, c.previousLabel, c.res, generation, c.directive.Reason)
 	return switchDone, nil, nil
@@ -160,12 +199,14 @@ func writeCommittedSwitch(ctx context.Context, d *accountSwitchDeps, c *committe
 		if !d.idle() {
 			return claude.AuthGeneration{}, false
 		}
-		expected, err := d.flush(ctx)
+		flushed, err := d.flush(ctx, c.directive.LeavesUnusableAccount())
 		if err != nil {
 			d.logger.Warn("re-flush before switched write failed", "err", err)
 			return claude.AuthGeneration{}, false
 		}
-		c.expected = expected
+		if c.reflushed(flushed) {
+			return flushed.Generation, true
+		}
 	}
 	for attempt := 0; attempt < accountSwitchWrites && ctx.Err() == nil; attempt++ {
 		generation, written, err := d.write(ctx, c.res, c.expected)
@@ -189,7 +230,7 @@ func writeCommittedSwitch(ctx context.Context, d *accountSwitchDeps, c *committe
 		}
 		// A native rotation landed after the flush: upload it before the
 		// committed credentials may replace it.
-		expected, err := d.flush(ctx)
+		flushed, err := d.flush(ctx, c.directive.LeavesUnusableAccount())
 		if err != nil {
 			d.logger.Warn("re-flush before switched write failed", "err", err)
 			if !sleepContext(ctx, d.gateEvery) {
@@ -197,9 +238,33 @@ func writeCommittedSwitch(ctx context.Context, d *accountSwitchDeps, c *committe
 			}
 			continue
 		}
-		c.expected = expected
+		if c.reflushed(flushed) {
+			return flushed.Generation, true
+		}
 	}
 	return claude.AuthGeneration{}, false
+}
+
+// reflushed takes over a later flush and reports whether the write is already
+// done. The server answers by its current binding: when it meanwhile serves a
+// newer head, or the scope moved on to yet another account, that is what gets
+// written. A repair ends when the server no longer sees a mismatch.
+func (c *committedSwitch) reflushed(flushed flushResult) bool {
+	c.expected = flushed.Generation
+	if bound := flushed.Bound; bound != nil {
+		next := *bound
+		if next.AccountID == c.res.AccountID {
+			if next.AccountLabel == "" {
+				next.AccountLabel = c.res.AccountLabel
+			}
+			next.BindingGeneration = c.res.BindingGeneration
+		} else {
+			c.applied = false
+		}
+		c.res = &next
+		return false
+	}
+	return c.repair
 }
 
 func sleepContext(ctx context.Context, d time.Duration) bool {
@@ -223,6 +288,26 @@ func runAccountSwitcher(ctx context.Context, d *accountSwitchDeps) {
 	// A committed switch still being written keeps sync paused; at exit the
 	// launch stops the watcher for good and the post-run sync takes over.
 	var committed *committedSwitch
+	// repair looks for a binding the credentials file does not follow yet: a
+	// predecessor died between its commit and its write, a sibling's switch
+	// was adopted, or a background sync saw another account's login.
+	repair := func() *committedSwitch {
+		if !d.repairPending() || !d.idle() {
+			return nil
+		}
+		flushed, err := d.flush(ctx, false)
+		if err != nil {
+			d.logger.Debug("account repair check failed", "err", err)
+			return nil
+		}
+		if flushed.Bound == nil {
+			d.clearRepair()
+			return nil
+		}
+		d.pauseSync()
+		return &committedSwitch{res: flushed.Bound, expected: flushed.Generation, repair: true,
+			directive: accountpool.SwitchDirective{Reason: "an earlier switch whose credentials had not been written"}}
+	}
 	beat := func() {
 		if time.Since(lastBeat) < accountSwitchMinBeat {
 			return
@@ -240,6 +325,9 @@ func runAccountSwitcher(ctx context.Context, d *accountSwitchDeps) {
 			beat()
 		case <-wake:
 			beat()
+		}
+		if d.pool.Pending() == nil {
+			committed = repair()
 		}
 		for ctx.Err() == nil && (committed != nil || d.pool.Pending() != nil) {
 			var outcome switchOutcome
@@ -330,6 +418,13 @@ func (w *restartableAuthWatch) Stop() {
 		w.stop()
 		w.stop = nil
 	}
+}
+
+// accountRepairNotice is the text when the credentials caught up with a
+// binding this session already had.
+func accountRepairNotice(id int64, label string) string {
+	return fmt.Sprintf("The Claude credentials of this session were replaced by those of %s, the account it is bound to; an earlier account switch had not reached the credentials file. Keep working; the next request runs on that account and rebuilds the prompt cache once.",
+		accountName(id, label))
 }
 
 func accountName(id int64, label string) string {

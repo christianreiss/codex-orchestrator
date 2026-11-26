@@ -33,6 +33,9 @@ type AuthRetrieveResponse struct {
 	// so a relayed answer never feeds it), and omitempty keeps a relay from
 	// inventing a null directive.
 	AccountSwitch *accountpool.SwitchDirective `json:"account_switch,omitempty"`
+	// PresentedAccountID names the account whose login the request's digest
+	// is, when that is another account than the one the answer is for.
+	PresentedAccountID int64 `json:"presented_account_id,omitempty"`
 
 	Status                      string               `json:"status"`
 	Action                      string               `json:"action,omitempty"`
