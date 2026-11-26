@@ -1166,6 +1166,10 @@ Codex and Claude.
 The OpenAI-shaped subscription gateway is **`/grok/v1`**, isolated from Codex
 `/v1` and Claude `/anthropic/v1`. Engine-scoped `sk-cgx-` client keys are managed
 at `/admin/grok/keys`; these are orchestrator gateway keys, not xAI provider keys.
+With the surface source `upstream` (or a key pinned to it), `/grok/v1` instead forwards every
+request 1:1 to `https://api.x.ai/v1` with xAI API keys stored on the server (provider `xai` in
+`/admin/provider-keys`); the subscription login, runner and CLI are not involved, and the Grok engine
+master switch still gates it. See `docs/interface-api.md` → *Upstream source (provider API keys)*.
 `grok_api_disabled` is the independent administrative gateway switch. The shared `AUTH_RUNNER_URL` must point to the four-engine runner; the gateway and static credential probe use the same configured runner.
 
 Supported endpoints are chat completions, responses, legacy completions, and

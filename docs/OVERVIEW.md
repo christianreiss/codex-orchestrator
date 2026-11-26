@@ -503,6 +503,17 @@ whose answering engine is selected per key, with a configurable endpoint default
 and kill switch stay with the surface; credentials, capabilities and the model
 catalog come from the backend. See [Exposed API routing](interface-api.md#exposed-api-routing-any-to-any).
 
+Each surface also has a **source**. `emulated` (the default) is the above: a subscription backend
+answers through the runner. `upstream` forwards every request 1:1 (path, query, body bytes,
+streaming, status and errors) to the surface's fixed provider: OpenAI for `/v1`, Anthropic for
+`/anthropic/v1`, xAI for `/grok/v1`, Moonshot for `/kimi/v1`. It uses provider API keys stored only on
+the server (`provider_api_keys`, managed under Providers → Provider keys or `/admin/provider-keys`),
+with several keys per provider failing over before the first response byte. The surface default is
+`versions.api_surface_source_*` (`POST /admin/api/surfaces/:surface/source`); a gateway key can pin
+either source (`openai_api_keys.source`). The modes never fall back to each other, and the upstream
+mode records no token usage. Provider keys are never leased to hosts and never leave the server.
+See [Upstream source](interface-api.md#upstream-source-provider-api-keys).
+
 Each engine has a fleet-wide master switch (Engines page; `GET/POST
 /admin/engines/*`, `versions.<engine>_engine_disabled`). Off suspends the
 engine everywhere — host launches, leases, sync, maintenance ticks and the

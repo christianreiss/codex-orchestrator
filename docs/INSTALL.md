@@ -209,6 +209,12 @@ Prefer `bin/install.sh` to generate `.env`. If you edit manually instead:
      (required whenever `AUTH_RUNNER_URL` is set, and must equal
      `RUNNER_SHARED_SECRET`), and `AUTH_RUNNER_IP_BYPASS` +
      `AUTH_RUNNER_BYPASS_SUBNETS`.
+   - Gateway upstream source (provider API keys forwarded 1:1, off until a surface or a gateway key
+     selects `upstream`): `GATEWAY_UPSTREAM_REPLAY_BYTES` (8 MiB; a larger upload streams once without
+     failover), `GATEWAY_UPSTREAM_MAX_UPLOAD_BYTES` (512 MiB), `GATEWAY_UPSTREAM_CONNECT_TIMEOUT`
+     (10 s), `GATEWAY_UPSTREAM_HEADERS_TIMEOUT` (900 s), `GATEWAY_UPSTREAM_BODY_IDLE_TIMEOUT` (300 s)
+     and `GATEWAY_UPSTREAM_PRIVATE_HOSTS` (empty; hosts exempt from the private-address guard and
+     allowed over plain http, for a self-hosted provider proxy only).
    - Proxy trust: `TRUST_X_FORWARDED` and `TRUSTED_PROXY_CIDRS`. Together they
      decide which peers may speak for the client — they gate `X-Forwarded-For`
      and `X-Real-IP`. Both default to off, so an

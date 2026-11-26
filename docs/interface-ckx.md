@@ -353,7 +353,12 @@ The OpenAI-shaped surface (`/models`, `/chat/completions`, `/responses`) uses
 Kimi-scoped `sk-ckx-` keys and the surface/backend routing contract. It starts
 disabled (`kimi_api_disabled=1`) pending operator opt-in because subscription
 gateway terms are unclear. It never silently selects Grok/Claude/Codex when
-Kimi was selected. The runner writes a dedicated inference-only agent file
+Kimi was selected. With the surface source `upstream` (or a key pinned to it) the surface forwards
+every request 1:1 to `https://api.moonshot.ai/v1` with Moonshot API keys stored on the server
+(provider `moonshot` in `/admin/provider-keys`, a per-key base URL for other Moonshot regions); the
+subscription projection and runner are not involved. A stored Moonshot key never enables the surface
+by itself: `kimi_api_disabled` and the Kimi engine master switch still gate it. See
+`docs/interface-api.md` → *Upstream source (provider API keys)*. The runner writes a dedicated inference-only agent file
 with `tools: []` and the supplied system text, then starts `-p` with
 `--agent-file`; gateway calls do not resume an existing session. Native
 stream-json provides no usage or stop reason: adapters preserve unknown usage
