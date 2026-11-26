@@ -109,6 +109,67 @@ export function reportedClaudeWindow(raw: unknown, spanMs: number, now: number):
   return { usedPercent: Math.min(100, used), resetsAt };
 }
 
+/** How long a stored share holds against lower reports for the same window while nothing reports it again. */
+export const CLAUDE_READING_HOLD_MS = 60 * 60_000;
+/** Two reset times this close name the same window. */
+export const SAME_RESET_MS = 60_000;
+
+interface StoredWindow {
+  percent: number | null;
+  resetsAt: string | null;
+}
+
+/**
+ * When the stored share of an account's window was last actually reported.
+ * Kept in memory only: after a restart the stored row's own time stands in,
+ * which can extend one hold by the time since the last report, never more.
+ */
+const confirmations = new Map<string, { reset: number; percent: number; at: number }>();
+
+/**
+ * Merges one reported window into the account's stored one. Several sessions
+ * report for one account and each relays the figure of its own last response,
+ * so the last writer is often not the latest reading:
+ *
+ * - Within one window (same reset) usage only grows. A lower report is an
+ *   older one and the stored share stays, for as long as some session reported
+ *   that share within `CLAUDE_READING_HOLD_MS`. After that the stored share is
+ *   unconfirmed and the lower report replaces it, so one wrong high reading
+ *   (another account's figure filed here, an account sharing the reset time)
+ *   cannot block the account for the rest of the window.
+ * - A report that carries no reading for this window leaves a stored, still
+ *   running window in place instead of blanking it.
+ * - A different reset is a different window and replaces the stored one. Two
+ *   resets that both lie ahead cannot be ordered: an account's windows do not
+ *   overlap, so the later reset is not evidence of being newer.
+ */
+function mergeWindow(
+  key: string,
+  reported: StoredWindow,
+  prior: (StoredWindow & { fetchedAt: string }) | null,
+  now: number,
+): StoredWindow {
+  const priorReset = prior?.percent != null && prior.resetsAt ? Date.parse(prior.resetsAt) : NaN;
+  const running = prior !== null && Number.isFinite(priorReset) && priorReset > now;
+  if (reported.percent === null) {
+    return running ? { percent: prior.percent, resetsAt: prior.resetsAt } : { percent: null, resetsAt: null };
+  }
+  const reset = reported.resetsAt ? Date.parse(reported.resetsAt) : NaN;
+  if (running && Number.isFinite(reset) && Math.abs(reset - priorReset) < SAME_RESET_MS) {
+    const stored = prior.percent as number;
+    const seen = confirmations.get(key);
+    const confirmedAt = seen && seen.reset === priorReset && seen.percent === stored ? seen.at : Date.parse(prior.fetchedAt);
+    if (reported.percent < stored && now - confirmedAt <= CLAUDE_READING_HOLD_MS) {
+      return { percent: stored, resetsAt: prior.resetsAt };
+    }
+    confirmations.set(key, { reset: priorReset, percent: reported.percent, at: now });
+    return { percent: reported.percent, resetsAt: prior.resetsAt };
+  }
+  if (Number.isFinite(reset)) confirmations.set(key, { reset, percent: reported.percent, at: now });
+  else confirmations.delete(key);
+  return reported;
+}
+
 export class ClaudeUsageService {
   constructor(
     private readonly db: Database,
@@ -145,14 +206,16 @@ export class ClaudeUsageService {
    * Stores one reported reading. Returns null (and stores nothing) when
    * neither window carries a usable percentage — a report with nothing new
    * to say must not blank out the last known reading with an empty row.
+   * Each window is merged with the account's stored one (`mergeWindow`), so
+   * the row written is the account's reading, not just this reporter's.
    */
-  async store(report: ClaudeUsageReport): Promise<ClaudeSnapshotRow | null> {
+  async store(report: ClaudeUsageReport, at: number = Date.now()): Promise<ClaudeSnapshotRow | null> {
     const fiveHourUsedPercent = clampPercent(report.fiveHourUsedPercent);
     const sevenDayUsedPercent = clampPercent(report.sevenDayUsedPercent);
     if (fiveHourUsedPercent === null && sevenDayUsedPercent === null) {
       return null;
     }
-    const now = nowIso();
+    const now = new Date(at).toISOString().replace(/\.\d{3}Z$/, 'Z');
     const values: ClaudeSnapshotInsert = {
       accountId: report.accountId ?? this.accountId,
       hostId: report.hostId ?? null,
@@ -163,6 +226,25 @@ export class ClaudeUsageService {
       sevenDayResetsAt: normalizeResetsAt(report.sevenDayResetsAt),
       fetchedAt: now,
       createdAt: now,
+    };
+    const merge = (prior: ClaudeSnapshotRow | undefined) => {
+      const key = String(values.accountId ?? 0);
+      const short = mergeWindow(
+        `${key}:short`,
+        { percent: fiveHourUsedPercent, resetsAt: values.fiveHourResetsAt ?? null },
+        prior ? { percent: prior.fiveHourUsedPercent, resetsAt: prior.fiveHourResetsAt, fetchedAt: prior.fetchedAt } : null,
+        at,
+      );
+      const weekly = mergeWindow(
+        `${key}:weekly`,
+        { percent: sevenDayUsedPercent, resetsAt: values.sevenDayResetsAt ?? null },
+        prior ? { percent: prior.sevenDayUsedPercent, resetsAt: prior.sevenDayResetsAt, fetchedAt: prior.fetchedAt } : null,
+        at,
+      );
+      values.fiveHourUsedPercent = short.percent;
+      values.fiveHourResetsAt = short.resetsAt;
+      values.sevenDayUsedPercent = weekly.percent;
+      values.sevenDayResetsAt = weekly.resetsAt;
     };
     const owner = ownerRuntimeFor(this.db);
     if (owner) {
@@ -177,12 +259,13 @@ export class ClaudeUsageService {
           at: now,
         },
         prepare(ctx) {
-          stageEmulation(ctx, 'claude', values);
           const prior = ctx.snapshot
             .table('claudeUsageSnapshots')
             .by('accountId', values.accountId ?? null)
             .slice()
             .sort((a, b) => b.id - a.id)[0];
+          merge(prior);
+          stageEmulation(ctx, 'claude', values);
           if (
             prior &&
             prior.createdAt.slice(0, 10) === now.slice(0, 10) &&
@@ -213,6 +296,20 @@ export class ClaudeUsageService {
       });
       return stored;
     }
+    merge(
+      (
+        await this.db
+          .select()
+          .from(claudeUsageSnapshots)
+          .where(
+            values.accountId == null
+              ? isNull(claudeUsageSnapshots.accountId)
+              : eq(claudeUsageSnapshots.accountId, values.accountId),
+          )
+          .orderBy(desc(claudeUsageSnapshots.id))
+          .limit(1)
+      )[0],
+    );
     const result = await this.db.insert(claudeUsageSnapshots).values(values);
     const insertId = (result as unknown as [{ insertId?: number }])[0]?.insertId;
     if (typeof insertId === 'number' && insertId > 0) {

@@ -2036,7 +2036,7 @@ A launch reserves one verified account from this engine's pool before starting t
 
 Quota gating reads the selected account; with more than one account, advice and the quota warnings also weigh the rest of the pool (see *Pools on the card, `status`, `doctor` and the statusline* below). The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. OAuth login sessions are not separate provider accounts. Fresh opaque Claude OAuth tokens reuse the sole account or their session/host assignment; known access/refresh lineage also identifies previous credentials. With multiple accounts and no assignment, use Replace credentials on the intended account. Use Add account or an untargeted seed command to explicitly enroll another opaque account.
 
-Claude statusline reports inherit `CXX_PROVIDER_ACCOUNT_ID` and `CXX_PROVIDER_SESSION_ID` from their native child. Both usage snapshots and the report throttle are account-scoped, preventing an older session from reporting under a newly selected account.
+Claude statusline reports inherit `CXX_PROVIDER_ACCOUNT_ID` and `CXX_PROVIDER_SESSION_ID` from their native child, and take the account from the scope's binding file when one exists. Usage snapshots and the report throttle are account-scoped. The server files a report by the reporting host's live lease, not by the number it carries (`docs/interface-api.md` → `POST /claude/usage/report`): a report for an account the session no longer holds, or from a host without a lease on that account, is answered `200 {status:"ignored"}` and stored nowhere.
 
 
 ### Several Claude subscriptions and live switching (cxx 0.9.207)
@@ -2073,9 +2073,12 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   `#account-switch`) and the Accounts page request switches; Codex, Grok and Kimi report
   `account_switch_unsupported_engine` and keep the launch-time selection.
 - The statusline reads the account from the binding file, so usage after a switch is reported for the new
-  account; reports for an account the session no longer holds are ignored by the server. The first payload
-  after a switch can still be the previous account's last response; the server ignores such a reading for
-  30 minutes after the switch when its reset time belongs to another account.
+  account; reports for an account the session no longer holds are ignored by the server. The payload
+  after a switch can still be the previous account's last response until the session's next request; the
+  server ignores a reading whose reset time belongs to another account and not to the bound one, without a
+  time limit while the bound account has a running window on record and for 30 minutes after the switch
+  otherwise. Within one window the server keeps the highest percentage any session reported in the last
+  60 minutes, so an idle session's older figure does not lower the account's reading.
 - The binding file belongs to the scope's live sessions (cxx 0.9.209). Every `/auth` and `/sync/bootstrap`
   request carries it, also from clients without a lease such as maintenance. A response to a request
   without a lease never rebinds the file while a session marker of the scope is live; only a committed

@@ -231,8 +231,9 @@ describe.skipIf(!handle)('Claude account identity and live switching on MySQL', 
     await new ClaudeUsageService(db, b).store({ accountId: b, hostId: 1, source: 'test', sevenDayUsedPercent: 10, sevenDayResetsAt: resets, fiveHourUsedPercent: null, fiveHourResetsAt: null });
     expect(await switches.evaluate('claude')).toBe(1);
     expect((await switches.sessionBinding(1, 'claude', 'lease-eeeeeeeeeeeeeeee')).account_switch).toMatchObject({ account_id: b, reason: 'policy' });
-    // A newer reading puts the bound account back inside the band.
-    await new ClaudeUsageService(db, a).store({ accountId: a, hostId: 1, source: 'test', sevenDayUsedPercent: 15, sevenDayResetsAt: resets, fiveHourUsedPercent: null, fiveHourResetsAt: null });
+    // The reading of a new window puts the bound account back inside the band
+    // (within one window a lower figure is an older one and would not count).
+    await new ClaudeUsageService(db, a).store({ accountId: a, hostId: 1, source: 'test', sevenDayUsedPercent: 15, sevenDayResetsAt: '2099-01-08T00:00:00Z', fiveHourUsedPercent: null, fiveHourResetsAt: null });
     await switches.evaluate('claude');
     expect((await switches.sessionBinding(1, 'claude', 'lease-eeeeeeeeeeeeeeee')).account_switch).toBeNull();
     // An operator request is never withdrawn by the policy.

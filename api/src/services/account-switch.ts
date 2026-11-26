@@ -121,15 +121,24 @@ export function poolPosition(account: PoolPositionInput, now: number): PoolPosit
   };
 }
 
-/** How long after a live switch a reading is checked against the previous account's windows. */
+/**
+ * How long after a live switch a reading is checked against the other accounts'
+ * windows while the bound account has no window of its own to compare with,
+ * and how long a reading refused as another account's has to keep arriving
+ * before it is believed after all.
+ */
 export const SWITCH_STALE_READING_MS = 30 * 60_000;
 
 /**
  * After a live switch Claude Code's statusline keeps showing the rate limits of
  * the last response, which the previous account served, while the reporter
- * already files them under the new binding. A reading taken shortly after a
- * switch is stale when its reset matches another account's current window
- * and not the bound account's own: reset times identify an account's window.
+ * already files them under the new binding. A reading is another account's
+ * when its reset matches that account's current window and not the bound
+ * account's own: reset times identify an account's window. While the bound
+ * account has a running window on record, that holds however long ago the
+ * switch was (a session can sit on its last response for hours). Without one
+ * there is nothing to contradict the report, so it is only doubted for the
+ * first half hour after the switch.
  */
 export function staleSwitchReading(
   report: { short_resets_at: string | null; weekly_resets_at: string | null },
@@ -139,7 +148,7 @@ export function staleSwitchReading(
   now: number,
 ): boolean {
   const at = boundAt ? Date.parse(boundAt) : NaN;
-  if (!Number.isFinite(at) || now - at > SWITCH_STALE_READING_MS) return false;
+  const justSwitched = Number.isFinite(at) && now - at <= SWITCH_STALE_READING_MS;
   const same = (a: string | null | undefined, b: string | null | undefined) => {
     if (!a || !b) return false;
     const x = Date.parse(a);
@@ -149,9 +158,37 @@ export function staleSwitchReading(
   const window = (key: 'short_resets_at' | 'weekly_resets_at') => {
     const reset = report[key];
     if (!reset || same(reset, bound?.[key])) return false;
+    const own = bound?.[key] ? Date.parse(bound[key] as string) : NaN;
+    if (!justSwitched && !(Number.isFinite(own) && own > now)) return false;
     return others.some((o) => same(reset, o[key]));
   };
   return window('weekly_resets_at') || window('short_resets_at');
+}
+
+/**
+ * Readings refused as another account's, by account and reset times. The
+ * refusal rests on what is stored, and what is stored can itself be wrong
+ * (two accounts whose first readings were filed crosswise would refuse each
+ * other's true readings until the windows end). A stale statusline stops
+ * repeating itself with the session's next response; a reading that keeps
+ * arriving for `SWITCH_STALE_READING_MS` is therefore taken as the truth.
+ */
+const refusedReadings = new Map<string, { since: number; last: number }>();
+const REFUSED_READING_GAP_MS = 15 * 60_000;
+
+function refusedLongEnough(key: string, now: number): boolean {
+  if (refusedReadings.size > 2000) {
+    for (const [k, v] of refusedReadings) if (now - v.last > REFUSED_READING_GAP_MS) refusedReadings.delete(k);
+  }
+  const seen = refusedReadings.get(key);
+  if (!seen || now - seen.last > REFUSED_READING_GAP_MS) {
+    refusedReadings.set(key, { since: now, last: now });
+    return false;
+  }
+  seen.last = now;
+  if (now - seen.since < SWITCH_STALE_READING_MS) return false;
+  refusedReadings.delete(key);
+  return true;
 }
 
 const liveLease = (row: Lease, now: string) => row.ownershipMode === 'connection' || row.expiresAt > now;
@@ -290,12 +327,14 @@ export class AccountSwitchService {
     } else {
       return {};
     }
-    // The reporter files by binding, but right after a switch the payload can
-    // still be the previous account's last response (same reset times).
-    if (boundAt) {
-      const pool = await this.pool(engine);
-      const bound = pool.find((a) => a.id === accountId);
-      if (staleSwitchReading(input, boundAt, bound, pool.filter((a) => a.id !== accountId), now)) return { ignored: 'stale_account' };
+    // The reporter files by binding, but the payload can still be the previous
+    // account's last response (same reset times).
+    const pool = await this.pool(engine);
+    const bound = pool.find((a) => a.id === accountId);
+    if (staleSwitchReading(input, boundAt, bound, pool.filter((a) => a.id !== accountId), now)) {
+      const minute = (at: string | null) => (at ? Math.round(Date.parse(at) / 60_000) : 0);
+      const key = `${engine}:${accountId}:${minute(input.short_resets_at)}:${minute(input.weekly_resets_at)}`;
+      if (!refusedLongEnough(key, now)) return { ignored: 'stale_account' };
     }
     return { accountId };
   }

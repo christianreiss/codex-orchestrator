@@ -21,6 +21,8 @@ import { createRunnerValidationService } from '../../../src/services/runner-vali
 import { createPooledAuthStoreService } from '../../../src/services/pooled-auth-store.js';
 import { ProviderAccountsService } from '../../../src/services/provider-accounts.js';
 import { setClaudeIdentityFetch } from '../../../src/services/claude-identity.js';
+import { AccountSwitchService, SWITCH_STALE_READING_MS } from '../../../src/services/account-switch.js';
+import { CLAUDE_READING_HOLD_MS, ClaudeUsageService } from '../../../src/services/claude-usage.js';
 import type { RunnerClient } from '../../../src/services/runner-client.js';
 
 const handle = await getTestDb();
@@ -29,6 +31,7 @@ describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
   const keyring = testKeyring();
   const validation = createRunnerValidationService({ db, keyring });
   const accounts = new ProviderAccountsService(db, keyring);
+  const switches = new AccountSwitchService(db, keyring);
   const runner: RunnerClient = {
     isConfigured: () => true,
     verify: async () => ({ ok: true, status: 'ok', reachable: true }),
@@ -175,7 +178,7 @@ describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
       expect(await report(runs.key, { session_id: session, five_hour: window(41) })).toMatchObject({ status: 200, body: { status: 'ok' } });
       // A statusline outside a wrapper launch names only the account; the host's lease covers it.
       expect(await report(runs.key, { account_id: a, seven_day: window(12, 3 * 24 * 60) })).toMatchObject({ body: { status: 'ok' } });
-      expect((await snapshots(a)).map((row) => [row.hostId, row.fiveHourUsedPercent, row.sevenDayUsedPercent])).toEqual([[runs.id, 41, null], [runs.id, null, 12]]);
+      expect((await snapshots(a)).map((row) => [row.hostId, row.fiveHourUsedPercent, row.sevenDayUsedPercent])).toEqual([[runs.id, 41, null], [runs.id, 41, 12]]);
       // Another host's session id is not a lease of this host.
       expect((await report(stranger.key, { session_id: session, five_hour: window(99) })).status).toBe(404);
     });
@@ -224,6 +227,112 @@ describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
       expect(await report(closed.key, { account_id: a, five_hour: window(99) })).toMatchObject({ status: 423, body: { code: 'insecure_pending' } });
       expect(await snapshots(a)).toHaveLength(0);
       expect(await report(open.key, { account_id: a, five_hour: window(20) })).toMatchObject({ status: 200, body: { status: 'ok' } });
+    });
+  });
+
+  describe('usage readings from several sessions', () => {
+    const t0 = Date.now();
+    const at = (minutes: number) => new Date(t0 + minutes * 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const file = (accountId: number, minutes: number, reading: { short?: [number, string]; weekly?: [number, string] }) =>
+      new ClaudeUsageService(db, accountId).store(
+        {
+          accountId,
+          hostId: 1,
+          source: 'test',
+          fiveHourUsedPercent: reading.short?.[0] ?? null,
+          fiveHourResetsAt: reading.short?.[1] ?? null,
+          sevenDayUsedPercent: reading.weekly?.[0] ?? null,
+          sevenDayResetsAt: reading.weekly?.[1] ?? null,
+        },
+        t0 + minutes * 60_000,
+      );
+    const reading = async (accountId: number) => {
+      const row = (await snapshots(accountId)).at(-1)!;
+      return [row.fiveHourUsedPercent, row.sevenDayUsedPercent];
+    };
+
+    it('does not let an older session lower a window that another session already reported higher', async () => {
+      const a = (await put('alice-1')).account_id!;
+      const week = at(3 * 24 * 60);
+      await file(a, 0, { short: [70, at(180)], weekly: [40, week] });
+      // An idle session still shows its last response.
+      await file(a, 1, { short: [15, at(180)], weekly: [38, week] });
+      expect(await reading(a)).toEqual([70, 40]);
+      await file(a, 2, { short: [72, at(180)], weekly: [40, week] });
+      expect(await reading(a)).toEqual([72, 40]);
+      // A new five-hour window starts low; the weekly one keeps its share.
+      await file(a, 40, { short: [3, at(40 + 300)], weekly: [39, week] });
+      expect(await reading(a)).toEqual([3, 40]);
+    });
+
+    it('keeps a running window that a report says nothing about', async () => {
+      const a = (await put('alice-1')).account_id!;
+      await file(a, 0, { short: [55, at(120)], weekly: [20, at(24 * 60)] });
+      await file(a, 5, { weekly: [21, at(24 * 60)] });
+      expect(await reading(a)).toEqual([55, 21]);
+      // Once that window ended, there is nothing left to keep.
+      await file(a, 130, { weekly: [22, at(24 * 60)] });
+      expect(await reading(a)).toEqual([null, 22]);
+    });
+
+    it('lets go of a high reading that no session confirms any more', async () => {
+      const a = (await put('alice-1')).account_id!;
+      const week = at(3 * 24 * 60);
+      // One wrong figure for the right window, e.g. from an account that shares the reset time.
+      await file(a, 0, { weekly: [95, week] });
+      await file(a, 10, { weekly: [12, week] });
+      await file(a, 50, { weekly: [12, week] });
+      expect(await reading(a)).toEqual([null, 95]);
+      await file(a, CLAUDE_READING_HOLD_MS / 60_000 + 1, { weekly: [13, week] });
+      expect(await reading(a)).toEqual([null, 13]);
+      // A confirmed figure keeps holding past the hour.
+      await file(a, 100, { weekly: [60, week] });
+      await file(a, 150, { weekly: [60, week] });
+      await file(a, 170, { weekly: [20, week] });
+      expect(await reading(a)).toEqual([null, 60]);
+    });
+
+    it('refuses the previous account\'s reading for as long as the bound account has its own window', async () => {
+      const a = (await put('alice-1')).account_id!;
+      const b = (await put('bob-1')).account_id!;
+      const runs = await host();
+      const session = 'lease-usage-cccccccc';
+      await accounts.acquire(runs.id, 'claude', 'scope-usage-cccccccc', session, 95, b);
+      // The scope moved to B hours ago; the old 30-minute check would no longer look.
+      await db.update(providerAccountSessions).set({ boundAt: at(-240) });
+      const weekA = at(2 * 24 * 60);
+      const weekB = at(5 * 24 * 60);
+      await file(a, 0, { weekly: [91, weekA] });
+      await file(b, 0, { weekly: [8, weekB] });
+      const target = (weekly: string, minutes: number) =>
+        switches.usageReportAccount(runs.id, 'claude', { sessionId: session, short_resets_at: null, weekly_resets_at: weekly }, t0 + minutes * 60_000);
+
+      expect(await target(weekA, 1)).toEqual({ ignored: 'stale_account' });
+      expect(await target(weekB, 2)).toEqual({ accountId: b });
+      // The same refused reading, still arriving half an hour later, is believed:
+      // what is stored may be the wrong half of a crosswise filing.
+      expect(await target(weekA, 6)).toEqual({ ignored: 'stale_account' });
+      expect(await target(weekA, 16)).toEqual({ ignored: 'stale_account' });
+      expect(await target(weekA, 26)).toEqual({ ignored: 'stale_account' });
+      expect(await target(weekA, 1 + SWITCH_STALE_READING_MS / 60_000)).toEqual({ accountId: b });
+      // A reading that comes back after a pause starts over.
+      expect(await target(weekA, 120)).toEqual({ ignored: 'stale_account' });
+    });
+
+    it('takes a report it cannot contradict once the switch is long past', async () => {
+      const a = (await put('alice-1')).account_id!;
+      const b = (await put('bob-1')).account_id!;
+      const runs = await host();
+      const session = 'lease-usage-dddddddd';
+      await accounts.acquire(runs.id, 'claude', 'scope-usage-dddddddd', session, 95, b);
+      const week = at(2 * 24 * 60);
+      await file(a, 0, { weekly: [91, week] });
+      const target = () => switches.usageReportAccount(runs.id, 'claude', { sessionId: session, short_resets_at: null, weekly_resets_at: week }, t0);
+      // B has no reading yet: right after the switch A's reset gives the report away ...
+      expect(await target()).toEqual({ ignored: 'stale_account' });
+      // ... later two accounts may simply share a reset time.
+      await db.update(providerAccountSessions).set({ boundAt: at(-240) });
+      expect(await target()).toEqual({ accountId: b });
     });
   });
 });

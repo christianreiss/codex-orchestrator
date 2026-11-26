@@ -19,10 +19,21 @@ describe('staleSwitchReading', () => {
     expect(staleSwitchReading({ short_resets_at: null, weekly_resets_at: '2026-12-03T09:00:00Z' }, boundAt, undefined, [oldAccount], now)).toBe(false);
   });
 
-  it('only applies shortly after a switch', () => {
+  it('doubts a report without limit while the bound account has a window of its own', () => {
     const later = Date.parse(boundAt) + SWITCH_STALE_READING_MS + 1000;
-    expect(staleSwitchReading({ short_resets_at: null, weekly_resets_at: '2026-11-29T15:00:00Z' }, boundAt, newAccount, [oldAccount], later)).toBe(false);
-    expect(staleSwitchReading({ short_resets_at: null, weekly_resets_at: '2026-11-29T15:00:00Z' }, null, newAccount, [oldAccount], now)).toBe(false);
+    // Hours after the switch a session can still sit on the old account's last response.
+    expect(staleSwitchReading({ short_resets_at: null, weekly_resets_at: '2026-11-29T15:00:00Z' }, boundAt, newAccount, [oldAccount], later)).toBe(true);
+    expect(staleSwitchReading({ short_resets_at: null, weekly_resets_at: '2026-11-29T15:00:00Z' }, null, newAccount, [oldAccount], now)).toBe(true);
+    expect(staleSwitchReading({ short_resets_at: null, weekly_resets_at: '2026-11-27T11:00:00Z' }, boundAt, newAccount, [oldAccount], later)).toBe(false);
+  });
+
+  it('only applies shortly after a switch when the bound account has nothing to compare with', () => {
+    const later = Date.parse(boundAt) + SWITCH_STALE_READING_MS + 1000;
+    expect(staleSwitchReading({ short_resets_at: null, weekly_resets_at: '2026-11-29T15:00:00Z' }, boundAt, undefined, [oldAccount], later)).toBe(false);
+    expect(staleSwitchReading({ short_resets_at: null, weekly_resets_at: '2026-11-29T15:00:00Z' }, null, undefined, [oldAccount], now)).toBe(false);
+    // A window of its own that already ended contradicts nothing either.
+    const ended = { short_resets_at: null, weekly_resets_at: '2026-11-26T10:00:00Z' };
+    expect(staleSwitchReading({ short_resets_at: null, weekly_resets_at: '2026-11-29T15:00:00Z' }, boundAt, ended, [oldAccount], later)).toBe(false);
   });
 
   it('checks the short window too', () => {

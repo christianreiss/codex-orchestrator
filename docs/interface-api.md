@@ -2628,9 +2628,18 @@ score is `max(short, weekly)` used percent.
 - Audit actions `provider_account.switch_requested` and `provider_account.switched`; WebSocket
   `accounts.updated` and `provider.scope.switch`.
 - Usage reports for an account the session no longer holds return `{status: "ignored", reason: "stale_account"}`.
-  The same applies for 30 minutes after a switch when a report's reset time matches another
-  account's current window but not the bound account's own. Claude Code's statusline still
-  shows the previous account's last response until the first request on the new account.
+  The same applies when a report's reset time matches another account's current window but not
+  the bound account's own: Claude Code's statusline still shows the previous account's last
+  response until the first request on the new account. While the bound account has a running
+  window on record this check has no time limit; without one it applies for 30 minutes after the
+  switch. A reading refused this way that keeps arriving for 30 minutes (no gap over 15 minutes)
+  is stored after all, because the stored windows it was compared with can themselves have been
+  filed under the wrong account.
+- A stored reading is the account's, merged from every reporting session: within one window (same
+  `resets_at`, 60 s tolerance) a lower percentage does not replace a higher one that some session
+  reported within the last 60 minutes; a report without one of the two windows keeps the stored
+  one while it is still running; a different `resets_at` is a new window and replaces the stored
+  one. `fetched_at` is the time of the last stored report, also when a higher figure was kept.
 - The policy re-evaluates its own pending `policy` switches. One that the current readings no
   longer call for is withdrawn, and a better target retargets it. Admin and agent requests stay.
 
