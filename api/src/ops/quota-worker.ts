@@ -11,6 +11,7 @@ import { requireOwnerMaintenanceCommands } from './owner-maintenance.js';
 import { dependencyRevision } from './schedule-obligations.js';
 import { readFleetEngineState } from '../services/engine-switch.js';
 import { isEngine } from '../util/engine.js';
+import type { PoolRecommendation } from '../services/account-policy.js';
 
 export function quotaNoticeId(key: string) {
   const h = createHash('sha256').update(key).digest('hex');
@@ -36,8 +37,16 @@ export async function warnQuotaSessions(db: Database, notify: (ids: string[], co
     }
   }
 }
-export function quotaNoticeContent(q: NonNullable<QuotaSnapshot>, w: QuotaWindow) {
+export function quotaNoticeContent(q: NonNullable<QuotaSnapshot>, w: QuotaWindow, pool?: PoolRecommendation | null) {
   const level = w.used_percent >= 100 ? 'limit' : 'warning';
+  // In a pool, the account's limit is not the agent's limit: name the other
+  // accounts and only advise pausing when the whole pool is exhausted.
+  if (pool && pool.action !== 'pause') {
+    const advice = w.source === 'emulated' && w.action === 'hard_stop'
+      ? "This account's local budget blocks new managed work; switch accounts to continue."
+      : "Do not stop working because of this account's quota.";
+    return `QUOTA/1 ${level}: ${q.engine} account ${q.account_label}; ${w.source === 'emulated' ? 'emulated ' : ''}${w.kind} window ${Math.round(w.used_percent * 10) / 10}% used. Reset ${w.resets_at}; observed ${w.observed_at}. ${pool.message} ${advice} Use account_status for the pool and quota_get for current policy.`;
+  }
   const recommendation = w.source === 'emulated'
     ? w.action === 'suggest_ignore' ? 'Continue working; ignore this local budget recommendation.'
       : w.action === 'hard_stop' ? 'Finish the current turn; new managed work is blocked until reset.'

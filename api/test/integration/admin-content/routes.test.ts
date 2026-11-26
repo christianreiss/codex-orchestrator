@@ -169,6 +169,7 @@ describe('admin-content routes registration', () => {
     expect(JSON.parse(r.payload)).toMatchObject({
       status: 'ok',
       skills: [
+        { slug: 'account-switch', managed: true },
         { slug: 'afk', managed: true },
         { slug: 'conference', managed: true },
         { slug: 'reboot-safe', managed: true },

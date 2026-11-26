@@ -153,5 +153,11 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
     'coord_project_changelog',
     new Set([...changelog.matchAll(/^\s+([a-z_]+)\s+(?:BIGINT|VARCHAR|MEDIUMTEXT|JSON|TEXT)\b/gm)].map((m) => m[1]!)),
   );
+  // Migration 0150 adds the scope binding columns used by live account switching.
+  const scopeSwitch = readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0150_provider_scope_switch.sql'), 'utf8');
+  const scopeColumns = [...scopeSwitch.matchAll(/ALTER TABLE provider_account_sessions ADD COLUMN ([a-z_]+)/g)].map((m) => m[1]!);
+  if (scopeColumns.join() !== 'binding_generation,desired_account_id,desired_reason,desired_at,bound_at')
+    throw new Error('Migration 0150 scope switch inventory changed; cannot project the bootstrap schema');
+  for (const column of scopeColumns) tables.get('provider_account_sessions')!.add(column);
   return tables;
 }

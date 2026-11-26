@@ -12,7 +12,8 @@ import type { OwnerRuntime } from '../state/runtime.js';
 import { mutateOwnerState } from '../state/runtime.js';
 import type { OwnerStateSnapshot } from '../state/store.js';
 import { ConflictError, NotFoundError, ServiceUnavailableError } from '../../http/errors.js';
-import { selectAccount, quotaWindowScore } from '../../services/account-selection.js';
+import { quotaWindowScore } from '../../services/account-selection.js';
+import { accountPolicyKey, parseStoredPolicy, selectForLaunch } from '../../services/account-policy.js';
 import { DEFAULT_QUOTA_POLICY, quotaPolicySchema } from '../../services/quota-policy.js';
 import type { Engine } from '../../util/engine.js';
 import type { Json } from '../commands.js';
@@ -123,9 +124,20 @@ export async function acquireOwnedProvider(
             active: sessions.filter((r) => r.accountId === a.id).length,
             lastSelectedAt: a.lastSelectedAt,
           }));
+        // A pool only refuses a launch when every account is blocked by its
+        // emulated budget; blocked accounts are skipped while others remain.
+        const admitted = candidates.filter((a) => {
+          try {
+            assertEmulationAdmission(s, engine, a.id);
+            return true;
+          } catch {
+            return false;
+          }
+        });
+        const policy = parseStoredPolicy(s.setting(accountPolicyKey(engine)));
         const selected =
           preferred === undefined
-            ? selectAccount(candidates, threshold, Date.now())
+            ? selectForLaunch(policy, admitted.length ? admitted : candidates, threshold, Date.now())
             : candidates.find((a) => a.id === (ownedAccount(s, preferred, engine)?.id ?? preferred));
         account = accounts.find((a) => a.id === selected?.id);
       }
@@ -136,6 +148,9 @@ export async function acquireOwnedProvider(
       // A new acquire after expiration is an ordinary new durable grant.
       const mode = previous?.ownershipMode ?? ownershipMode;
       const expiresAt = previous?.expiresAt ?? new Date(Date.now() + 300000).toISOString();
+      // A lease joining a live scope inherits its binding generation and any
+      // pending switch; a new scope starts at generation 1.
+      const scope = previous ?? pinned;
       const lease = {
         id: sessionId,
         hostId,
@@ -145,6 +160,11 @@ export async function acquireOwnedProvider(
         ownershipMode: mode,
         expiresAt,
         createdAt: previous?.createdAt ?? now,
+        bindingGeneration: scope?.bindingGeneration ?? 1,
+        desiredAccountId: scope?.desiredAccountId ?? null,
+        desiredReason: scope?.desiredReason ?? null,
+        desiredAt: scope?.desiredAt ?? null,
+        boundAt: scope?.boundAt ?? now,
       };
       draft.upsert('providerAccountSessions', lease);
       draft.upsert('providerAccounts', { ...account, lastSelectedAt: now });

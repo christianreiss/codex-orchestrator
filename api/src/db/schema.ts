@@ -241,6 +241,12 @@ export const providerAccountSessions = mysqlTable(
     ownershipMode: varchar('ownership_mode', { length: 16 }).$type<'timed' | 'connection'>().notNull().default('timed'),
     expiresAt: varchar('expires_at', { length: 100 }).notNull(),
     createdAt: varchar('created_at', { length: 100 }).notNull(),
+    // Scope-wide (all leases of host/engine/scope carry the same values).
+    bindingGeneration: int('binding_generation', { unsigned: true }).notNull().default(1),
+    desiredAccountId: bigint('desired_account_id', { mode: 'number', unsigned: true }),
+    desiredReason: varchar('desired_reason', { length: 16 }),
+    desiredAt: varchar('desired_at', { length: 100 }),
+    boundAt: varchar('bound_at', { length: 100 }),
   },
   (t) => ({
     accountIdx: index('idx_account_session_active').on(t.accountId, t.expiresAt),

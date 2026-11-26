@@ -16,6 +16,7 @@ import {
   type AuthProbeScheduleMemory,
 } from './auth-verification-worker.js';
 import { quotaNoticeId, quotaNoticeContent } from './quota-worker.js';
+import { AccountSwitchService } from '../services/account-switch.js';
 import type { OwnerMaintenanceHandler } from './owner-maintenance-handlers.js';
 import { OWNER_WORK_RETRY_MS } from './owner-worker.js';
 
@@ -38,6 +39,7 @@ export function createOwnerProviderMaintenance(
   });
   const memory = new Map<string, AuthProbeScheduleMemory>();
   const bus = new AgentMessagingService(ctx.db, ctx.env, ctx.keyring);
+  const switches = new AccountSwitchService(ctx.db, ctx.keyring);
   const ttlSeconds = Math.max(1, Number(ctx.env.AUTH_RUNNER_VERIFY_TTL_SECONDS ?? 900));
   const maxIntervalSeconds = Math.max(
     ttlSeconds,
@@ -103,6 +105,14 @@ export function createOwnerProviderMaintenance(
         return { observed: true };
       const q = await quotaSnapshot(ctx.db, session.providerAccountId, session.engine);
       if (!q || q.unlimited || !['enabled', 'paused'].includes(q.account_state)) return { observed: true };
+      const poolFor = async (warnPercent: number) => {
+        try {
+          const view = await switches.poolView(session.engine as Engine, q.account_id, warnPercent);
+          return view.accounts.length > 1 ? view.recommendation : null;
+        } catch {
+          return null;
+        }
+      };
       for (const window of q.windows) {
         const threshold = window.kind === 'short' ? q.policy.short_warn_percent : q.policy.long_warn_percent;
         if (
@@ -117,7 +127,7 @@ export function createOwnerProviderMaintenance(
           [session.agentBusAddressId, q.account_id, window.kind, window.resets_at, level, ...(window.source === 'emulated' ? [window.action] : [])].join(':'),
         );
         if (runtime.state.snapshot().messages.by('clientMessageId', id).length) continue;
-        const content = quotaNoticeContent(q, window);
+        const content = quotaNoticeContent(q, window, await poolFor(threshold));
         await bus.noticeAddresses([session.agentBusAddressId], content, id);
       }
       return { observed: true };

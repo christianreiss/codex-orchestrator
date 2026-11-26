@@ -1,4 +1,5 @@
 import { startQuotaWorker } from './ops/quota-worker.js';
+import { startAccountPolicyWorker } from './ops/account-policy-worker.js';
 import { startFeedbackWorker } from './ops/feedback-worker.js';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
@@ -151,6 +152,7 @@ export async function buildServer() {
   startAgentPortalWorker(app, db, env, keyring);
   startSchedulesWorker(app, db, keyring);
   startQuotaWorker(app, db, env, keyring);
+  startAccountPolicyWorker(app, db, keyring);
   startAgentMessagingWorker(app, db, env, keyring);
   startInsecureFleetWindowWorker(app, db, env);
   startWrapperRolloutWorker(app, db, env);

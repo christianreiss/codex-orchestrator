@@ -12,6 +12,7 @@ import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { recordAuthCall, flushAuthCalls, uninstallOwnedHost } from './owner.js';
 import { readQuotaPolicy } from '../../services/quota-policy.js';
 import { ProviderAccountsService } from '../../services/provider-accounts.js';
+import { AccountSwitchService, LIVE_SWITCH_ENGINES } from '../../services/account-switch.js';
 import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
 import { readQuotaAdvice, quotaAdviceSnapshot } from '../../services/quota-advice.js';
@@ -177,6 +178,12 @@ export async function registerAuthRoutes(app: FastifyInstance, ctx: RouteContext
   });
 
   const accounts = new ProviderAccountsService(ctx.db, ctx.keyring);
+  const switches = new AccountSwitchService(ctx.db, ctx.keyring);
+  // Binding generation, pending switch and (for pools) the quota recommendation.
+  const sessionExtras = async (hostId: number, engine: Engine, sessionId: unknown) =>
+    typeof sessionId === 'string' && LIVE_SWITCH_ENGINES.has(engine)
+      ? await switches.sessionBinding(hostId, engine, sessionId).catch(() => ({}))
+      : {};
   // A media identity is deliberately recognized only on this route. Neither
   // generic host authentication nor communicator/MCP accepts the derived key.
   app.post('/rescue/v1/session', async (req, reply) => {
@@ -351,6 +358,7 @@ if (engine === ENGINE_KIMI) {
       canonical_last_refresh: row.lastRefresh,
       verification_state: row.verificationState,
       ...quota,
+      ...(await sessionExtras(host.id, engine, sessionId)),
     };
   });
   app.post('/auth/sessions/heartbeat', async (req) => {
@@ -366,7 +374,8 @@ if (engine === ENGINE_KIMI) {
     await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, true);
     const sessionId = opaqueId(payload.session_id, 'session_id');
     const heartbeat = await accounts.heartbeat(host.id, engine, sessionId);
-    if (engine !== ENGINE_GROK && engine !== ENGINE_KIMI) return heartbeat;
+    if (engine !== ENGINE_GROK && engine !== ENGINE_KIMI)
+      return { ...heartbeat, ...(await sessionExtras(host.id, engine, sessionId)) };
     if (!(await readFleetEngineState(ctx.db))[engine]) return { ...heartbeat, refresh_state: 'suspended' };
     const snapshot = await (engine === ENGINE_KIMI ? createKimiAuthOwner : createGrokAuthOwner)({ db: ctx.db, keyring: ctx.keyring, runner }).ensureFresh({
       accountId: heartbeat.account_id,
@@ -402,28 +411,127 @@ if (engine === ENGINE_KIMI) {
     const enforcedHost = await maybeEnforceInsecure(insecure, host, command, req.clientIp, unattendedRequest(req));
     const projectedVersions = requestVersions(req, enforcedHost);
 
-    if (command === 'retrieve') {
-      return handleRetrieve(
-        app,
-        ctx,
-        enforcedHost,
-        payload,
-        engine,
-        runnerValidation,
-        projectedVersions,
-        authStore,
-      );
+    const result =
+      command === 'retrieve'
+        ? await handleRetrieve(app, ctx, enforcedHost, payload, engine, runnerValidation, projectedVersions, authStore)
+        : await handleStore(app, ctx, enforcedHost, payload, engine, authStore, runnerValidation, projectedVersions);
+    return withPoolExtras(result, enforcedHost.id, engine, payload.session_id);
+  });
+
+  const withPoolExtras = async (
+    result: Record<string, unknown>,
+    hostId: number,
+    engine: Engine,
+    sessionId: unknown,
+  ): Promise<Record<string, unknown>> => {
+    if (!result || typeof result !== 'object') return result;
+    const extras: Record<string, unknown> = await sessionExtras(hostId, engine, sessionId);
+    const accountId = typeof result.account_id === 'number' ? result.account_id : null;
+    if (accountId !== null) {
+      try {
+        const view = await switches.poolView(engine, accountId);
+        if (view.accounts.length > 1)
+          extras.quota_pool = {
+            recommendation: view.recommendation,
+            policy: { mode: view.policy.mode, strategy: view.policy.strategy },
+            accounts: view.accounts.map((a) => ({
+              id: a.id,
+              label: a.label,
+              state: a.state,
+              verified: a.verified,
+              short_used_percent: a.short_used_percent,
+              weekly_used_percent: a.weekly_used_percent,
+              score: a.score,
+            })),
+          };
+      } catch {
+        // Pool details are advisory; the auth answer stands without them.
+      }
     }
-    return handleStore(
-      app,
-      ctx,
-      enforcedHost,
-      payload,
+    return { ...result, ...extras };
+  };
+
+  // GET /auth/accounts — the engine's pool for `clx accounts` and agent tools.
+  app.get('/auth/accounts', async (req) => {
+    await assertApiNotDisabled(versions);
+    const host = await hostAuth.authenticate(req);
+    const query = (req.query ?? {}) as Record<string, unknown>;
+    const engine = resolveAuthRequestEngine(req, query);
+    assertHostEngineAssigned(host, engine);
+    // Labels are usually e-mail addresses: same window as credential retrieval.
+    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, unattendedRequest(req));
+    let boundAccountId: number | null = null;
+    let binding: Record<string, unknown> = { binding_generation: null, account_switch: null };
+    if (query.session_id !== undefined) {
+      const session = await accounts.session(host.id, engine, opaqueId(query.session_id, 'session_id'));
+      boundAccountId = session.accountId;
+      binding = await switches.sessionBinding(host.id, engine, session.id);
+    }
+    const view = await switches.poolView(engine, boundAccountId);
+    return {
       engine,
-      authStore,
-      runnerValidation,
-      projectedVersions,
-    );
+      policy: view.policy,
+      bound_account_id: boundAccountId,
+      ...binding,
+      live_switch: LIVE_SWITCH_ENGINES.has(engine),
+      accounts: view.accounts.map(({ last_selected_at: _ignored, ...a }) => a),
+      recommendation: view.recommendation,
+    };
+  });
+
+  // POST /auth/sessions/switch-request — `clx accounts use` and the agent tool.
+  app.post('/auth/sessions/switch-request', async (req) => {
+    await assertApiNotDisabled(versions);
+    const host = await hostAuth.authenticate(req);
+    const payload = readPayload(req.body);
+    const engine = resolveAuthRequestEngine(req, payload);
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
+    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, unattendedRequest(req));
+    const session = await accounts.session(host.id, engine, opaqueId(payload.session_id, 'session_id'));
+    const target = payload.account_id === 'auto' ? 'auto' : accountIdFrom(payload.account_id);
+    if (target === undefined) throw new ValidationError('account_id must be an account ID or "auto"', { param: 'account_id' });
+    const reason = payload.reason === 'agent' ? 'agent' : 'host';
+    return switches.requestSwitch({ hostId: host.id, engine, scopeId: session.scopeId, target, reason, actor: host.fqdn });
+  });
+
+  // POST /auth/sessions/switch — commit by the wrapper that performs the switch.
+  app.post('/auth/sessions/switch', async (req) => {
+    await assertApiNotDisabled(versions);
+    const host = await hostAuth.authenticate(req);
+    const payload = readPayload(req.body);
+    const engine = resolveAuthRequestEngine(req, payload);
+    assertHostEngineEnabled(host, engine, await readFleetEngineState(ctx.db));
+    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, true);
+    const sessionId = opaqueId(payload.session_id, 'session_id');
+    const target = accountIdFrom(payload.account_id);
+    const generation = payload.binding_generation;
+    if (target === undefined) throw new ValidationError('account_id is required', { param: 'account_id' });
+    if (typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1)
+      throw new ValidationError('binding_generation must be a positive integer', { param: 'binding_generation' });
+    const committed = await switches.commitSwitch({
+      hostId: host.id,
+      engine,
+      sessionId,
+      scopeId: opaqueId(payload.scope_id, 'scope_id'),
+      accountId: target,
+      generation,
+    });
+    const row = await runnerValidation.resolveCanonicalPayload(engine, committed.account_id);
+    const auth = row ? runnerValidation.canonicalAuthFromPayload(row) : null;
+    if (!row || !auth) throw new ServiceUnavailableError('Selected account is unavailable', 'account_unavailable');
+    const account = await accounts.get(committed.account_id, engine);
+    return {
+      account_id: committed.account_id,
+      account_label: account.label,
+      session_id: sessionId,
+      binding_generation: committed.binding_generation,
+      previous_account_id: committed.previous_account_id,
+      auth,
+      canonical_digest: row.sha256,
+      canonical_last_refresh: row.lastRefresh,
+      verification_state: row.verificationState,
+      ...(await readQuotaControls(ctx, host.vip === 1, engine, committed.account_id)),
+    };
   });
 
   // DELETE /auth — host uninstall.
@@ -597,8 +705,9 @@ if (engine === ENGINE_KIMI) {
         ENGINE_CLAUDE,
         opaqueId(payload.session_id, 'session_id'),
       );
-      if (accountId !== session.accountId)
-        throw new ValidationError('Usage report account does not match session');
+      // After a live switch the statusline may still carry the previous
+      // account; its reading must not be filed under the new one.
+      if (accountId !== undefined && accountId !== session.accountId) return { status: 'ignored', reason: 'stale_account' };
       accountId = session.accountId;
     } else if (accountId !== undefined) {
       await accounts.get(accountId, ENGINE_CLAUDE);
@@ -616,6 +725,8 @@ if (engine === ENGINE_KIMI) {
     });
     if (row && row.id !== previous?.id) {
       wsPublisher.publish('claude.usage.updated', { fetched_at: row.fetchedAt });
+      // A fresh reading may move a scope under the automatic policy.
+      void switches.evaluate(ENGINE_CLAUDE).catch((err) => app.log.warn({ err }, 'account policy evaluation failed'));
     }
     return { status: row ? 'ok' : 'ignored' };
   });
@@ -1287,6 +1398,7 @@ async function handleBootstrapAuth(
     const stored = await authStore.storeCandidate({
       auth: candidate,
       accountId,
+      autoEnroll: host.secure === 1,
       engine,
       sourceHostId: host.id,
       requireLastRefresh: false,
@@ -1414,12 +1526,20 @@ async function handleStore(
   projectVersions: RequestVersionProjector,
 ): Promise<Record<string, unknown>> {
   const incoming = extractAuthPayload(payload);
+  const enroll = payload.enroll === true;
+  // An explicit additional-account login never carries a lease or binding.
+  if (enroll && (payload.session_id !== undefined || payload.account_id !== undefined))
+    throw new ValidationError('enroll must not be combined with session_id or account_id', { param: 'enroll' });
+  if (enroll && host.secure !== 1)
+    throw new ForbiddenError('Insecure hosts may not enroll provider accounts', 'account_enroll_insecure_host');
   let stored;
   try {
     stored = await authStore.storeCandidate({
       auth: incoming,
       accountId: accountIdFrom(payload.account_id),
       accountHint: payload.session_id === undefined,
+      enrollAccount: enroll,
+      autoEnroll: host.secure === 1,
       engine,
       sourceHostId: host.id,
       requireLastRefresh: true,
@@ -1828,7 +1948,9 @@ async function enforceAccountSession(
   if (payload.session_id === undefined) return;
   const session = await accounts.session(hostId, engine, opaqueId(payload.session_id, 'session_id'));
   const accountId = accountIdFrom(payload.account_id);
-  if (accountId !== undefined && accountId !== session.accountId)
+  // A sibling process may have committed a live switch for this scope before
+  // this wrapper's next heartbeat; the lease is authoritative.
+  if (accountId !== undefined && accountId !== session.accountId && engine !== ENGINE_CLAUDE)
     throw new ValidationError('Account does not match session');
   payload.account_id = session.accountId;
 }

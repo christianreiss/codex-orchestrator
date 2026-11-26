@@ -444,6 +444,11 @@ describe('migrations against the test baseline', () => {
       'hosts.kimi_last_refresh',
       'agent_sessions.suspend_attachment_generation',
       'agent_sessions.suspend_recovery_until',
+      'provider_account_sessions.binding_generation',
+      'provider_account_sessions.desired_account_id',
+      'provider_account_sessions.desired_reason',
+      'provider_account_sessions.desired_at',
+      'provider_account_sessions.bound_at',
     ]);
   });
 

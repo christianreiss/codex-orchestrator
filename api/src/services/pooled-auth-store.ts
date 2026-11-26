@@ -13,17 +13,22 @@ export function createPooledAuthStoreService(deps: CanonicalAuthStoreDeps): Cano
   return {
     ...base,
     async storeCandidate(input) {
-      const account = await accounts.resolveCandidate(
+      const { account, created } = await accounts.resolveCandidateDetailed(
         input.auth,
         input.engine,
         input.accountId,
         input.sourceHostId,
         input.accountHint === true,
         input.enrollAccount === true,
+        input.autoEnroll !== false,
       );
-      const result = await base.storeCandidate({ ...input, accountId: account.id });
+      const result = await base.storeCandidate({
+        ...input,
+        accountId: account.id,
+        logDetails: { ...(input.logDetails ?? {}), ...(created ? { account_created: true } : {}) },
+      });
       wsPublisher.publish('accounts.updated', { account_id: account.id });
-      return result;
+      return { ...result, account_id: result.account_id ?? account.id, account_created: created, account_label: account.label };
     },
   };
 }

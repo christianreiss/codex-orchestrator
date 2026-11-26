@@ -9,6 +9,10 @@ import { sameQuotaObservation, stageClaudeQuota } from '../control-plane/state/q
  * captures the `rate_limits` object Claude Code itself computes and hands it
  * to the statusLine command's stdin, and reports the already-computed
  * percentages here. This service only ever stores what was reported.
+ * The single deliberate exception is `claude-identity.ts`: one OAuth profile
+ * lookup per new access token so two subscriptions are not merged into one
+ * account (operator decision, 2026-11-26). It never refreshes, polls usage or
+ * runs inference.
  */
 
 import { desc, eq, gte, lte, and, isNull } from 'drizzle-orm';

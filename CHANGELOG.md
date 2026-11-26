@@ -1,3 +1,13 @@
+# 2026-11-26
+
+- Several Claude subscriptions per fleet: the server identifies each Claude login through Anthropic's OAuth profile, so a second subscription becomes a new account (labelled with its e-mail) instead of overwriting the first; a late rotation always returns to its own account. Secure hosts enroll unknown subscriptions automatically, insecure hosts are refused. cxx 0.9.207 adds `clx accounts list|add|use`; `add` signs in through an isolated login without touching `~/.claude`.
+
+- Account distribution policy per engine on the Accounts page: automatic (default) or manual; balanced keeps accounts within a band (eng/normal/locker = 10/20/30 points), exhaust fills accounts in order to 90 % and then to 99 %. Moves wait 15 minutes after the last change unless an account reaches its limit; launches skip accounts blocked by an emulated budget.
+
+- Claude sessions switch accounts live: the switch waits for the next turn boundary, flushes the old account's rotation, and the next prompt runs on the new account without a restart. Triggered by the policy, the Accounts page (running scopes with "Switch to …"), `clx accounts use` or the agent tools `account_status`/`account_switch` (`#account-switch`).
+
+- Quota warnings know the pool: QUOTA/1 notices and `quota_get` name the other accounts and their usage and recommend continuing or switching; they only advise pausing when every account is at its limit, so agents no longer stop because one account nears its quota.
+
 # 2026-11-25
 
 - The Agents chat shows full-length replies in a continuous transcript, with a compact conversation list, inline composer and one attachment picker for direct and shared conversations.

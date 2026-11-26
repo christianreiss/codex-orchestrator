@@ -87,6 +87,11 @@ export interface StoreAuthCandidateInput {
   accountHint?: boolean;
   /** Explicit operator enrollment; opaque token changes alone never create another account. */
   enrollAccount?: boolean;
+  /**
+   * A recognised provider identity that matches no account may enroll a new
+   * account implicitly (secure hosts, admin and seed surfaces). Defaults to true.
+   */
+  autoEnroll?: boolean;
   auth: Record<string, unknown>;
   engine: Engine;
   sourceHostId: number | null;
@@ -109,6 +114,9 @@ export interface StoreAuthCandidateInput {
 
 export interface StoreAuthCandidateResult {
   account_id?: number;
+  /** Set by the pooled store: this upload created the account. */
+  account_created?: boolean;
+  account_label?: string;
   status: 'updated' | 'valid' | 'outdated';
   /** Present only when the selected payload has a stored verified verdict. */
   auth?: Record<string, unknown>;
@@ -886,6 +894,7 @@ export function createCanonicalAuthStoreService(deps: CanonicalAuthStoreDeps, ow
       details: JSON.stringify({
         status,
         engine: input.engine,
+        ...(input.accountId !== undefined ? { account_id: input.accountId } : {}),
         digest,
         runner_applied: runnerApplied,
         source_kind: input.sourceKind ?? (input.sourceHostId === null ? 'legacy' : 'host'),

@@ -19,12 +19,13 @@ import {
   kimiAuthRefreshState,
 } from '../db/schema.js';
 import type { Keyring } from '../security/keyring.js';
-import { ConflictError, NotFoundError, ServiceUnavailableError, ValidationError } from '../http/errors.js';
+import { ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError, ValidationError } from '../http/errors.js';
 import { nowIso } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import { selectGrokCredential } from './grok-auth.js';
 import { credentialMetadata, inspectCredential } from './auth-generation.js';
-import { quotaWindowScore, selectAccount } from './account-selection.js';
+import { quotaWindowScore } from './account-selection.js';
+import { readAccountPolicy, selectForLaunch } from './account-policy.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { decrypt } from '../security/secret-box.js';
 import { createRunnerValidationService } from './runner-validation.js';
@@ -34,12 +35,15 @@ import { withKimiAccountLock } from './kimi-auth-lock.js';
 import { readGrokUsage } from './grok-usage.js';
 import { readKimiUsage } from './kimi-usage.js';
 import { chatGptPlanName, claudePlanName, providerPlan } from './provider-plan.js';
+import { claudeAccessToken, claudeIdentityValue, resolveClaudeIdentity, type ClaudeIdentity } from './claude-identity.js';
 
 type Account = typeof providerAccounts.$inferSelect;
+const isDefaultLabel = (label: string) => /^(Claude|ChatGPT|Grok|Kimi Code)( account| \d+)?$/.test(label.trim());
 const PROVIDER_LABELS: Record<Engine, string> = { codex: 'ChatGPT', claude: 'Claude', grok: 'Grok', kimi: 'Kimi Code' };
-export function providerIdentity(auth: Record<string, unknown>, engine: Engine): string | null {
+export function providerIdentity(auth: Record<string, unknown>, engine: Engine, resolved?: string | null): string | null {
   const tokens = auth.tokens as Record<string, unknown> | undefined;
-  const value = engine === 'codex' ? tokens?.account_id : engine === 'grok' ? selectGrokCredential(auth, true)?.native.user_id : auth.account_identity;
+  // Claude credentials carry no identity; callers pass the profile-derived value.
+  const value = resolved ?? (engine === 'codex' ? tokens?.account_id : engine === 'grok' ? selectGrokCredential(auth, true)?.native.user_id : auth.account_identity);
   return typeof value === 'string' && value.trim()
     ? createHash('sha256').update(`${engine}:${value.trim()}`).digest('hex')
     : null;
@@ -71,10 +75,30 @@ export class ProviderAccountsService {
     targetIsHint = false,
     enrollAccount = false,
   ): Promise<Account> {
+    return (await this.resolveCandidateDetailed(auth, engine, target, sourceHostId, targetIsHint, enrollAccount)).account;
+  }
+
+  /**
+   * Picks the account an uploaded credential belongs to. For Claude the server
+   * resolves the provider identity through Anthropic's OAuth profile: a known
+   * identity always routes to its own account (never rejected, so a late
+   * rotation of a previous account still reaches it), and an unknown identity
+   * enrolls a new account when `autoEnroll` permits it.
+   */
+  async resolveCandidateDetailed(
+    auth: Record<string, unknown>,
+    engine: Engine,
+    target?: number,
+    sourceHostId?: number | null,
+    targetIsHint = false,
+    enrollAccount = false,
+    autoEnroll = true,
+  ): Promise<{ account: Account; created: boolean }> {
     const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
     const identity = inspectCredential(auth, engine);
     if (!identity) throw new ValidationError('payload contains no usable auth tokens');
-    const identityKey = providerIdentity(auth, engine);
+    const claude: ClaudeIdentity | null = engine === 'claude' ? await resolveClaudeIdentity(claudeAccessToken(auth)) : null;
+    const identityKey = providerIdentity(auth, engine, claude ? claudeIdentityValue(claude) : null);
     let accounts = (
       owner ? owner.state.snapshot().accounts.by('engine',engine) : await this.db.select().from(providerAccounts).where(eq(providerAccounts.engine, engine))
     ).filter((a) => !a.mergedIntoAccountId);
@@ -119,8 +143,10 @@ export class ProviderAccountsService {
     // Credential material is cold, read only for this explicit credential mutation.
     const bodies=owner ? await this.db.select({id:authPayloads.id,body:authPayloads.body}).from(authPayloads).where(eq(authPayloads.engine,engine)) : null;
     const history=metadataRows ? metadataRows.map(row=>({...row,body:bodies?.find(b=>b.id===row.id)?.body??null})) : await this.db.select().from(authPayloads).where(eq(authPayloads.engine,engine));
+    const resolvedHeads = new Map<number, string | null>();
     const accountIdentity = (a: Account): string | null => {
       if (a.identityKey && !a.identityKey.startsWith('credential:')) return a.identityKey;
+      if (resolvedHeads.has(a.id)) return resolvedHeads.get(a.id)!;
       const head = history.find((r) => r.id === a.payloadId);
       try {
         return head?.body ? providerIdentity(JSON.parse(decrypt(head.body, this.keyring)), engine) : null;
@@ -128,6 +154,22 @@ export class ProviderAccountsService {
         return null;
       }
     };
+    // Accounts enrolled before identity detection: ask who their head belongs to.
+    if (engine === 'claude' && identityKey) {
+      for (const a of accounts) {
+        if (a.state === 'removed' || (a.identityKey && !a.identityKey.startsWith('credential:'))) continue;
+        const head = history.find((r) => r.id === a.payloadId);
+        let resolved: string | null = null;
+        try {
+          const headAuth = head?.body ? (JSON.parse(decrypt(head.body, this.keyring)) as Record<string, unknown>) : null;
+          const headIdentity = headAuth ? await resolveClaudeIdentity(claudeAccessToken(headAuth)) : null;
+          resolved = headIdentity ? providerIdentity({}, engine, claudeIdentityValue(headIdentity)) : null;
+        } catch {
+          resolved = null;
+        }
+        resolvedHeads.set(a.id, resolved);
+      }
+    }
     const metadata = this.keyring.all().map((k) => credentialMetadata(identity, k));
     const matches = history.filter((r) => {
       if (
@@ -158,7 +200,43 @@ export class ProviderAccountsService {
       identityKey ?? `credential:${credentialMetadata(identity, this.keyring.active()).pairFingerprint}`;
     // Migrated heads have no identity_key yet. Their native identity still
     // identifies the same subscription across a completely new login.
-    let account = identityKey ? accounts.find((a) => accountIdentity(a) === identityKey) : undefined;
+    const live = (a: Account) => a.state !== 'removed';
+    let account = identityKey ? accounts.filter(live).find((a) => accountIdentity(a) === identityKey) : undefined;
+    if (engine === 'claude' && identityKey) {
+      // An operator replacing one account's credentials gets a refusal, not a
+      // silent move to another account, when the login belongs elsewhere.
+      if (target !== undefined && sourceHostId == null && !targetIsHint) {
+        const requestedIdentity = accountIdentity(await this.get(target, engine));
+        if (requestedIdentity && requestedIdentity !== identityKey)
+          throw new ConflictError('Credentials belong to a different account', 'account_identity_mismatch');
+      }
+      // Same login family whose identity was never recorded.
+      const lineage = accounts.find((a) => a.id === matched?.accountId || a.payloadId === matched?.id);
+      if (!account && lineage && !accountIdentity(lineage)) account = lineage;
+      if (!account && target !== undefined) {
+        const requested = await this.get(target, engine);
+        // Without a provable identity for the target, keep the previous behaviour.
+        if (!accountIdentity(requested)) account = requested;
+      }
+      if (!account && !enrollAccount && !autoEnroll) {
+        const existing = accounts.filter((a) => a.state !== 'removed' && a.state !== 'removing');
+        if (existing.length && existing.every((a) => accountIdentity(a)))
+          throw new ForbiddenError(
+            'This host may not enroll another provider account; use a secure host or the admin console',
+            'account_enroll_insecure_host',
+          );
+        if (existing.length === 1) account = existing[0];
+        else if (existing.length > 1)
+          throw new ConflictError(
+            'Credentials of an unknown account require an explicit enrollment',
+            'account_assignment_required',
+          );
+      }
+      if (account) return { account: await this.claimIdentity(account, identityKey, claude, sourceHostId), created: false };
+      await this.releaseRetiredIdentity(engine, identityKey, accounts);
+      if (owner) return { account: await this.createOwnedAccount(engine, identityKey, null, null, claude?.email ?? `${PROVIDER_LABELS[engine]} account`), created: true };
+      return { account: await this.insertAccount(engine, identityKey, claude?.email ?? `${PROVIDER_LABELS[engine]} account`), created: true };
+    }
     account ??= accounts.find((a) => a.id === matched?.accountId || a.payloadId === matched?.id);
     account ??= accounts.find((a) => a.identityKey === key);
     if (target !== undefined) {
@@ -192,34 +270,57 @@ export class ProviderAccountsService {
         'Historical credentials cannot enroll a new account',
         'account_history_unassigned',
       );
-    if (account) {
-      if (account.state === 'removed') throw new ConflictError('Account is retired', 'account_removed');
-      if (account.state === 'removing') {
-        const live =
-          sourceHostId == null
-            ? []
-            : owner ? owner.state.snapshot().table('providerAccountSessions').by('accountId',account.id).filter(r=>r.hostId===sourceHostId&&(r.ownershipMode==='connection'||r.expiresAt>nowIso())) : await this.db
-                .select()
-                .from(providerAccountSessions)
-                .where(
-                  and(
-                    eq(providerAccountSessions.accountId, account.id),
-                    eq(providerAccountSessions.hostId, sourceHostId),
-                    gt(providerAccountSessions.expiresAt, nowIso()),
-                  ),
-                );
-        if (!live.length) throw new ConflictError('Account is retired', 'account_removed');
-      }
-      if (identityKey && (!account.identityKey || account.identityKey.startsWith('credential:'))) {
-        if(owner){const id=account.id;await mutateOwnerState(owner,{kind:'provider.account.identify',payload:{id,identityKey},prepare({snapshot,draft,write}){
-          const current=snapshot.accounts.get(id);if(!current||current.state==='removed')throw new ConflictError('Account is retired','account_removed');
-          if(current.identityKey&&!current.identityKey.startsWith('credential:')&&current.identityKey!==identityKey)throw new ConflictError('Account identity changed','account_identity_mismatch');
-          const updatedAt=nowIso();draft.upsert('providerAccounts',{...current,identityKey,updatedAt});write(tx=>tx.update(providerAccounts).set({identityKey,updatedAt}).where(eq(providerAccounts.id,id)));return null;
-        }});}else await this.db.update(providerAccounts).set({identityKey,updatedAt:nowIso()}).where(eq(providerAccounts.id,account.id));
-      }
-      return account;
+    if (account) return { account: await this.claimIdentity(account, identityKey, null, sourceHostId), created: false };
+    if(owner)return { account: await this.createOwnedAccount(engine,key,null,null,`${PROVIDER_LABELS[engine]} account`), created: true };
+    return { account: await this.insertAccount(engine, key, `${PROVIDER_LABELS[engine]} account`), created: true };
+  }
+
+  /** Retirement checks plus first recording of a provider identity on an account. */
+  private async claimIdentity(account: Account, identityKey: string | null, claude: ClaudeIdentity | null, sourceHostId?: number | null): Promise<Account> {
+    const owner=ownerRuntimeFor(this.db);
+    if (account.state === 'removed') throw new ConflictError('Account is retired', 'account_removed');
+    if (account.state === 'removing') {
+      const live =
+        sourceHostId == null
+          ? []
+          : owner ? owner.state.snapshot().table('providerAccountSessions').by('accountId',account.id).filter(r=>r.hostId===sourceHostId&&(r.ownershipMode==='connection'||r.expiresAt>nowIso())) : await this.db
+              .select()
+              .from(providerAccountSessions)
+              .where(
+                and(
+                  eq(providerAccountSessions.accountId, account.id),
+                  eq(providerAccountSessions.hostId, sourceHostId),
+                  gt(providerAccountSessions.expiresAt, nowIso()),
+                ),
+              );
+      if (!live.length) throw new ConflictError('Account is retired', 'account_removed');
     }
-    if(owner)return this.createOwnedAccount(engine,key,null,null,`${PROVIDER_LABELS[engine]} account`);
+    if (identityKey && (!account.identityKey || account.identityKey.startsWith('credential:'))) {
+      // Default labels become the account's e-mail once the identity is known.
+      const label = claude?.email && isDefaultLabel(account.label) ? claude.email : account.label;
+      if(owner){const id=account.id;await mutateOwnerState(owner,{kind:'provider.account.identify',payload:{id,identityKey,label},prepare({snapshot,draft,write}){
+        const current=snapshot.accounts.get(id);if(!current||current.state==='removed')throw new ConflictError('Account is retired','account_removed');
+        if(current.identityKey&&!current.identityKey.startsWith('credential:')&&current.identityKey!==identityKey)throw new ConflictError('Account identity changed','account_identity_mismatch');
+        const updatedAt=nowIso();draft.upsert('providerAccounts',{...current,identityKey,label,updatedAt});write(tx=>tx.update(providerAccounts).set({identityKey,label,updatedAt}).where(eq(providerAccounts.id,id)));return null;
+      }});}else await this.db.update(providerAccounts).set({identityKey,label,updatedAt:nowIso()}).where(eq(providerAccounts.id,account.id));
+      return { ...account, identityKey, label };
+    }
+    return account;
+  }
+
+  /** A retired account must not block re-enrolling the same subscription. */
+  private async releaseRetiredIdentity(engine: Engine, identityKey: string, accounts: Account[]) {
+    const retired = accounts.find((a) => a.state === 'removed' && a.identityKey === identityKey);
+    if (!retired) return;
+    const owner=ownerRuntimeFor(this.db);
+    if(owner){await mutateOwnerState(owner,{kind:'provider.account.identify',payload:{id:retired.id,identityKey:null},prepare({snapshot,draft,write}){
+      const current=snapshot.accounts.get(retired.id);if(!current||current.state!=='removed')return null;
+      const updatedAt=nowIso();draft.upsert('providerAccounts',{...current,identityKey:null,updatedAt});write(tx=>tx.update(providerAccounts).set({identityKey:null,updatedAt}).where(eq(providerAccounts.id,retired.id)));return null;
+    }});return;}
+    await this.db.update(providerAccounts).set({ identityKey: null, updatedAt: nowIso() }).where(and(eq(providerAccounts.engine, engine), eq(providerAccounts.id, retired.id)));
+  }
+
+  private async insertAccount(engine: Engine, key: string, label: string): Promise<Account> {
     const now = nowIso();
     await this.db
       .insert(providerAccounts)
@@ -229,7 +330,7 @@ export class ProviderAccountsService {
         payloadId: null,
         generation: null,
         lastSelectedAt: null,
-        label: `${PROVIDER_LABELS[engine]} account`,
+        label,
         identityKey: key,
         createdAt: now,
         updatedAt: now,
@@ -303,6 +404,8 @@ export class ProviderAccountsService {
             id: a.id,
             engine: a.engine,
             label: a.label,
+            email: a.label.includes('@') ? a.label : null,
+            identity_known: !!a.identityKey && !a.identityKey.startsWith('credential:'),
             state: a.state,
             ...(['grok','kimi'].includes(a.engine) ? { refresh_state: refresh?.state ?? 'idle', refresh_error: refresh?.errorCode ?? null } : {}),
             verification_state: payload?.verificationState ?? 'pending',
@@ -318,7 +421,14 @@ export class ProviderAccountsService {
             plan,
             sessions: sessions
               .filter((s) => s.accountId === a.id)
-              .map((s) => ({ id: s.id, host_id: s.hostId, expires_at: s.expiresAt })),
+              .map((s) => ({
+                id: s.id,
+                host_id: s.hostId,
+                expires_at: s.expiresAt,
+                scope_id: s.scopeId,
+                binding_generation: s.bindingGeneration ?? 1,
+                desired_account_id: s.desiredAccountId ?? null,
+              })),
           };
         }),
     );
@@ -411,6 +521,7 @@ export class ProviderAccountsService {
     if (owner) { await drainOwnedProviders(owner); return acquireOwnedProvider(owner,hostId,engine,scopeId,sessionId,threshold,preferred,ownershipMode); }
     if (preferred !== undefined) preferred = await this.canonicalId(preferred, engine);
     await this.drainRemoved();
+    const policy = await readAccountPolicy(this.db, engine);
     return this.db.transaction(async (tx) => {
       // Lock a stable row for this host/engine/scope. Account rows serialize
       // selection and reservation across API processes, not just one instance.
@@ -454,10 +565,15 @@ export class ProviderAccountsService {
             lastSelectedAt: a.lastSelectedAt,
           });
         }
+        const admitted = [];
+        for (const candidate of candidates) {
+          const snapshot = await quotaSnapshot(tx, candidate.id, engine);
+          if (snapshot?.unlimited || !emulationBlocks(snapshot?.short)) admitted.push(candidate);
+        }
         const chosen =
           preferred !== undefined
             ? candidates.find((a) => a.id === preferred)
-            : selectAccount(candidates, threshold, Date.now());
+            : selectForLaunch(policy, admitted.length ? admitted : candidates, threshold, Date.now());
         account = accounts.find((a) => a.id === chosen?.id);
       }
       if (!account)
@@ -470,7 +586,20 @@ export class ProviderAccountsService {
       const expiresAt = new Date(Date.now() + 300_000).toISOString();
       await tx
         .insert(providerAccountSessions)
-        .values({ id: sessionId, hostId, engine, scopeId, accountId: account.id, expiresAt, createdAt: now })
+        .values({
+          id: sessionId,
+          hostId,
+          engine,
+          scopeId,
+          accountId: account.id,
+          expiresAt,
+          createdAt: now,
+          bindingGeneration: pinned?.bindingGeneration ?? 1,
+          desiredAccountId: pinned?.desiredAccountId ?? null,
+          desiredReason: pinned?.desiredReason ?? null,
+          desiredAt: pinned?.desiredAt ?? null,
+          boundAt: pinned?.boundAt ?? now,
+        })
         .onDuplicateKeyUpdate({ set: { expiresAt } });
       await tx
         .update(providerAccounts)

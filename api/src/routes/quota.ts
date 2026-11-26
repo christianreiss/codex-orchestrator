@@ -17,6 +17,7 @@ import { SettingsService } from '../services/settings.js';
 import { quotaPolicySchema, quotaPolicyKey, readQuotaPolicy } from '../services/quota-policy.js';
 import { quotaSnapshot } from '../services/quota-observation.js';
 import { ProviderAccountsService } from '../services/provider-accounts.js';
+import { AccountSwitchService } from '../services/account-switch.js';
 import { ValidationError } from '../http/errors.js';
 import { WatchdogsService } from '../services/watchdogs.js';
 import { parseEngine, type Engine } from '../util/engine.js';
@@ -94,6 +95,23 @@ export async function registerQuotaRoutes(app: FastifyInstance, ctx: RouteContex
     } else if (session.engine === 'grok') {
       await new GrokUsageService({ db: ctx.db, authOwner: createGrokAuthOwner({ db: ctx.db, keyring: ctx.keyring, runner: createRunnerClient({ env: ctx.env }) }) }).refreshAccount(session.providerAccountId).catch(() => undefined);
     }
-    return await quotaSnapshot(ctx.db, session.providerAccountId, session.engine as Engine) ?? { status: 'unavailable', reason: 'account_unavailable', short: null, long: null };
+    const snapshot = await quotaSnapshot(ctx.db, session.providerAccountId, session.engine as Engine);
+    if (!snapshot) return { status: 'unavailable', reason: 'account_unavailable', short: null, long: null };
+    // In a pool the bound account's quota is not the agent's limit.
+    try {
+      const view = await new AccountSwitchService(ctx.db, ctx.keyring).poolView(session.engine as Engine, session.providerAccountId);
+      if (view.accounts.length > 1)
+        return {
+          ...snapshot,
+          pool: {
+            recommendation: view.recommendation,
+            policy: { mode: view.policy.mode, strategy: view.policy.strategy },
+            accounts: view.accounts.map((a) => ({ id: a.id, label: a.label, state: a.state, verified: a.verified, short_used_percent: a.short_used_percent, weekly_used_percent: a.weekly_used_percent, score: a.score })),
+          },
+        };
+    } catch {
+      // Pool details are advisory.
+    }
+    return snapshot;
   });
 }

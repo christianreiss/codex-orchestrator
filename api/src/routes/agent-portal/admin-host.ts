@@ -195,7 +195,9 @@ export async function registerAgentPortalAdminHostRoutes(
       // Serialize registration retries before attaching the immutable account binding.
       if(owner)await mutateOwnerState(owner,{kind:'session.provider.bind',payload:{sessionId,providerSessionId:providerLease.id},prepare(command){
         const registered=command.draft.table('agentSessions').get(sessionId),lease=command.draft.table('providerAccountSessions').get(providerLease.id);
-        if(!registered||registered.hostId!==host.id||registered.engine!==engine||registered.endedAt||(registered.providerAccountId&&registered.providerAccountId!==providerLease.accountId)||!lease||lease.hostId!==host.id||lease.engine!==engine||lease.accountId!==providerLease.accountId||(lease.ownershipMode!=='connection'&&Date.parse(lease.expiresAt)<=Date.now()))throw new ForbiddenError('Provider account binding changed');
+        // A live account switch (binding generation > 1) legitimately moves the session's account.
+        const moved=(lease?.bindingGeneration??1)>1;
+        if(!registered||registered.hostId!==host.id||registered.engine!==engine||registered.endedAt||(registered.providerAccountId&&registered.providerAccountId!==providerLease.accountId&&!moved)||!lease||lease.hostId!==host.id||lease.engine!==engine||lease.accountId!==providerLease.accountId||(lease.ownershipMode!=='connection'&&Date.parse(lease.expiresAt)<=Date.now()))throw new ForbiddenError('Provider account binding changed');
         if(registered.providerAccountId!==lease.accountId)stageUpdate(command,'agentSessions',sessionId,{providerAccountId:lease.accountId});
         return null;
       }});
@@ -203,7 +205,7 @@ export async function registerAgentPortalAdminHostRoutes(
         const [registered] = await tx.select().from(agentSessions).where(and(
           eq(agentSessions.id, sessionId), eq(agentSessions.hostId, host.id), eq(agentSessions.engine, engine),
         )).for('update');
-        if (!registered || (registered.providerAccountId && registered.providerAccountId !== providerLease.accountId))
+        if (!registered || (registered.providerAccountId && registered.providerAccountId !== providerLease.accountId && (providerLease.bindingGeneration ?? 1) <= 1))
           throw new ForbiddenError('Provider account binding changed');
         await tx.update(agentSessions).set({ providerAccountId: providerLease.accountId }).where(eq(agentSessions.id, sessionId));
       });

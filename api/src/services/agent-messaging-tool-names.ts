@@ -24,6 +24,8 @@
  */
 export const AGENT_MESSAGING_TOOLS = [
   'quota_get',
+  'account_status',
+  'account_switch',
   'host_insecure_enable',
   'agent_spawn',
   'agent_spawn_status',
@@ -124,6 +126,10 @@ export const MANAGED_BLOCK_UNNAMED_TOOLS: Partial<Record<AgentMessagingTool, str
     'Git Director bookkeeping for an SSH checkout; its MCP description and docs/agent-coordination.md carry the procedure',
   agent_room_send:
     'compatibility alias of agent_chat_send with room_id equal to the scope ID; the managed block names agent_chat_send',
+  account_status:
+    'Claude account pool; QUOTA/1 notices and quota_get name it when a pool exists, and the managed #account-switch Skill carries the procedure',
+  account_switch:
+    'live Claude account switch; QUOTA/1 notices and quota_get recommend it when a pool exists, and the managed #account-switch Skill carries the procedure',
 };
 
 /**

@@ -1208,7 +1208,9 @@ Credential adoption with a persistent backup is limited to secure hosts. An
 insecure signed config or a readback reporting an insecure host refuses retention;
 inspection still works. Unverified or missing server credentials, changed or
 absent account binding, missing local credentials and logout intent remain fenced
-with diagnostics. There is no cross-account switch or implicit logout recovery.
+with diagnostics. Adoption performs no cross-account switch or implicit logout recovery; a
+live Claude account switch is a separate, server-requested flow (`account_switch` frame, see
+`docs/interface-clx.md` → Multiple provider accounts).
 Grok rejects this command explicitly: subscription credentials are server-owned.
 
 Malformed pending markers, including valid JSON without a lower-case SHA256

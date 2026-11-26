@@ -33,6 +33,7 @@ export const WS_EVENT_TYPES = [
   'host.daemon.stop_requested',
   'quota.policy.updated',
   'accounts.updated',
+  'provider.scope.switch',
   'auth.canonical',
   'auth.invalidated',
   'companion.devices.changed',

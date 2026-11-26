@@ -355,7 +355,11 @@
       "GET /admin/prune-policy",
       "GET /admin/settings/host-overrides",
       "GET /admin/wrapper/rollout/enabled",
-      "POST /admin/wrapper/rollout/enabled"
+      "POST /admin/wrapper/rollout/enabled",
+      "GET /admin/accounts/policy/:engine",
+      "POST /admin/accounts/policy/:engine",
+      "GET /admin/accounts/scopes",
+      "POST /admin/accounts/scopes/switch"
     ]
   },
   "excluded": {

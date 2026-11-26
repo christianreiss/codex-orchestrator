@@ -7,6 +7,9 @@ import { createPooledAuthStoreService } from '../../../services/pooled-auth-stor
 import { createRunnerValidationService } from '../../../services/runner-validation.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
 import { wsPublisher } from '../../../ws/publisher.js';
+import { AccountSwitchService } from '../../../services/account-switch.js';
+import { readAccountPolicy, writeAccountPolicy } from '../../../services/account-policy.js';
+import { isEngine } from '../../../util/engine.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
 import type { Engine } from '../../../util/engine.js';
 
@@ -46,6 +49,47 @@ export async function registerAdminAccountsRoutes(app: FastifyInstance, ctx: Rou
   app.get('/admin/accounts', { preHandler: [adminSpaHtmlPreHandler(ctx), app.requireAdmin] }, async () => ({
     accounts: await accounts.list(),
   }));
+  const switches = new AccountSwitchService(ctx.db, ctx.keyring);
+  const engineOf = (value: unknown): Engine => {
+    if (typeof value !== 'string' || !isEngine(value)) throw new ValidationError('Unknown engine');
+    return value;
+  };
+  app.get('/admin/accounts/policy/:engine', { preHandler: app.requireAdmin }, async (req) =>
+    readAccountPolicy(ctx.db, engineOf((req.params as { engine: string }).engine)),
+  );
+  app.post('/admin/accounts/policy/:engine', { preHandler: app.requireAdmin }, async (req) => {
+    const engine = engineOf((req.params as { engine: string }).engine);
+    const policy = await writeAccountPolicy(ctx.db, engine, req.body);
+    wsPublisher.publish('accounts.updated', { engine, policy: true });
+    // A stricter band or ceiling may move running scopes right away.
+    void switches.evaluate(engine).catch((err) => req.log.warn({ err }, 'account policy evaluation failed'));
+    return policy;
+  });
+  app.get('/admin/accounts/scopes', { preHandler: app.requireAdmin }, async (req) =>
+    switches.scopes(engineOf((req.query as { engine?: string }).engine ?? 'claude')),
+  );
+  app.post('/admin/accounts/scopes/switch', { preHandler: app.requireAdmin }, async (req) => {
+    const input = parse(
+      z
+        .object({
+          engine: z.enum(['codex', 'claude', 'grok', 'kimi']),
+          host_id: z.number().int().positive(),
+          scope_id: z.string().regex(/^[a-zA-Z0-9_-]{16,64}$/),
+          account_id: z.union([z.number().int().positive(), z.literal('auto')]),
+        })
+        .strict(),
+      req.body,
+    );
+    const result = await switches.requestSwitch({
+      hostId: input.host_id,
+      engine: input.engine,
+      scopeId: input.scope_id,
+      target: input.account_id,
+      reason: 'admin',
+      actor: req.admin?.user.email ?? null,
+    });
+    return { binding_generation: result.binding_generation, account_switch: result.account_switch };
+  });
   app.post('/admin/accounts', { preHandler: app.requireAdmin }, async (req) => {
     const input = parse(create, req.body);
     const result = await store.storeCandidate({

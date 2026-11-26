@@ -2509,6 +2509,72 @@ Before a launch reservation, a host's saved account ID is a discovery hint: a re
 
 Selection runs once per native CLI launch. It prefers verified enabled accounts with lower short/weekly utilization below the configured quota threshold; readings within five percentage points share assignments by active session count, then least recent selection. Unknown/reset accounts get bounded trials to obtain usage. Stale utilization stays conservative until its reset; reset windows become unknown rather than fabricated zero usage. Active sessions retain their account, including overlapping launches sharing native files. If all known quotas are exhausted, existing hard-fail/warn and VIP behavior still governs the selected account. There is no cross-engine fallback or manual host pinning.
 
+### Claude multiple accounts and live switching
+
+Since cxx 0.9.207, Claude accounts carry a provider identity. On every Claude
+credential store the server asks Anthropic who the token belongs to (`GET https://api.anthropic.com/api/oauth/profile`,
+bearer = the uploaded OAuth access token, 5 s timeout, cached per access token for 6 h, failures for 60 s).
+This is the only call the server makes to Anthropic with a subscription token; it never refreshes and
+never runs inference with one. The identity is `claude:<account_uuid>:<organization_uuid>` (stored as a
+hash in `identity_key`); a default label becomes the account e-mail.
+
+- A known identity always routes to its own account, even when the uploading session is bound to another
+  one: a late rotation of account A from a session that has already moved to B updates A and never
+  overwrites B.
+- An unknown identity becomes a new account on a secure host (`account_created: true`, `account_label`),
+  regardless of session binding or a sole existing account. Insecure hosts get HTTP 403
+  `account_enroll_insecure_host` instead of enrolling. Host `POST /auth` `command=store` accepts
+  `enroll: true` (no `session_id`/`account_id`) for an explicit enrollment from `clx accounts add`.
+- An operator replacement (`POST /admin/accounts/:id/credentials`) with another subscription returns
+  409 `account_identity_mismatch`.
+- When Anthropic cannot identify a token (offline, non-OAuth credential) the previous lineage rules apply.
+
+**Distribution policy** (`versions` key `account_policy_<engine>`):
+`{mode: auto|manual, strategy: balanced|exhaust, spread: eng|normal|locker, soft_ceiling, hard_ceiling, min_dwell_minutes}`,
+default `auto`/`balanced`/`normal`/90/99/15. The band words are 10, 20 and 30 percentage points. The
+score is `max(short, weekly)` used percent.
+- `balanced`: launches take the least used account; a running scope moves once its account is more than
+  the band above the least used one.
+- `exhaust`: accounts are used in ID order up to `soft_ceiling`, then the next; when all are above it,
+  up to `hard_ceiling`.
+- `manual`: no automatic moves.
+- Automatic moves wait `min_dwell_minutes` after the last change (prompt caches are organization-scoped);
+  an account at the quota limit moves immediately when another has headroom. Launches skip accounts
+  blocked by emulated quota while others remain.
+- The evaluator runs after every Claude usage report and every 60 s.
+
+**Live switching** (Claude only; other engines return 409 `account_switch_unsupported_engine`). A scope
+(host, engine, native credential directory) moves as a whole. Every scope row carries
+`binding_generation`, a pending `desired_account_id`/`desired_reason`/`desired_at` and `bound_at`.
+- `POST /auth/sessions/switch-request` — `{engine, session_id, account_id: <id>|"auto", reason?: "agent"}`
+  records a pending switch (`reason` `host` or `agent`); the target must be enabled, verified and of the same
+  engine (409 `account_switch_target_unavailable`). Requesting the bound account clears a pending request.
+  Returns `{binding_generation, account_switch}`.
+- Acquire, heartbeat and `/auth` responses carry `binding_generation` and `account_switch`
+  `{account_id, account_label, binding_generation, reason, requested_at}` or null; a connected
+  communicator additionally receives `{type: "account_switch", engine, scope_id}`.
+- The wrapper waits for the next turn boundary, uploads any pending rotation of the old account, then
+  calls `POST /auth/sessions/switch` `{engine, session_id, scope_id, account_id, binding_generation}`.
+  The server compares account and generation (409 `account_switch_stale` otherwise), moves every row of
+  the scope, increments the generation, clears the request and returns `{account_id, account_label,
+  session_id, binding_generation, auth, canonical_digest, canonical_last_refresh}`. Agent sessions bound to
+  the old account follow when no other live scope on that host still uses it.
+- Audit actions `provider_account.switch_requested` and `provider_account.switched`; WebSocket
+  `accounts.updated` and `provider.scope.switch`.
+- Usage reports for an account the session no longer holds return `{status: "ignored", reason: "stale_account"}`.
+
+`GET /auth/accounts` (`?engine=claude&session_id=…`) returns `{engine, policy, bound_account_id, binding_generation,
+account_switch, live_switch, accounts[], recommendation}`. With more than one account, `/auth` retrieve adds
+`quota_pool {recommendation, policy{mode,strategy}, accounts[]}` and the agent `quota_get` answer adds
+`pool`. `recommendation` is `{action: continue|switch|pause, account_id, message}`: `pause` only when every
+usable account is at its limit, so one account near its quota no longer tells agents to stop. QUOTA/1
+notices in a pool name the other accounts and carry the same recommendation.
+
+Admin: `GET /admin/accounts/policy/:engine` and `POST /admin/accounts/policy/:engine` read/patch the policy (POST
+re-evaluates immediately); `GET /admin/accounts/scopes` (`?engine=claude`) lists running scopes with host, bound account, generation and
+pending switch; `POST /admin/accounts/scopes/switch` `{engine, host_id, scope_id, account_id|"auto"}`
+requests a switch with reason `admin`.
+
 ### Provider subscription plans
 
 `GET /admin/accounts` includes an account-scoped `plan` object for every engine:

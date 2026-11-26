@@ -323,6 +323,7 @@ Claude settings and MCP merges preserve unreadable or non-object user files and 
 | `doctor` / `--doctor` | Responsive self-diagnostic (config, paths, CLI, usable credentials, parsed settings/MCP state, HTTP reachability, latency, disk, cron) on stdout; an unreadable signed config is rendered as a blocked diagnostic instead of bypassing the terminal UI |
 | `auth-upload` | Stabilize and POST native `~/.claude/.credentials.json`; apply the authoritative response only if that native generation is still current |
 | `auth ...` | Passed through to upstream Claude under the active-child/session leases. `auth login` uploads the resulting generation and applies guarded canonical writeback; `auth logout` journals durable intent before destructive native mutation; `auth status` remains read-only passthrough. The top-level `login`/`logout` aliases follow the same rules. |
+| `accounts [list\|add\|use]` | Claude account pool (cxx 0.9.207): `list [--json]` shows pool, quota, policy and this scope's binding; `add` signs another subscription in through `claude auth login` in an isolated private config dir and enrolls it (`enroll: true`) without touching `~/.claude`; `use <id\|auto>` requests a live switch of this scope at the next turn boundary. See *Multiple provider accounts*. |
 | `exec -- <cmd...>` | Bypass startup sync; run a single Claude command |
 | `cxx agent ...` | Shared Agent Messaging control surface: `list` (alias `peers`, `--engine codex\|claude\|grok\|kimi`, `--online`), `send`, `request`, `wait`, `reply`, `message <id>`, `cancel`, `listen`, `poll --hook Stop\|UserPromptSubmit` (the Claude ringer hook), `status`, `service install\|remove\|start\|stop\|restart\|status`, `worker --foreground`, and `mcp [--channel|--auto]` (the stdio MCP server the managed `cxx-agent` entry launches). Message and reply content is accepted only on stdin. |
 | `--continue` / `-c` | Passed straight through to the upstream `claude` binary |
@@ -2013,11 +2014,45 @@ preview.
 
 ## Multiple provider accounts (cxx 0.9.7)
 
-A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Account switching uses strict generation CAS and requires an idle native child lease; overlapping invocations with the same host/engine/auth-directory scope share their live account. Heartbeats run every 30 seconds and leases expire after five minutes if a wrapper disappears; normal exit releases the reservation. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
+A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Launch-time account changes use strict generation CAS and require an idle native child lease (live switching below is the only exception); overlapping invocations with the same host/engine/auth-directory scope share their live account. Legacy timed leases heartbeat every 90 seconds (cxx 0.9.121) and expire after five minutes if a wrapper disappears; connection-owned leases follow the communicator connection; normal exit releases the reservation. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
 
 Quota gating and advice read the selected account only. The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. OAuth login sessions are not separate provider accounts. Fresh opaque Claude OAuth tokens reuse the sole account or their session/host assignment; known access/refresh lineage also identifies previous credentials. With multiple accounts and no assignment, use Replace credentials on the intended account. Use Add account or an untargeted seed command to explicitly enroll another opaque account.
 
 Claude statusline reports inherit `CXX_PROVIDER_ACCOUNT_ID` and `CXX_PROVIDER_SESSION_ID` from their native child. Both usage snapshots and the report throttle are account-scoped, preventing an older session from reporting under a newly selected account.
+
+
+### Several Claude subscriptions and live switching (cxx 0.9.207)
+
+The server identifies every Claude login through Anthropic's OAuth profile (account and organization
+UUID; see `docs/interface-api.md` → *Claude multiple accounts and live switching*), so a second
+subscription becomes a second account instead of overwriting the first.
+
+- First login on a PC: `clx login` → account 1. Every further subscription: `clx accounts add`, which runs
+  `claude auth login` in a private `CLAUDE_CONFIG_DIR` under `~/.cxx/` (0700, not `/tmp`), uploads with
+  `enroll: true`, prints whether a new account was created or an existing one refreshed, and removes the
+  directory. `~/.claude` and running sessions stay untouched. Insecure hosts cannot enroll (403
+  `account_enroll_insecure_host`).
+- The distribution policy (automatic balanced/exhaust or manual) is server-side, per engine, and edited on
+  the Accounts page.
+- **Live switch.** The unit is the scope (host, user, native credential directory): every session sharing
+  `~/.claude/.credentials.json` moves together. A pending switch arrives in acquire/heartbeat/`/auth`
+  responses; a communicator `account_switch` frame triggers an immediate heartbeat. The wrapper waits for a
+  turn boundary: the receiver hooks report no running turn (a `UserPromptSubmit` waits while the switch is
+  written) and every transcript of the scope written in the last 15 minutes has ended its turn and been
+  quiet for 20 s, so sibling sessions and launches without a receiver are covered. It then flushes a pending rotation of the old account, commits with `POST /auth/sessions/switch`
+  (generation-fenced), writes the new account's credentials through `WriteSwitchedAccountIfCurrent`
+  (strict CAS, active child allowed, logout intent respected). `oauthAccount` in `~/.claude.json` is left to
+  Claude Code, which refetches the profile itself. Claude Code reloads credentials when the file's mtime changes, so the next prompt runs on the new account
+  without a restart; the transcript is kept, the organization-scoped prompt cache is rebuilt once. The
+  agent receives an auth notice naming the new account.
+- When the commit succeeded but the credential write did not (CAS miss, logout intent), the wrapper keeps the
+  committed binding and retries the write with sync paused, up to 20 times every 15 s; afterwards normal sync
+  delivers the new account's credentials at the next idle sync or launch.
+- `clx accounts use <id|auto>`, the agent tools `account_status` / `account_switch` (fleet Skill
+  `#account-switch`) and the Accounts page request switches; Codex, Grok and Kimi report
+  `account_switch_unsupported_engine` and keep the launch-time selection.
+- The statusline reads the account from the binding file, so usage after a switch is reported for the new
+  account; reports for an account the session no longer holds are ignored by the server.
 
 ## Wake / Cron and explicit persistent recovery
 

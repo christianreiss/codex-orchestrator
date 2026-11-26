@@ -31,6 +31,8 @@ const FRONTEND_EVENTS = resolve(HERE, '../../../../frontend/src/lib/ws/events.ts
 
 /** Published types that deliberately invalidate nothing, and why. */
 const UNMAPPED_EVENT_TYPES: Record<string, string> = {
+  'provider.scope.switch':
+    'communicator wake for the scope\'s host; the same update also publishes accounts.updated, which invalidates the accounts views',
   'host.daemon.operation.queued': 'Internal post-commit transport wake; host.daemon.changed already invalidates the operator views.',
   toast: 'not an invalidation — wireWsToQueryClient hands the payload to the sonner toaster',
   'chatgpt.usage.updated':

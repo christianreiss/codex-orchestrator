@@ -319,6 +319,14 @@ remain bound to the same logical Android conversation.
 Wrapper quota bars mark elapsed time in fresh windows with known timing.
 The fill shows usage, with amber for usage beyond the elapsed share.
 
+Claude account pools hold several subscriptions: the server identifies each login
+through Anthropic's OAuth profile, `clx accounts add` enrolls another subscription
+from the same PC, and a per-engine policy (automatic balanced within a 10/20/30-point
+band, automatic exhaust to 90 then 99 %, or manual) distributes sessions. Claude
+sessions switch accounts live at the next turn boundary; quota warnings and
+`quota_get` name the other accounts and only advise pausing when the whole pool is at
+its limit. See `docs/interface-api.md` → *Claude multiple accounts and live switching*.
+
 Dashboard provider accounts use a shared card and quota-meter layout for ChatGPT,
 Claude and Grok, with three columns on desktop, two on tablets and one on mobile.
 Each card shows its last observation and marks retained stale readings. ChatGPT

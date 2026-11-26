@@ -39,6 +39,9 @@ Default spec section: [Host-facing](interface-api.md#host-facing); lines with an
 - `POST /auth/sessions` — host key: host-key/IP/security gated `{engine, scope_id, session_id, account_id?}` ([spec](interface-api.md#provider-accounts-and-launch-reservations))
 - `POST /auth/sessions/heartbeat` — host key: `{engine, session_id}` extends a live, host-owned lease by five minutes ([spec](interface-api.md#provider-accounts-and-launch-reservations))
 - `POST /auth/sessions/release` — host key: `{engine, session_id}` idempotently releases that host's reservation and drains pending removal ([spec](interface-api.md#provider-accounts-and-launch-reservations))
+- `GET /auth/accounts` — host key: `?engine&session_id?` account pool metadata, distribution policy, this scope's binding and the pool recommendation ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
+- `POST /auth/sessions/switch-request` — host key: `{engine, session_id, account_id|"auto", reason?}` asks to move this session's scope to another account at the next turn boundary ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
+- `POST /auth/sessions/switch` — host key: `{engine, session_id, scope_id, account_id, binding_generation}` commits a requested switch and returns the new account's auth ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
 
 ## Wrapper, installer and rescue media
 
@@ -534,6 +537,10 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/accounts/{id}/credentials` — admin session, `auth.manage`: replace the stored credentials of an account ([spec](interface-api.md#provider-accounts-and-launch-reservations))
 - `POST /admin/accounts/{id}/verify` — admin session, `auth.manage`: live runner verification ([spec](interface-api.md#provider-accounts-and-launch-reservations))
 - `DELETE /admin/accounts/{id}` — admin session, `auth.manage`: stops new assignments immediately (`removing`) ([spec](interface-api.md#provider-accounts-and-launch-reservations))
+- `GET /admin/accounts/policy/{engine}` — admin session, `auth.read_metadata`: read the account distribution policy ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
+- `POST /admin/accounts/policy/{engine}` — admin session, `auth.manage`: change mode, strategy, band and ceilings ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
+- `GET /admin/accounts/scopes` — admin session, `auth.read_metadata`: running scopes with bound account, generation and pending switch ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
+- `POST /admin/accounts/scopes/switch` — admin session, `auth.manage`: request a live switch of one scope ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
 - `GET /admin/grok/keys` — admin session, `auth.read_metadata`: list Grok gateway keys without credential bodies ([spec](interface-api.md#grok-endpoint-inventory))
 - `POST /admin/grok/keys` — admin session, `keys.manage`: issue a scoped sk-cgx- gateway key, returned once ([spec](interface-api.md#grok-endpoint-inventory))
 - `POST /admin/grok/keys/{id}/toggle` — admin session, `keys.manage`: change a Grok gateway key active state ([spec](interface-api.md#grok-endpoint-inventory))

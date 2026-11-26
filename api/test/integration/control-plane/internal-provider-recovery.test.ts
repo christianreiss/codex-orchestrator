@@ -81,6 +81,11 @@ describe.skipIf(!config)('internal provider tasks after owner restart', () => {
                       accountId: account.id,
                       expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
                       createdAt: now,
+                      bindingGeneration: 1,
+                      desiredAccountId: null,
+                      desiredReason: null,
+                      desiredAt: null,
+                      boundAt: now,
                     };
                     leases.push(lease);
                     await tx.insert(schema.providerAccountSessions).values(lease);

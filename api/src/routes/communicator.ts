@@ -334,6 +334,11 @@ export async function registerCommunicatorRoutes(app: FastifyInstance, ctx: Rout
       const unsubscribe = wsPublisher.subscribe((event) => {
         try {
           const payload = event.payload as Record<string, unknown> | null;
+          // A pending account switch for one of this host's scopes: the wrapper
+          // heartbeats immediately and receives the directive there.
+          if (event.type === 'provider.scope.switch' && payload?.host_id === hostId && greeted) {
+            send({ type: 'account_switch', engine: payload.engine, scope_id: payload.scope_id });
+          }
           if (event.type === 'auth.canonical') {
             const engine = payload?.engine;
             const account = payload?.account_id;

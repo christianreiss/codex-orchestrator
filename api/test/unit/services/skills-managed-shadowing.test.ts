@@ -53,7 +53,7 @@ describe('SkillsService managed shadowing', () => {
     const { service } = makeService([staleRow('afk', 1)]);
 
     const listed = await service.list({ includeDeleted: true });
-    expect(listed.map((s) => s.slug)).toEqual(['afk', 'conference', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
+    expect(listed.map((s) => s.slug)).toEqual(['account-switch', 'afk', 'conference', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
     expect(listed.find((skill) => skill.slug === 'afk')).toMatchObject({
       id: null,
       slug: 'afk',
@@ -88,7 +88,7 @@ describe('SkillsService managed shadowing', () => {
 
     const listed = await service.list();
 
-    expect(listed.map((skill) => skill.slug)).toEqual(['afk', 'conference', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
+    expect(listed.map((skill) => skill.slug)).toEqual(['account-switch', 'afk', 'conference', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
     expect(listed.find((skill) => skill.slug === 'afk')).toMatchObject({ slug: 'afk', sha256: afk.sha256, managed: true });
   });
 
@@ -97,7 +97,7 @@ describe('SkillsService managed shadowing', () => {
 
     const listed = await service.list();
 
-    expect(listed.map((s) => s.slug)).toEqual(['afk', 'agentic', 'conference', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
+    expect(listed.map((s) => s.slug)).toEqual(['account-switch', 'afk', 'agentic', 'conference', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
     expect(listed.find((skill) => skill.slug === 'agentic')).toMatchObject({
       id: 2,
       slug: 'agentic',
@@ -119,6 +119,7 @@ describe('SkillsService managed shadowing', () => {
     ]);
 
     await expect(service.list()).resolves.toMatchObject([
+      { slug: 'account-switch' },
       { slug: 'afk' },
       { slug: 'agentic' },
       { slug: 'conference' },
@@ -128,7 +129,7 @@ describe('SkillsService managed shadowing', () => {
       { slug: 'watchdog' },
     ]);
     const all = await service.list({ includeDeleted: true });
-    expect(all.map((s) => s.slug)).toEqual(['afk', 'agentic', 'conference', 'reboot-safe', 'retired', 'skill-manager', 'wake-cron', 'watchdog']);
+    expect(all.map((s) => s.slug)).toEqual(['account-switch', 'afk', 'agentic', 'conference', 'reboot-safe', 'retired', 'skill-manager', 'wake-cron', 'watchdog']);
     expect(all.find((skill) => skill.slug === 'retired')).toMatchObject({ slug: 'retired', deleted_at: '2026-02-02T00:00:00Z', managed: false });
   });
 
@@ -142,7 +143,7 @@ describe('SkillsService managed shadowing', () => {
     const { service } = makeService([staleRow('context', 1)]);
 
     const listed = await service.list();
-    expect(listed.map((s) => s.slug)).toEqual(['afk', 'conference', 'context', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
+    expect(listed.map((s) => s.slug)).toEqual(['account-switch', 'afk', 'conference', 'context', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
 
     const row = listed.find((skill) => skill.slug === 'context');
     // Served from the row, not from code: nothing generates a context manifest now.
@@ -152,14 +153,14 @@ describe('SkillsService managed shadowing', () => {
   it('shadows coco only while the Projects module is on', async () => {
     const withModule = makeService([staleRow('coco', 1)], true);
     const listedOn = await withModule.service.list();
-    expect(listedOn.map((s) => s.slug)).toEqual(['afk', 'coco', 'conference', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
+    expect(listedOn.map((s) => s.slug)).toEqual(['account-switch', 'afk', 'coco', 'conference', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
     expect(listedOn.find((skill) => skill.slug === 'coco')).toMatchObject({ id: null, sha256: coco.sha256, manifest: coco.manifest, managed: true });
 
     // With the module off no coco manifest is served, so the row is what hosts
     // get -- but the slug is still code-owned, so it stays flagged as managed.
     const withoutModule = makeService([staleRow('coco', 1)]);
     const listedOff = await withoutModule.service.list();
-    expect(listedOff.map((s) => s.slug)).toEqual(['afk', 'coco', 'conference', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
+    expect(listedOff.map((s) => s.slug)).toEqual(['account-switch', 'afk', 'coco', 'conference', 'reboot-safe', 'skill-manager', 'wake-cron', 'watchdog']);
     expect(listedOff.find((skill) => skill.slug === 'coco')).toMatchObject({ id: 1, sha256: 'a'.repeat(64), managed: true });
   });
 });
