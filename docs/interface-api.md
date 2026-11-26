@@ -2627,13 +2627,29 @@ score is `max(short, weekly)` used percent.
   calls `POST /auth/sessions/switch` `{engine, session_id, scope_id, account_id, binding_generation}`.
   The server compares account and generation (409 `account_switch_stale` otherwise), moves every row of
   the scope, increments the generation, clears the request and returns `{account_id, account_label,
-  session_id, binding_generation, auth, canonical_digest, canonical_last_refresh}`. Agent sessions bound to
-  the old account follow when no other live scope on that host still uses it.
+  session_id, binding_generation, previous_account_id, replayed, auth, canonical_digest,
+  canonical_last_refresh}`. Agent sessions bound to the old account follow when no other live scope on
+  that host still uses it.
+- The commit can be repeated. When the scope is already bound to `account_id` at `binding_generation + 1`
+  (the commit happened, but the wrapper never saw the answer or died before it wrote the credentials),
+  the same request returns the same binding and the credentials again with `replayed: true` and
+  `previous_account_id: null`, without a second move, audit row or notice. Any other mismatch stays 409
+  `account_switch_stale`. The target's credentials are read before the binding moves: when they cannot
+  be served the answer is 503 `account_unavailable` and the request stays pending.
+- Optional `credential_write: "unfinished"` on the commit (cxx 0.9.211) reports that the credentials of
+  the committed switch are still not on disk. The server writes one audit row
+  `provider_account.switch_write_unfinished` per scope and binding generation and answers as usual.
+- `/auth` retrieve from a session whose presented digest is a login the server holds for another account
+  (the binding moved, the credentials file did not) answers `status: "outdated"` with the bound
+  account's `auth` and `presented_account_id`, whatever `last_refresh` the client sent: refresh times of
+  two accounts do not order each other. Wrappers before 0.9.211 ignore `presented_account_id` and apply
+  their own `last_refresh` comparison to that answer, as they did before.
 - Each agent session that followed gets one server notice (`ACCOUNT/1 switched: …`, idempotent per
   scope and binding generation) naming the new and the previous account with their 5h and weekly
   usage, the reason, and that work continues. The notice is best effort: if it fails, the switch
   still stands and the failure is logged.
-- Audit actions `provider_account.switch_requested` and `provider_account.switched`; WebSocket
+- Audit actions `provider_account.switch_requested`, `provider_account.switched` and
+  `provider_account.switch_write_unfinished`; WebSocket
   `accounts.updated` and `provider.scope.switch`.
 - Usage reports for an account the session no longer holds return `{status: "ignored", reason: "stale_account"}`.
   The same applies when a report's reset time matches another account's current window but not

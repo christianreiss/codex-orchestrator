@@ -371,8 +371,86 @@ describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
       await accounts.acquire(1, 'claude', scope, session, 95, a);
       const asked = await switches.requestSwitch({ hostId: 1, engine: 'claude', scopeId: scope, target: b, reason: 'admin' });
       expect(asked.account_switch).toMatchObject({ account_id: b, bound_account_usable: true });
-      await accounts.update(a, { state: 'disabled' });
+      await accounts.update(a, { state: 'paused' });
       expect((await switches.sessionBinding(1, 'claude', session)).account_switch).toMatchObject({ account_id: b, bound_account_usable: false });
+    });
+  });
+
+  describe('a switch commit that has to be repeated', () => {
+    const scope = 'scope-replay-aaaaaaa';
+    const session = 'lease-replay-aaaaaaa';
+    const pending = async (hostId: number) => {
+      const a = (await put('alice-1')).account_id!;
+      const b = (await put('bob-1')).account_id!;
+      await accounts.acquire(hostId, 'claude', scope, session, 95, a);
+      const asked = await switches.requestSwitch({ hostId, engine: 'claude', scopeId: scope, target: b, reason: 'admin' });
+      return { a, b, generation: asked.binding_generation };
+    };
+    const audits = async (action: string) => (await db.select().from(logs).where(eq(logs.action, action))).length;
+    const post = async (key: string, url: string, body: Record<string, unknown>) => {
+      const app = await buildHostApiTestApp({ db, env, keyring });
+      try {
+        const r = await app.inject({ method: 'POST', url, headers: { 'x-api-key': key, 'content-type': 'application/json' }, payload: JSON.stringify({ engine: 'claude', ...body }) });
+        return { status: r.statusCode, body: JSON.parse(r.payload) as Record<string, any> };
+      } finally {
+        await app.close();
+      }
+    };
+
+    it('answers the same commit again instead of refusing it as stale', async () => {
+      const { a, b, generation } = await pending(1);
+      const commit = () => switches.commitSwitch({ hostId: 1, engine: 'claude', sessionId: session, scopeId: scope, accountId: b, generation });
+      expect(await commit()).toMatchObject({ previous_account_id: a, account_id: b, binding_generation: generation + 1, replayed: false });
+      // The wrapper never saw that answer, or died before it wrote the credentials.
+      expect(await commit()).toMatchObject({ previous_account_id: null, account_id: b, binding_generation: generation + 1, replayed: true, moved_addresses: [] });
+      expect(await commit()).toMatchObject({ replayed: true });
+      expect(await audits('provider_account.switched')).toBe(1);
+      // Only the commit that produced the current binding can be repeated.
+      await switches.requestSwitch({ hostId: 1, engine: 'claude', scopeId: scope, target: a, reason: 'admin' });
+      await switches.commitSwitch({ hostId: 1, engine: 'claude', sessionId: session, scopeId: scope, accountId: a, generation: generation + 1 });
+      await expect(commit()).rejects.toMatchObject({ status: 409, code: 'account_switch_stale' });
+    });
+
+    it('does not move the binding when the target\'s credentials cannot be served', async () => {
+      const { a, b, generation } = await pending(1);
+      await expect(
+        switches.commitSwitch({ hostId: 1, engine: 'claude', sessionId: session, scopeId: scope, accountId: b, generation, credentialsReady: false }),
+      ).rejects.toMatchObject({ status: 503, code: 'account_unavailable' });
+      const binding = await switches.sessionBinding(1, 'claude', session);
+      expect(binding).toMatchObject({ binding_generation: generation, account_switch: { account_id: b } });
+      expect((await accounts.session(1, 'claude', session)).accountId).toBe(a);
+    });
+
+    it('returns the credentials again over the route and records an unfinished write once', async () => {
+      const runs = await host();
+      const { b, generation } = await pending(runs.id);
+      const body = { session_id: session, scope_id: scope, account_id: b, binding_generation: generation };
+      const first = await post(runs.key, '/auth/sessions/switch', body);
+      expect(first).toMatchObject({ status: 200, body: { account_id: b, binding_generation: generation + 1, replayed: false } });
+      expect(first.body.auth.claudeAiOauth.accessToken).toContain('bob-1');
+      const again = await post(runs.key, '/auth/sessions/switch', { ...body, credential_write: 'unfinished' });
+      expect(again).toMatchObject({ status: 200, body: { account_id: b, binding_generation: generation + 1, replayed: true } });
+      expect(again.body.auth).toEqual(first.body.auth);
+      await post(runs.key, '/auth/sessions/switch', { ...body, credential_write: 'unfinished' });
+      expect(await audits('provider_account.switch_write_unfinished')).toBe(1);
+    });
+
+    it('serves the bound account to a scope that still holds the previous account\'s login', async () => {
+      const runs = await host();
+      const { a, b, generation } = await pending(runs.id);
+      await switches.commitSwitch({ hostId: runs.id, engine: 'claude', sessionId: session, scopeId: scope, accountId: b, generation });
+      // The file still holds A (the write never happened), and A was refreshed after B.
+      const rotated = await put('alice-2', {}, 30);
+      expect(rotated.account_id).toBe(a);
+      const head = (await db.select().from(providerAccounts).where(eq(providerAccounts.id, a)))[0]!;
+      const local = (await db.select().from(authPayloads).where(eq(authPayloads.id, head.payloadId!)))[0]!;
+      const answer = await post(runs.key, '/auth', { command: 'retrieve', session_id: session, account_id: b, digest: local.sha256, last_refresh: local.lastRefresh });
+      expect(answer).toMatchObject({ status: 200, body: { status: 'outdated', account_id: b, presented_account_id: a } });
+      expect(answer.body.auth.claudeAiOauth.accessToken).toContain('bob-1');
+      // A login the server does not know is still asked for, as before.
+      const unknown = await post(runs.key, '/auth', { command: 'retrieve', session_id: session, account_id: b, digest: 'f'.repeat(64), last_refresh: '2026-11-25T09:59:00Z' });
+      expect(unknown.body).toMatchObject({ status: 'upload_required' });
+      expect(unknown.body.presented_account_id).toBeUndefined();
     });
   });
 });

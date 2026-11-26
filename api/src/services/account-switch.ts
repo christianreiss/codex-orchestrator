@@ -1,14 +1,14 @@
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { agentSessions, hosts, providerAccounts, providerAccountSessions } from '../db/schema.js';
-import { ConflictError, NotFoundError } from '../http/errors.js';
+import { ConflictError, NotFoundError, ServiceUnavailableError } from '../http/errors.js';
 import type { Keyring } from '../security/keyring.js';
 import { nowIso } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { ownedAccount } from '../control-plane/streams/provider-leases.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
-import { persistAuditLog } from './audit-log.js';
+import { appendAuditLog, persistAuditLog } from './audit-log.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { quotaWindowScore } from './account-selection.js';
 import { emulationBlocks } from './quota-emulation.js';
@@ -196,6 +196,9 @@ function refusedLongEnough(key: string, now: number): boolean {
   refusedReadings.delete(key);
   return true;
 }
+
+/** Unfinished credential writes already audited (host, engine, scope, binding generation). */
+const unfinishedWrites = new Set<string>();
 
 const liveLease = (row: Lease, now: string) => row.ownershipMode === 'connection' || row.expiresAt > now;
 const generationOf = (row: Pick<Lease, 'bindingGeneration'>) => row.bindingGeneration ?? 1;
@@ -493,7 +496,15 @@ export class AccountSwitchService {
     };
   }
 
-  /** Called by the wrapper that performed the switch (after flushing the old account). */
+  /**
+   * Called by the wrapper that performs the switch (after flushing the old
+   * account). The commit can be repeated: a wrapper that never saw the answer,
+   * or died before it wrote the credentials, sends the same request again and
+   * gets the same binding back (`replayed`), without a second move, audit row
+   * or notice. `credentialsReady` is the route's check that the target's
+   * credentials can be served; without them the binding must not move, since
+   * the scope would then be bound to an account it holds no login for.
+   */
   async commitSwitch(input: {
     hostId: number;
     engine: Engine;
@@ -501,7 +512,8 @@ export class AccountSwitchService {
     scopeId: string;
     accountId: number;
     generation: number;
-  }): Promise<{ previous_account_id: number; account_id: number; binding_generation: number; reason: string | null; moved_addresses: string[] }> {
+    credentialsReady?: boolean;
+  }): Promise<{ previous_account_id: number | null; account_id: number; binding_generation: number; reason: string | null; moved_addresses: string[]; replayed: boolean }> {
     const { hostId, engine, sessionId, scopeId, generation } = input;
     if (!LIVE_SWITCH_ENGINES.has(engine))
       throw new ConflictError('Live account switching is not supported for this engine yet', 'account_switch_unsupported_engine');
@@ -509,12 +521,16 @@ export class AccountSwitchService {
     const session = rows.find((r) => r.id === sessionId);
     if (!session) throw new NotFoundError('Account session not found');
     const target = (await this.accounts.canonicalId(input.accountId, engine)) ?? input.accountId;
+    if (session.accountId === target && generationOf(session) === generation + 1)
+      return { previous_account_id: null, account_id: target, binding_generation: generation + 1, reason: null, moved_addresses: [], replayed: true };
     if (session.desiredAccountId !== target || generationOf(session) !== generation)
       throw new ConflictError('The switch request is no longer pending', 'account_switch_stale');
     if (!this.usable(await this.pool(engine), target)) {
       await this.updateScope(hostId, engine, scopeId, { accountId: session.accountId, generation }, { desiredAccountId: null, desiredReason: null, desiredAt: null }, null);
       throw new ConflictError('The target account is not enabled and verified', 'account_switch_target_unavailable');
     }
+    if (input.credentialsReady === false)
+      throw new ServiceUnavailableError('Selected account is unavailable', 'account_unavailable');
     const boundAt = nowIso();
     await this.updateScope(
       hostId,
@@ -558,7 +574,26 @@ export class AccountSwitchService {
       binding_generation: generation + 1,
       reason: session.desiredReason ?? null,
       moved_addresses: movedAddresses,
+      replayed: false,
     };
+  }
+
+  /**
+   * A wrapper says the credentials of a committed switch are still not on
+   * disk. The scope runs with the new binding over the previous login until
+   * it succeeds, so the operator gets one audit row per scope and binding.
+   */
+  async reportUnfinishedWrite(hostId: number, engine: Engine, scopeId: string, accountId: number, generation: number): Promise<void> {
+    const key = `${hostId}:${engine}:${scopeId}:${generation}`;
+    if (unfinishedWrites.has(key)) return;
+    if (unfinishedWrites.size > 2000) unfinishedWrites.clear();
+    unfinishedWrites.add(key);
+    await appendAuditLog(this.db, {
+      hostId,
+      action: 'provider_account.switch_write_unfinished',
+      details: JSON.stringify({ engine, scope_id: scopeId, account_id: accountId, binding_generation: generation }),
+      createdAt: nowIso(),
+    });
   }
 
   /**

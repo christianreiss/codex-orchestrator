@@ -5,7 +5,7 @@ import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtim
 import { ownedAccount, ownedProviderSession, acquireOwnedProvider, releaseOwnedProvider, drainOwnedProviders } from '../control-plane/streams/provider-leases.js';
 import { readQuotaPolicy } from './quota-policy.js';
 import { createHash } from 'node:crypto';
-import { and, asc, count, desc, eq, gt, inArray, lte } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, lte } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   authCanonicalHeads,
@@ -70,6 +70,30 @@ export class ProviderAccountsService {
   async canonicalId(id: number, engine: Engine): Promise<number> {
     const owner = ownerRuntimeFor(this.db);
     return (owner ? (owner.assertOwner(), ownedAccount(owner.state.snapshot(), id, engine)) : await resolveProviderAccount(this.db, id, engine))?.id ?? id;
+  }
+
+  /** The live account whose credential history contains this canonical digest. */
+  async accountOfDigest(engine: Engine, digest: string): Promise<number | undefined> {
+    const owner = ownerRuntimeFor(this.db);
+    let accountId: number | null | undefined;
+    if (owner) {
+      owner.assertOwner();
+      accountId = owner.state
+        .snapshot()
+        .table('authPayloads')
+        .all()
+        .find((row) => row.engine === engine && row.sha256 === digest && row.accountId != null)?.accountId;
+    } else {
+      accountId = (
+        await this.db
+          .select({ accountId: authPayloads.accountId })
+          .from(authPayloads)
+          .where(and(eq(authPayloads.engine, engine), eq(authPayloads.sha256, digest), isNotNull(authPayloads.accountId)))
+          .orderBy(desc(authPayloads.id))
+          .limit(1)
+      )[0]?.accountId;
+    }
+    return accountId == null ? undefined : await this.canonicalId(accountId, engine);
   }
 
   async resolveCandidate(

@@ -523,14 +523,24 @@ if (engine === ENGINE_KIMI) {
     if (target === undefined) throw new ValidationError('account_id is required', { param: 'account_id' });
     if (typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1)
       throw new ValidationError('binding_generation must be a positive integer', { param: 'binding_generation' });
+    const scopeId = opaqueId(payload.scope_id, 'scope_id');
+    // The target's credentials are read before the binding moves: a commit
+    // that then cannot serve them would leave the scope bound to an account
+    // it has no login for.
+    const ready = await runnerValidation.resolveCanonicalPayload(engine, await accounts.canonicalId(target, engine));
     const committed = await switches.commitSwitch({
       hostId: host.id,
       engine,
       sessionId,
-      scopeId: opaqueId(payload.scope_id, 'scope_id'),
+      scopeId,
       accountId: target,
       generation,
+      credentialsReady: !!ready && !!runnerValidation.canonicalAuthFromPayload(ready),
     });
+    if (payload.credential_write === 'unfinished')
+      await switches
+        .reportUnfinishedWrite(host.id, engine, scopeId, committed.account_id, committed.binding_generation)
+        .catch((err) => req.log.warn({ err }, 'unfinished account switch write not recorded'));
     if (committed.moved_addresses.length) {
       // Best effort: the switch is committed; a failed notice must not undo it.
       try {
@@ -557,6 +567,7 @@ if (engine === ENGINE_KIMI) {
       session_id: sessionId,
       binding_generation: committed.binding_generation,
       previous_account_id: committed.previous_account_id,
+      replayed: committed.replayed,
       auth,
       canonical_digest: row.sha256,
       canonical_last_refresh: row.lastRefresh,
@@ -1200,6 +1211,19 @@ if (engine === ENGINE_KIMI) {
     await touchHostAuthState(ctx.db, host.id, canonicalRow.id, servedDigest, engine);
     await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
     return { ...baseResponse, status: 'valid' };
+  }
+  // The presented login is one the server already holds for another account:
+  // the scope was moved and its credentials file was not (a switch whose write
+  // never happened). There is nothing to upload, and refresh times of two
+  // different accounts say nothing about each other, so the bound account's
+  // head is served whatever the local timestamp is.
+  const boundAccountId = accountId ?? canonicalRow.accountId ?? undefined;
+  const presentedAccountId =
+    providedDigest && boundAccountId !== undefined
+      ? await new ProviderAccountsService(ctx.db, ctx.keyring).accountOfDigest(engine, providedDigest)
+      : undefined;
+  if (presentedAccountId !== undefined && presentedAccountId !== boundAccountId) {
+    return { ...baseResponse, status: 'outdated', auth: servedAuth, presented_account_id: presentedAccountId };
   }
   if (compareOptionalAuthStamps(incomingLast, servedLast) >= 0) {
     // No canonical blob was served: this host explicitly reported a distinct
