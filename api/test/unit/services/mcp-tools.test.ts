@@ -824,6 +824,7 @@ describe('secret_* tools', () => {
     arg: string;
     engine: string | null;
     limit?: number;
+    name?: string;
   }
   let secretCalls: SecretCall[] = [];
   let secretsEnabled = true;
@@ -841,8 +842,8 @@ describe('secret_* tools', () => {
       secretCalls.push({ method: 'get', arg: slug, engine });
       return { slug, value: 'ghp_x' };
     },
-    storeForHost: async (input: { slug: string }, _host: Host, engine: string | null) => {
-      secretCalls.push({ method: 'store', arg: input.slug, engine });
+    storeForHost: async (input: { slug: string; name: string }, _host: Host, engine: string | null) => {
+      secretCalls.push({ method: 'store', arg: input.slug, engine, name: input.name });
       return { secret: { slug: input.slug }, status: 'created' };
     },
     deleteForHost: async (slug: string, _host: Host, engine: string | null) => {
@@ -982,6 +983,21 @@ describe('secret_* tools', () => {
     expect(result).toMatchObject({ isError: true });
     expect(secretCalls).toEqual([]);
     expect(reg.list().find(tool => tool.name === 'secret_store')?.inputSchema.properties).not.toHaveProperty('engine');
+  });
+
+  it('leaves an omitted name empty so a rotation keeps the stored one', async () => {
+    // Substituting the slug here renamed every secret rotated without a name.
+    await reg.dispatch('secret_store', { slug: 'mine', value: 'v2' }, host);
+    expect(secretCalls.at(-1)).toMatchObject({ method: 'store', arg: 'mine', name: '' });
+    await reg.dispatch('secret_store', { slug: 'mine', name: 'Mine', value: 'v2' }, host);
+    expect(secretCalls.at(-1)).toMatchObject({ name: 'Mine' });
+  });
+
+  it('points secret_store at the CLI that keeps file and stdin values out of context', () => {
+    const store = reg.list().find((tool) => tool.name === 'secret_store');
+    expect(store?.description).toMatch(/cxx secret store SLUG --file PATH/);
+    expect(store?.description).toMatch(/cxx secret store SLUG --stdin/);
+    expect(store?.description).toMatch(/cxx 0\.9\.210\+/);
   });
 
   it('requires a slug and a value on secret_store', async () => {

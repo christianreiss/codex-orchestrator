@@ -3037,6 +3037,10 @@ bootstrap likewise probes/reports its installed CLI version only after a specifi
 stays a policy error. Session finish reconciles a lost communicator ACK only by
 repeating the same terminal receipt within its existing budget.
 
+`clx secret store SLUG --file PATH` / `--stdin` (cxx 0.9.210) saves a fleet
+credential through MCP `secret_store` without the value entering model context;
+see [the shared command contract](interface-cdx.md#local-secret-store-from-a-file-or-stdin-cxx-09210).
+
 
 ## Optional emulated short quota (cxx 0.9.150)
 

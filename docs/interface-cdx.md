@@ -3131,6 +3131,25 @@ contains metadata only. `--stored-name`, `--description`, `--mime-type` and
 applies; the same stored name is replaced. An uncertain receipt requires inspecting
 `project_files` before a retry; the command never automatically repeats an overwrite.
 
+### Local secret store from a file or stdin (cxx 0.9.210)
+
+`cxx secret store SLUG --file PATH` or `COMMAND | cxx secret store SLUG --stdin`
+(also `cdx`/`clx`/`cgx`/`ckx secret store`) saves a fleet credential without its
+value passing through model context: the wrapper reads a regular file or stdin and
+calls the existing host-authenticated MCP `secret_store`, so the same ownership rules
+apply (create a new slug, rotate only one this host created). `--name`,
+`--description`, repeatable `--tag`, `--engine codex|claude|grok|kimi` and `--json`
+are optional; an omitted field is not sent, so a rotation keeps the stored name,
+description and tags. The value is sent byte for byte, including a trailing newline
+(pipe with `printf '%s'`, not `echo`). It must be non-empty valid UTF-8 of at most
+1 MiB, checked before any network use: binary material such as a DER key is
+base64-encoded first, because JSON would silently replace invalid bytes. Output and
+`--json` carry only slug, name, status (`created`, `rotated` or `unchanged`), byte
+count and `owned_by_you`; there is no value digest, for the reason the store keeps
+none (a digest of a chosen password is offline-crackable). Server diagnostics are
+bounded and any echo of the value is redacted. Because storing an identical value
+again reports `unchanged`, an uncertain outcome may be retried with the same command.
+
 A `/sync/bootstrap` 422 that specifically reports an unreported CLI version triggers
 one installed-native-version probe, `/cron/report`, and one identical bootstrap
 retry. Healthy hidden boots retain their probe-free path. Unresolved validation

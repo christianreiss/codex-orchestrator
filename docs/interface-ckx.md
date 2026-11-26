@@ -404,6 +404,7 @@ and reject controls requiring exact telemetry instead of inventing values.
 | `logout` | End the managed auth binding. |
 | `auth-upload-auto` | Accepted no-op; hosts own no canonical refresh token. |
 | `auth-reconcile` | Explicitly refused: the server owns canonical refresh. |
+| `secret store SLUG --file PATH` / `--stdin` | Shared cxx 0.9.210 command: save a fleet credential through MCP `secret_store` without the value entering model context ([contract](interface-cdx.md#local-secret-store-from-a-file-or-stdin-cxx-09210)). |
 | `help` | Wrapper help without launching or authenticating. |
 
 ### Emergency mode

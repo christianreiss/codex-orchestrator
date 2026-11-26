@@ -886,7 +886,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       definition: {
         name: 'secret_store',
         description:
-          'Save a credential of your own into the fleet store, or rotate one you already saved. Use this instead of writing a token into a config file, a .env, a memory, or a note — this is the only place a credential belongs. Creating: pass slug, name, value, and a description saying what the credential opens and when to reach for it, because that description is all any agent (including you, later) has to go on. Rotating: pass the same slug with the new value; everything else you omit is left alone, and the response says whether the value actually changed. You may only change secrets this host created. A slug an operator created, or one another host owns, is refused — read those with secret_get and ask an operator to change them. Slugs are permanent: pick a descriptive one, because renaming means deleting and recreating, which breaks every agent that learned the old name.',
+          'Save a credential of your own into the fleet store, or rotate one you already saved. Use this instead of writing a token into a config file, a .env, a memory, or a note — this is the only place a credential belongs. Creating: pass slug, name, value, and a description saying what the credential opens and when to reach for it, because that description is all any agent (including you, later) has to go on. Rotating: pass the same slug with the new value; everything else you omit is left alone, and the response says whether the value actually changed. You may only change secrets this host created. A slug an operator created, or one another host owns, is refused — read those with secret_get and ask an operator to change them. Slugs are permanent: pick a descriptive one, because renaming means deleting and recreating, which breaks every agent that learned the old name. ' +
+          'To save a key file or a command\'s output without the value ever entering your context, run the shell command `cxx secret store SLUG --file PATH` or `<command> | cxx secret store SLUG --stdin` instead (cxx 0.9.210+; also cdx/clx/cgx/ckx; optional --name, --description, --tag): it calls this tool for you and prints only the slug, the status and the byte count.',
         inputSchema: {
           type: 'object',
           additionalProperties: false,
@@ -904,7 +905,9 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
         store.storeForHost(
           {
             slug: String(args['slug'] ?? ''),
-            name: String(args['name'] ?? args['slug'] ?? ''),
+            // An omitted name stays empty here: creation falls back to the slug,
+            // rotation keeps the stored name, as the description promises.
+            name: args['name'] === undefined ? '' : String(args['name']),
             value: String(args['value'] ?? ''),
             description: args['description'] === undefined ? undefined : String(args['description']),
             tags: Array.isArray(args['tags']) ? (args['tags'] as string[]) : undefined,

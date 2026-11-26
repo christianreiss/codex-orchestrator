@@ -1877,6 +1877,10 @@ Local durable project artifacts can be uploaded with `cxx project file put SLUG 
 (or `cdx`/`clx`/`cgx`) without passing the bytes through model context. The wrapper
 uses existing project-file authorization and limits and verifies the server's
 size/SHA-256 receipt; see [the CLI contract](interface-cdx.md#local-durable-project-files-and-bootstrap-reconciliation).
+Fleet credentials can likewise be saved from a key file or a pipe with
+`cxx secret store SLUG --file PATH` or `--stdin` (cxx 0.9.210, all four engine
+aliases): the wrapper calls MCP `secret_store` and prints only slug, status and byte
+count; see [the secret store contract](interface-cdx.md#local-secret-store-from-a-file-or-stdin-cxx-09210).
 Communicator diagnostics distinguish transport leases from authenticated observed
 managed sessions; see [communicator status](communicator.md).
 
