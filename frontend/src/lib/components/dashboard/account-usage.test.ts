@@ -80,3 +80,34 @@ it("Grok pools average the reported period; unsupported usage adds nothing", () 
   const rows = poolQuotaRows([grok(20), grok(50), account("grok", { supported: false })], elapsedOf, NOW);
   assert.deepEqual(rows.map(({ label, value, reporting, of }) => ({ label, value, reporting, of })), [{ label: "Weekly usage", value: 35, reporting: 2, of: 3 }]);
 });
+
+const { expiringAtNextReset } = await import(modulePath) as typeof import("./account-usage");
+
+it("names the unused quota of the account whose weekly window resets first", () => {
+  const soon = account("claude", { weekly_used_percent: 14, weekly_limit_seconds: 604800, weekly_resets_at: hours(21) });
+  const later = account("claude", { weekly_used_percent: 86, weekly_limit_seconds: 604800, weekly_resets_at: hours(73) });
+  const unmeasured = account("claude");
+  const result = expiringAtNextReset([later, soon, unmeasured], NOW);
+  assert.equal(result?.reset, hours(21));
+  assert.deepEqual(result?.accounts.map(({ account: a, unused }) => [a, unused]), [[soon, 86]]);
+});
+
+it("groups resets within an hour of the first and skips passed or missing ones", () => {
+  const a = account("claude", { weekly_used_percent: 40, weekly_resets_at: hours(5) });
+  const b = account("claude", { weekly_used_percent: 10, weekly_resets_at: hours(5.5) });
+  const passed = account("claude", { weekly_used_percent: 0, weekly_resets_at: hours(-1) });
+  const c = account("claude", { weekly_used_percent: 0, weekly_resets_at: hours(30) });
+  const result = expiringAtNextReset([a, b, passed, c], NOW);
+  assert.deepEqual(result?.accounts.map(({ account: x, unused }) => [x, unused]), [[b, 90], [a, 60]]);
+});
+
+it("stays silent when nothing would be lost or no reset is dated", () => {
+  assert.equal(expiringAtNextReset([account("claude", { weekly_used_percent: 100, weekly_resets_at: hours(2) })], NOW), null);
+  assert.equal(expiringAtNextReset([account("claude", { weekly_used_percent: 20 })], NOW), null);
+  assert.equal(expiringAtNextReset([account("claude", { supported: false })], NOW), null);
+});
+
+it("reads Grok's reported period", () => {
+  const grok = account("grok", { current_window: { used_percent: 30, period: "weekly", starts_at: null, resets_at: hours(10), shared: true } });
+  assert.equal(expiringAtNextReset([grok], NOW)?.accounts[0]?.unused, 70);
+});

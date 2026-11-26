@@ -93,3 +93,47 @@ export function poolQuotaRows(
     of: accounts.length,
   }));
 }
+
+/** Resets this close to the first one count as the same reset. */
+const SAME_RESET_MS = 3_600_000;
+
+export interface ExpiringQuota<T> {
+  /** The first long-window reset among the pool's accounts. */
+  reset: string;
+  /** Each account resetting then, with the share of its window still unused. */
+  accounts: { account: T; unused: number }[];
+}
+
+/**
+ * The quota the pool's next long-window reset throws away: the unused share of
+ * the account(s) whose weekly window (Grok: its reported period) resets first.
+ * Quota left at a reset is lost, so this is what "Expiring first" spends first.
+ * Null without a dated future reading or when nothing is left to lose; an
+ * unmeasured account is left out, never counted as unused.
+ */
+export function expiringAtNextReset<T extends Pick<ProviderAccount, "engine" | "usage" | "quota_snapshot">>(
+  accounts: readonly T[],
+  now = Date.now(),
+): ExpiringQuota<T> | null {
+  const readings = accounts.flatMap((account) => {
+    if (account.usage.supported === false) return [];
+    const grok = account.engine === "grok" ? account.usage.current_window : null;
+    const row = grok
+      ? { value: grok.used_percent, reset: grok.resets_at }
+      : accountQuotaRows(account).find((candidate) => candidate.key === "weekly");
+    if (!row || typeof row.value !== "number" || !Number.isFinite(row.value) || !row.reset) return [];
+    const end = new Date(row.reset).getTime();
+    if (!Number.isFinite(end) || end <= now) return [];
+    return [{ account, end, unused: Math.max(0, Math.min(100, 100 - row.value)) }];
+  });
+  if (!readings.length) return null;
+  const first = Math.min(...readings.map((reading) => reading.end));
+  const due = readings
+    .filter((reading) => reading.end - first < SAME_RESET_MS)
+    .sort((a, b) => b.unused - a.unused);
+  if (due.every((reading) => Math.round(reading.unused) === 0)) return null;
+  return {
+    reset: new Date(first).toISOString(),
+    accounts: due.map(({ account, unused }) => ({ account, unused })),
+  };
+}

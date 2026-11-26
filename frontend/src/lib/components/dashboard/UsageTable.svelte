@@ -20,7 +20,7 @@
   import KimiUsage from "./KimiUsage.svelte";
   import GrokUsage from "./GrokUsage.svelte";
   import UsageMeter from "./UsageMeter.svelte";
-  import { accountQuotaRows, poolQuotaRows } from "./account-usage";
+  import { accountQuotaRows, expiringAtNextReset, poolQuotaRows } from "./account-usage";
   import AccountGroupRow from "$lib/components/accounts/AccountGroupRow.svelte";
   import { accountEntries, displayName, entryKey, parseOpen, toggleOpen, type EnginePool } from "$lib/components/accounts/account-state";
 
@@ -120,6 +120,7 @@
 {#snippet poolCells(pool: EnginePool)}
     {@const rows = poolQuotaRows(pool.usable, periodElapsedPercent)}
     {@const updated = poolUpdated(pool)}
+    {@const expiring = expiringAtNextReset(pool.usable)}
     <Table.Cell>
       {#if rows.length}
         <div class="space-y-1">
@@ -129,6 +130,13 @@
         </div>
         {@const coverage = poolCoverage(rows)}
         {#if coverage}<p class="mt-1 text-caption text-muted-foreground" data-testid="pool-coverage">{coverage}</p>{/if}
+        <!-- Quota left at a reset is lost: the averages above cannot show which account is about to lose it. -->
+        {#if expiring}
+          <p class="mt-1 text-caption text-muted-foreground" data-testid="pool-expiring">
+            Expires at the next reset:
+            {#each expiring.accounts as entry, index (entry.account.id)}{index ? ", " : ""}<span class="font-medium text-foreground">{Math.round(entry.unused)}%</span> of {displayName(entry.account)}{/each}
+          </p>
+        {/if}
       {:else}
         <span class="text-body-sm text-muted-foreground">{!pool.usable.length ? "No usable account" : pool.usable.every((account) => account.usage.supported === false) ? "Subscription quota unavailable" : "Waiting for usage data"}</span>
       {/if}

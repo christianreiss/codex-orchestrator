@@ -1,5 +1,7 @@
 # 2026-11-26
 
+- Overview, Provider usage: a collapsed engine group now says what the next weekly reset throws away, for example "Expires at the next reset: 86% of Work". It names the unused share of the account whose weekly window (for Grok, its reported period) resets first; resets within an hour of it count together. Quota left at a reset is lost, and the pool average could not show which account was about to lose it. Unmeasured accounts are left out, and the line is hidden when nothing would be lost.
+
 - Fix: the Overview's freshness line ("Updated … ago") and the Refresh button flickered about once a second on a busy fleet, because every live update (host heartbeats, account changes) briefly showed "Refreshing…" and spun the button. Only a click on Refresh shows that now; live updates refresh quietly and move the timestamp when their data arrives.
 
 - Settings → Agents → Model tiers: the operator decides which tier each model counts as. The five levels stay fixed; models are dragged between them (or moved with the menu on each model) and saved explicitly. Only differences from the registry default are stored. The placements win everywhere tiers are read: the Model Class Check table and the configured-model line in AGENTS.md / CLAUDE.md, Subagent Model Selection, the Fleet Advisor's tiers and default model, and the order of the launch model picker. They reach hosts at their next sync, without a new document version. A placement also covers the model's aliases, `[1m]` variants and dated snapshots. API: `GET/POST /admin/model-tiers`.

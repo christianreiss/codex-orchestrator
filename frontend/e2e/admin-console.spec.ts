@@ -542,8 +542,8 @@ test("Overview lists what needs you, counted like the owning pages and linked to
     if (path === "/admin/accounts") {
       return { accounts: [
         account(1, "codex", { refresh_state: "login_required" }),
-        account(2, "claude", { usage: { fetched_at: null, stale: false, short_used_percent: 92, short_resets_at: null, weekly_used_percent: 40, weekly_resets_at: null } }),
-        account(3, "claude", {}),
+        account(2, "claude", { usage: { fetched_at: null, stale: false, short_used_percent: 92, short_resets_at: null, weekly_used_percent: 40, weekly_resets_at: new Date(Date.now() + 20 * 3600_000).toISOString() } }),
+        account(3, "claude", { usage: { fetched_at: null, stale: false, short_used_percent: 10, short_resets_at: null, weekly_used_percent: 10, weekly_resets_at: new Date(Date.now() + 70 * 3600_000).toISOString() } }),
       ] };
     }
     if (path === "/admin/feedback/summary") return { open: 3, in_progress: 1, blocked: 0 };
@@ -572,7 +572,10 @@ test("Overview lists what needs you, counted like the owning pages and linked to
   await expect(group.getByRole("meter", { name: "Weekly window" })).toHaveAttribute("aria-valuenow", "25");
   // Both accounts report both windows: no coverage note, and the details wait for the expanded rows.
   await expect(group.getByTestId("pool-coverage")).toHaveCount(0);
-  await expect(page.getByRole("row", { name: /claude-2/ })).toHaveCount(0);
+  // The average hides who is about to lose quota: claude-2 resets first with 60% unused.
+  await expect(group.getByTestId("pool-expiring")).toHaveText(/^\s*Expires at the next reset:\s*60% of claude-2\s*$/);
+  const accountRow = (name: RegExp) => page.getByRole("row", { name }).and(page.locator(":not([data-testid=account-group])"));
+  await expect(accountRow(/claude-2/)).toHaveCount(0);
   await expect(page.getByText("Nothing needs you right now.")).toHaveCount(0);
   // A waiting request opens its own triage box; dismissed, the row still leads to the access panel.
   await expect(page.getByRole("dialog", { name: "build-01.example.test is asking for access" })).toBeVisible();
@@ -583,7 +586,7 @@ test("Overview lists what needs you, counted like the owning pages and linked to
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await expect(page).toHaveURL(/[?&]open=claude/);
-  await expect(page.getByRole("row", { name: /claude-2/ })).toBeVisible();
+  await expect(accountRow(/claude-2/)).toBeVisible();
   await expect(page.getByRole("row", { name: /codex-1/ })).toBeVisible();
   // The expanded groups survive a tab switch and come back with the Provider tab.
   await page.getByRole("tab", { name: "Engines" }).click();
