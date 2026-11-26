@@ -52,6 +52,7 @@ Keep these aligned with implementation and executable tests.
 | Heavy host jobs | [Cooperative job memory admission](workload-admission.md) |
 | Product assistant | [Chatty](chatty.md) |
 | Skills | [Authored manifests and runtime ownership](skills/README.md) |
+| External services (proposal) | [Tool connectors](tool-connectors.md): not implemented |
 | Maintenance | [Reusable engine maintenance prompt](prompts/engine-maintenance.md) |
 
 ## Assets
