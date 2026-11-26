@@ -2,7 +2,7 @@
 title: Provider accounts
 section: Fleet operations
 verified: 2026-11-26
-sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/(providers)/accounts/+page.svelte, frontend/src/lib/components/accounts/AccountPolicy.svelte, frontend/src/lib/components/accounts/AccountScopes.svelte
+sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/(providers)/accounts/+page.svelte, frontend/src/lib/components/accounts/AccountPolicy.svelte, frontend/src/lib/components/accounts/AccountScopes.svelte, frontend/src/lib/components/accounts/account-state.ts, api/src/services/account-switch.ts
 ---
 
 Grok Build (`cgx`) is supported alongside Codex, Claude and Kimi Code; see [Grok Build](cgx) for
@@ -21,6 +21,8 @@ An account is a subscription, not a login session. Client uploads with a known d
 ## Usage and assignments
 
 Every account shows separate short and weekly utilization, reset times, observation freshness, verification state, and active hosts. Unknown quota remains unknown; stale readings are labeled and retained conservatively until their reset. The Overview's Provider usage table also shows each account separately. Percentages from different subscriptions are never added together.
+
+An account at 80% or more on either window shows **Near quota**. When another enabled, verified account of the same engine is below 80% or has no reading yet, the row adds "Other accounts have headroom", and the **near quota** count in the header leaves it out: work continues on the other accounts, as agents are advised. The count includes an engine's high accounts only when none of its usable accounts has headroom, or when the engine has a single usable account. Paused and unverified accounts never count as headroom.
 
 At a new native CLI launch, cxx chooses a verified enabled account with lower quota utilization. Accounts within the policy band (Balanced) share work by active reservation count, then least recent assignment. An idle account without usable quota observations receives a bounded trial so native usage can become known. Existing hard-fail, warning and VIP controls still apply when all known accounts are exhausted.
 

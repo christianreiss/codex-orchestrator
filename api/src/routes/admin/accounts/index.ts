@@ -7,7 +7,7 @@ import { createPooledAuthStoreService } from '../../../services/pooled-auth-stor
 import { createRunnerValidationService } from '../../../services/runner-validation.js';
 import { createRunnerClient } from '../../../services/runner-client.js';
 import { wsPublisher } from '../../../ws/publisher.js';
-import { AccountSwitchService } from '../../../services/account-switch.js';
+import { AccountSwitchService, poolPosition } from '../../../services/account-switch.js';
 import { readAccountPolicy, writeAccountPolicy } from '../../../services/account-policy.js';
 import { isEngine } from '../../../util/engine.js';
 import { adminSpaHtmlPreHandler } from '../pages/static.js';
@@ -46,9 +46,12 @@ export async function registerAdminAccountsRoutes(app: FastifyInstance, ctx: Rou
     runnerValidation: validation,
     runner: createRunnerClient({ env: ctx.env }),
   });
-  app.get('/admin/accounts', { preHandler: [adminSpaHtmlPreHandler(ctx), app.requireAdmin] }, async () => ({
-    accounts: await accounts.list(),
-  }));
+  app.get('/admin/accounts', { preHandler: [adminSpaHtmlPreHandler(ctx), app.requireAdmin] }, async () => {
+    const now = Date.now();
+    // Same scoring as the live-switching pool, so the console's quota state
+    // agrees with what agents are told (`poolRecommendation`).
+    return { accounts: (await accounts.list()).map((account) => ({ ...account, pool: poolPosition(account, now) })) };
+  });
   const switches = new AccountSwitchService(ctx.db, ctx.keyring);
   const engineOf = (value: unknown): Engine => {
     if (typeof value !== 'string' || !isEngine(value)) throw new ValidationError('Unknown engine');

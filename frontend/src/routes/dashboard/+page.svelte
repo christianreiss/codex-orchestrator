@@ -17,6 +17,7 @@
   import OnboardingNotice from "$lib/components/dashboard/OnboardingNotice.svelte";
   import NeedsYou from "$lib/components/dashboard/NeedsYou.svelte";
   import UsageTable from "$lib/components/dashboard/UsageTable.svelte";
+  import PoolSummary from "$lib/components/dashboard/PoolSummary.svelte";
   import EngineTable from "$lib/components/dashboard/EngineTable.svelte";
   import RunnerStatus from "$lib/components/dashboard/RunnerStatus.svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -112,8 +113,9 @@
       </Tabs.List>
 
       <Tabs.Content value="provider">
-    <Section id="usage" title="Provider usage" description="Quota windows for enabled engines. Retained accounts remain available in Accounts.">
+    <Section id="usage" title="Provider usage" description="Quota windows for enabled engines. An engine with several usable accounts is judged as a pool. Retained accounts remain available in Accounts.">
       {#snippet actions()}<Button size="sm" variant="outline" href={`${base}/accounts`}>Manage accounts</Button>{/snippet}
+      <PoolSummary accounts={accountRows} />
       <UsageTable
         accounts={accountRows}
         loading={$accounts.isPending}

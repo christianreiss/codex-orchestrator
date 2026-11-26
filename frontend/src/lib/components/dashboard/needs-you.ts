@@ -31,7 +31,11 @@ export interface NeedsYouInput {
   access: Source<{ windows: number; fleetUntil: string | null }>;
   /** Switched-on engines whose login verification is failing. */
   runner: Source<number>;
-  /** Accounts of switched-on engines: needing attention, near quota, and either. */
+  /**
+   * Accounts of switched-on engines: needing attention, near quota, and either. Near quota is
+   * pool-aware (`nearQuotaCounted`): an engine with several usable accounts counts only when none
+   * of them has headroom.
+   */
   accounts: Source<{ attention: number; nearQuota: number; either: number }>;
   /** Open feedback reports nobody has claimed. */
   feedback: Source<number>;

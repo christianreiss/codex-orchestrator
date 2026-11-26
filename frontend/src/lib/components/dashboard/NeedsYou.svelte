@@ -23,7 +23,7 @@
   import { agentSessionsQueryOptions, type AgentSessionsResponse } from "$lib/api/agentSessions";
   import { accountsQuery } from "$lib/api/accounts";
   import { createRunnerStateQuery } from "$lib/api/runner";
-  import { isNearQuota, needsAttention } from "$lib/components/accounts/account-state";
+  import { nearQuotaCounted, needsAttention } from "$lib/components/accounts/account-state";
   import { clientClock, countAwaitingAnswer } from "$lib/portal/clients";
   import { failedRunnerEngines } from "./runner-state";
   import { needsYou, type NeedsYouId, type Source } from "./needs-you";
@@ -76,10 +76,12 @@
       runner: read(auth.can("admin.read"), $runner, (data) => failedRunnerEngines(data.runner, $fleet.enabled).length),
       accounts: read(auth.can("auth.read_metadata"), $accounts, (data) => {
         const rows = (data.accounts ?? []).filter((account) => $fleet.isEnabled(account.engine));
+        // Pool-aware like the Accounts page: a high account is not waiting on anyone while another usable account of its engine has headroom.
+        const high = new Set(nearQuotaCounted(rows).map((account) => account.id));
         return {
           attention: rows.filter(needsAttention).length,
-          nearQuota: rows.filter(isNearQuota).length,
-          either: rows.filter((account) => needsAttention(account) || isNearQuota(account)).length,
+          nearQuota: high.size,
+          either: rows.filter((account) => needsAttention(account) || high.has(account.id)).length,
         };
       }),
       feedback: read(canReadFeedback, $feedback, (data) => data.open ?? 0),

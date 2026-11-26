@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import type { ProviderAccount } from "../../api/accounts";
 
 const mod: string = "./account-state.ts";
-const { accountStatus, isNearQuota, needsAttention, sortAccounts, matchesSearch, sessionHosts } = (await import(mod)) as typeof import("./account-state");
+const { accountStatus, isNearQuota, needsAttention, sortAccounts, matchesSearch, sessionHosts, enginePools, nearQuotaCounted, poolCoveredIds, scoreText } = (await import(mod)) as typeof import("./account-state");
 
 function account(patch: Partial<ProviderAccount> & { id: number }): ProviderAccount {
   return {
@@ -33,6 +33,58 @@ describe("account status", () => {
   it("needs attention only for broken logins or verification", () => {
     assert.equal(needsAttention(account({ id: 1, verification_state: "failed" })), true);
     assert.equal(needsAttention(account({ id: 2, state: "paused" })), false);
+  });
+});
+
+describe("account pools", () => {
+  const high = (id: number, patch: Partial<ProviderAccount> = {}) =>
+    account({ id, usage: { ...account({ id }).usage, weekly_used_percent: 87 }, pool: { score: 87, usable: true, emulation_blocked: false }, ...patch });
+  const fresh = (id: number, patch: Partial<ProviderAccount> = {}) =>
+    account({ id, usage: { ...account({ id }).usage, short_used_percent: null, weekly_used_percent: null }, pool: { score: null, usable: true, emulation_blocked: false }, ...patch });
+
+  it("is not near quota while another usable account has headroom", () => {
+    // Production shape: #1 at 87% weekly, #8 just enrolled without a reading.
+    const accounts = [high(1), fresh(8)];
+    const [pool] = enginePools(accounts);
+    assert.equal(pool.pooled, true);
+    assert.equal(pool.nearQuota, false);
+    assert.equal(pool.best?.id, 8);
+    assert.deepEqual(pool.high.map((a) => a.id), [1]);
+    assert.deepEqual(nearQuotaCounted(accounts), []);
+    assert.deepEqual([...poolCoveredIds(accounts)], [1]);
+    assert.equal(scoreText(pool.best!), "no reading yet");
+    assert.equal(accountStatus(high(1), true, "clx", true).detail, "Other accounts have headroom");
+  });
+
+  it("is near quota when every usable account is high", () => {
+    const accounts = [high(1), high(2, { pool: { score: 91, usable: true, emulation_blocked: false } })];
+    assert.equal(enginePools(accounts)[0].nearQuota, true);
+    assert.deepEqual(nearQuotaCounted(accounts).map((a) => a.id), [1, 2]);
+    assert.equal(poolCoveredIds(accounts).size, 0);
+  });
+
+  it("never counts paused or unverified accounts as headroom", () => {
+    const accounts = [high(1), fresh(2, { state: "paused", pool: { score: null, usable: false, emulation_blocked: false } }), fresh(3, { verification_state: "pending", pool: { score: null, usable: false, emulation_blocked: false } })];
+    const [pool] = enginePools(accounts);
+    assert.equal(pool.pooled, false);
+    assert.deepEqual(nearQuotaCounted(accounts).map((a) => a.id), [1]);
+  });
+
+  it("uses the server score: a passed reset is headroom, an emulated block is not", () => {
+    const passed = high(2, { pool: { score: 30, usable: true, emulation_blocked: false } });
+    assert.equal(enginePools([high(1), passed])[0].nearQuota, false);
+    const blocked = account({ id: 3, pool: { score: 100, usable: true, emulation_blocked: true } });
+    const pools = enginePools([high(1), blocked]);
+    assert.equal(pools[0].nearQuota, true);
+    assert.deepEqual(pools[0].high.map((a) => a.id), [1, 3]);
+  });
+
+  it("keeps the per-account rule for single-account engines and judges engines apart", () => {
+    const accounts = [high(1), high(2, { engine: "codex" }), fresh(3, { engine: "codex" })];
+    assert.deepEqual(enginePools(accounts).map((p) => p.engine), ["codex", "claude"]);
+    assert.deepEqual(nearQuotaCounted(accounts).map((a) => a.id), [1]);
+    // Without server pool data the highest window decides, as before.
+    assert.deepEqual(nearQuotaCounted([account({ id: 4, usage: { ...account({ id: 4 }).usage, short_used_percent: 95 } })]).map((a) => a.id), [4]);
   });
 });
 

@@ -17,6 +17,8 @@
     /** Host id to FQDN, so a session links to the host by name. */
     hostNames: ReadonlyMap<number, string>;
     busy: boolean;
+    /** High, but another usable account of the same engine has headroom. */
+    poolCovered?: boolean;
     onQuota: () => void;
     onRename: () => void;
     onReplace: () => void;
@@ -24,10 +26,10 @@
     onToggle: () => void;
     onRemove: () => void;
   };
-  let { account, engineOn, canManage, hostNames, busy, onQuota, onRename, onReplace, onVerify, onToggle, onRemove }: Props = $props();
+  let { account, engineOn, canManage, hostNames, busy, poolCovered = false, onQuota, onRename, onReplace, onVerify, onToggle, onRemove }: Props = $props();
 
   const meta = $derived(ENGINE_META[account.engine]);
-  const status = $derived(accountStatus(account, engineOn, meta.command));
+  const status = $derived(accountStatus(account, engineOn, meta.command, poolCovered));
   const hosts = $derived(sessionHosts(account));
   const runnerTask = $derived(account.sessions.some((session) => session.host_id === 0));
   const dot = { ok: "bg-success", warning: "bg-warning", danger: "bg-destructive", muted: "bg-muted-foreground/40" } as const;

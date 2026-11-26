@@ -558,9 +558,14 @@ test("Overview lists what needs you, counted like the owning pages and linked to
     ["1 agent is waiting for your answer", "/admin/agents"],
     ["1 temporary access window is open", "/admin/hosts?insecure=1"],
     ["1 engine fails login verification", "/admin/dashboard?tab=runner"],
-    ["2 accounts need attention or are near quota 1 needs attention · 1 near quota", "/admin/accounts"],
+    // claude-2 is at 92%, but claude-3 in the same pool has headroom: only the broken login waits on the operator.
+    ["1 account needs attention or is near quota 1 needs attention", "/admin/accounts"],
     ["3 unclaimed feedback reports", "/admin/reports"],
   ]);
+  const pool = page.getByTestId("account-pool");
+  await expect(pool).toHaveCount(1);
+  await expect(pool).toHaveText(/Claude pool\s+· 2 usable accounts\s+· Most headroom: claude-3 \(10%\)\s+· At 80% or more: claude-2 \(92%\)/);
+  await expect(pool.getByRole("link", { name: "Claude pool" })).toHaveAttribute("href", "/admin/accounts?engine=claude");
   await expect(page.getByText("Nothing needs you right now.")).toHaveCount(0);
   // A waiting request opens its own triage box; dismissed, the row still leads to the access panel.
   await expect(page.getByRole("dialog", { name: "build-01.example.test is asking for access" })).toBeVisible();

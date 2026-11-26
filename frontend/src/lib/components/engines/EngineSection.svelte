@@ -18,7 +18,7 @@
   import { fleetEngineView } from "$lib/engines/fleet-state";
   import { engineStateQuery } from "$lib/api/settings";
   import type { EngineStateRow } from "$lib/api/types";
-  import { isNearQuota, needsAttention } from "$lib/components/accounts/account-state";
+  import { enginePools, nearQuotaCounted, needsAttention, NEAR_QUOTA_PERCENT } from "$lib/components/accounts/account-state";
   import QuickModelDefaults from "$lib/components/settings/QuickModelDefaults.svelte";
   import ModelPolicySection from "$lib/components/settings/ModelPolicySection.svelte";
   import EngineVersionSection from "$lib/components/settings/EngineVersionSection.svelte";
@@ -43,7 +43,10 @@
   const stateQuery = engineStateQuery();
   const row = $derived(fleetEngineView<EngineStateRow>($stateQuery.data).row(engine));
   const mine = $derived(($accounts.data?.accounts ?? []).filter((account) => account.engine === engine));
-  const near = $derived(mine.filter(isNearQuota).length);
+  // Pool-aware: with several usable accounts, near quota only when none has headroom.
+  const pool = $derived(enginePools(mine)[0] ?? null);
+  const near = $derived(nearQuotaCounted(mine).length);
+  const coveredHigh = $derived(pool && pool.pooled && !pool.nearQuota ? pool.high.length : 0);
   const broken = $derived(mine.filter(needsAttention).length);
 </script>
 
@@ -57,6 +60,7 @@
       {#if row}<span>{row.assigned_hosts} {row.assigned_hosts === 1 ? "host" : "hosts"}</span>{/if}
       <span>{mine.length} {mine.length === 1 ? "account" : "accounts"}</span>
       {#if near}<span class="text-warning-muted-foreground">{near} near quota</span>{/if}
+      {#if coveredHigh}<span>{coveredHigh} at {NEAR_QUOTA_PERCENT}% or more, others have headroom</span>{/if}
       {#if broken}<span class="text-destructive">{broken} need attention</span>{/if}
       <a class="text-primary underline-offset-2 hover:underline" href={`${base}/accounts`}>Accounts</a>
       {#if off}

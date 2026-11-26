@@ -14,7 +14,7 @@
   import AccountPolicy from "$lib/components/accounts/AccountPolicy.svelte";
   import AccountScopes from "$lib/components/accounts/AccountScopes.svelte";
   import EngineFilter from "$lib/components/accounts/EngineFilter.svelte";
-  import { isNearQuota, matchesSearch, needsAttention, sortAccounts, NEAR_QUOTA_PERCENT } from "$lib/components/accounts/account-state";
+  import { matchesSearch, nearQuotaCounted, needsAttention, poolCoveredIds, sortAccounts, NEAR_QUOTA_PERCENT } from "$lib/components/accounts/account-state";
   import { UrlFilters } from "$lib/utils/url-filters.svelte";
   import { base } from "$app/paths";
 
@@ -38,11 +38,13 @@
   const scoped = $derived(sortAccounts(scope === "all" ? accounts : accounts.filter((a) => a.engine === scope)));
   const visible = $derived(scoped.filter((a) => matchesSearch(a, search)));
   const attention = $derived(accounts.filter(needsAttention).length);
-  const nearQuota = $derived(accounts.filter(isNearQuota).length);
+  // An engine with several usable accounts counts as near quota only when none of them has headroom.
+  const nearQuota = $derived(nearQuotaCounted(accounts).length);
+  const covered = $derived(poolCoveredIds(accounts));
   const stats = $derived([
     { label: accounts.length === 1 ? "account" : "accounts", value: accounts.length },
     { label: "need attention", value: attention, tone: attention ? ("danger" as const) : ("default" as const), hint: "Login needs renewal or verification failed" },
-    { label: "near quota", value: nearQuota, tone: nearQuota ? ("warning" as const) : ("default" as const), hint: `Either usage window at ${NEAR_QUOTA_PERCENT}% or more` },
+    { label: "near quota", value: nearQuota, tone: nearQuota ? ("warning" as const) : ("default" as const), hint: `Either usage window at ${NEAR_QUOTA_PERCENT}% or more. With several usable accounts of an engine, counted only when none has headroom.` },
   ]);
 
   // Policy is per engine: follow the engine filter, with Claude (the only live-switching engine) as the default view.
@@ -120,6 +122,7 @@
         {canManage}
         {hostNames}
         busy={$change.isPending}
+        poolCovered={covered.has(account.id)}
         onQuota={() => (dialog = { kind: "quota", account })}
         onRename={() => (dialog = { kind: "rename", account })}
         onReplace={() => (dialog = { kind: "replace", account })}
