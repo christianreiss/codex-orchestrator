@@ -1,5 +1,11 @@
 # 2026-11-26
 
+- Claude accounts: a login whose identity cannot be resolved is refused (503 `account_identity_unavailable`) instead of being filed under the session's account; a removed account stays removed until it is enrolled on purpose (409 `account_removed`).
+- Claude usage: a report is attributed through a lease of the reporting host, merged per window (an idle session no longer lowers an account's reading), and a previous account's figures are refused after a switch. Reports from an insecure host need its open window.
+- Live switch: a scope can leave an account that is paused, being removed or no longer verified. A login to another pool account inside a running session is put back to the bound account at the next turn boundary; switch with `clx accounts use`.
+- Live switch (cxx 0.9.211): a committed switch always reaches the credentials file. The commit is repeatable, the wrapper keeps a repair flag, siblings finish an adopted switch, and a write that keeps failing is audited (`provider_account.switch_write_unfinished`). A switch waits for running turns of sibling sessions.
+- Leases: abandoned connection-owned Claude leases are removed after five minutes once their wrapper has proven it can re-reserve; leases of deleted hosts are removed for every engine. A re-reserved lease (cxx 0.9.211) is connection-owned again and follows the server's generation.
+- Audit: `account.policy.updated` and `provider_account.switch_withdrawn`; pending switch requests expire after 24 hours.
 - cxx 0.9.210: `cxx secret store SLUG --file PATH` or `--stdin` (also `cdx`/`clx`/`cgx`/`ckx secret store`) saves a fleet credential through `secret_store` without the value entering the model context. It prints only slug, status and byte count and requires valid UTF-8 of at most 1 MiB. `secret_store` without `name` now keeps a rotated secret's stored name instead of renaming it to the slug.
 - `git_release` refuses a merged `target_head_sha` that starts or ends with eight or more zeros (a zero-padded short hash or the null SHA), corrections included.
 - Projects, board: a card's "Card actions" menu opens again. It threw on open, so cards could not be moved, edited, force-released or archived from it.
