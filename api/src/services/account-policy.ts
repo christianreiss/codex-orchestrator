@@ -207,7 +207,7 @@ export function poolRecommendation(
   liveSwitch: boolean,
   plannedTarget: number | null,
 ): PoolRecommendation {
-  const pct = (score: number | null) => (score === null ? 'unknown' : `${Math.round(score)}%`);
+  const pct = (score: number | null) => (score === null ? 'no reading' : `${Math.round(score)}%`);
   const others = accounts.filter((a) => a.usable && a.id !== bound?.id);
   const boundScore = bound ? effective(bound.score) : 0;
   const pool = accounts
@@ -215,7 +215,15 @@ export function poolRecommendation(
     .map((a) => `${a.label} ${pct(a.score)}`)
     .join(', ');
   if (!bound || boundScore < warnPercent)
-    return { action: 'continue', account_id: null, message: bound ? `Account ${bound.label} is at ${pct(bound.score)}.` : 'No account is bound.' };
+    return {
+      action: 'continue',
+      account_id: null,
+      message: !bound
+        ? 'No account is bound.'
+        : bound.score === null
+          ? `Account ${bound.label} has no usage reading yet.`
+          : `Account ${bound.label} is at ${pct(bound.score)}.`,
+    };
   const best = poolHeadroomTarget(policy, accounts, bound.id, limitPercent);
   if (!best)
     return {

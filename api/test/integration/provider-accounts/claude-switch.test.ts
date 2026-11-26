@@ -5,11 +5,16 @@ import {
   authEntries,
   authPayloads,
   claudeUsageSnapshots,
+  hosts,
+  logs,
   providerAccounts,
   providerAccountSessions,
   versions,
 } from '../../../src/db/schema.js';
 import { eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { hashApiKey } from '../../../src/util/api-key-helpers.js';
+import { buildHostApiTestApp } from '../../helpers/build-host-api-app.js';
 import { getTestDb } from '../../helpers/test-db.js';
 import { testKeyring } from '../../helpers/test-keyring.js';
 import { createRunnerValidationService } from '../../../src/services/runner-validation.js';
@@ -110,6 +115,29 @@ describe.skipIf(!handle)('Claude account identity and live switching on MySQL', 
     expect(await accounts.list('claude')).toHaveLength(1);
   });
 
+  it('refuses implicit enrollment through /sync/bootstrap on insecure hosts', async () => {
+    await put('alice-1');
+    const key = `sk-bootstrap-${randomUUID().replaceAll('-', '')}`;
+    const at = new Date().toISOString();
+    const [row] = await db.insert(hosts).values({ fqdn: `insecure-${randomUUID()}.test`, apiKey: key, apiKeyHash: hashApiKey(key),
+      engines: 'claude', secure: 0, vip: 0, insecureEnabledUntil: new Date(Date.now() + 600_000), createdAt: at, updatedAt: at });
+    const hostId = Number(row.insertId);
+    const env = { INSTALLATION_ID: 'bootstrap-enroll', ENCRYPTION_ACTIVE_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      PUBLIC_BASE_URL: 'https://fleet.test', STATIC_ROOT: '', INSECURE_GRACE_MINUTES: 60 } as Parameters<typeof buildHostApiTestApp>[0]['env'];
+    const app = await buildHostApiTestApp({ db, env, keyring });
+    try {
+      const r = await app.inject({ method: 'POST', url: '/sync/bootstrap', headers: { 'x-api-key': key, 'content-type': 'application/json' },
+        payload: JSON.stringify({ engine: 'claude', include_auth: true, auth_candidate: claude('carol-1') }) });
+      expect(r.statusCode).toBe(200);
+      expect(JSON.parse(r.payload).auth.candidate_credential_rejected).toBe(true);
+      expect((await accounts.list('claude')).map((a) => a.email)).toEqual(['alice@example.com']);
+    } finally {
+      await app.close();
+      await db.delete(logs).where(eq(logs.hostId, hostId));
+      await db.delete(hosts).where(eq(hosts.id, hostId));
+    }
+  });
+
   it('refuses an operator replace with another subscription', async () => {
     const a = (await put('alice-1')).account_id!;
     await expect(
@@ -136,7 +164,7 @@ describe.skipIf(!handle)('Claude account identity and live switching on MySQL', 
       switches.commitSwitch({ hostId: 1, engine: 'claude', sessionId: 'lease-one-bbbbbbbbbbbb', scopeId: scope, accountId: b, generation: 2 }),
     ).rejects.toMatchObject({ code: 'account_switch_stale' });
     const committed = await switches.commitSwitch({ hostId: 1, engine: 'claude', sessionId: 'lease-one-bbbbbbbbbbbb', scopeId: scope, accountId: b, generation: 1 });
-    expect(committed).toEqual({ previous_account_id: a, account_id: b, binding_generation: 2 });
+    expect(committed).toMatchObject({ previous_account_id: a, account_id: b, binding_generation: 2, moved_addresses: [] });
     for (const id of ['lease-one-bbbbbbbbbbbb', 'lease-two-bbbbbbbbbbbb']) {
       expect((await accounts.session(1, 'claude', id)).accountId).toBe(b);
       expect(await switches.sessionBinding(1, 'claude', id)).toEqual({ binding_generation: 2, account_switch: null });

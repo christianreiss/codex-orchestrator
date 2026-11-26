@@ -12,7 +12,9 @@ import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { recordAuthCall, flushAuthCalls, uninstallOwnedHost } from './owner.js';
 import { readQuotaPolicy } from '../../services/quota-policy.js';
 import { ProviderAccountsService } from '../../services/provider-accounts.js';
-import { AccountSwitchService, LIVE_SWITCH_ENGINES } from '../../services/account-switch.js';
+import { AccountSwitchService, LIVE_SWITCH_ENGINES, accountSwitchNoticeContent } from '../../services/account-switch.js';
+import { AgentMessagingService } from '../../services/agent-messaging.js';
+import { quotaNoticeId } from '../../ops/quota-worker.js';
 import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
 import { createPooledAuthStoreService as createCanonicalAuthStoreService } from '../../services/pooled-auth-store.js';
 import { advicePool, readQuotaAdvice, quotaAdviceSnapshot, type AdvicePool } from '../../services/quota-advice.js';
@@ -524,6 +526,22 @@ if (engine === ENGINE_KIMI) {
       accountId: target,
       generation,
     });
+    if (committed.moved_addresses.length) {
+      // Best effort: the switch is committed; a failed notice must not undo it.
+      try {
+        const pool = await switches.pool(engine);
+        const content = accountSwitchNoticeContent(
+          engine,
+          pool.find((a) => a.id === committed.previous_account_id),
+          pool.find((a) => a.id === committed.account_id),
+          committed.reason,
+        );
+        const noticeId = quotaNoticeId(`account-switch:${host.id}:${engine}:${opaqueId(payload.scope_id, 'scope_id')}:${committed.binding_generation}`);
+        await new AgentMessagingService(ctx.db, ctx.env, ctx.keyring).noticeAddresses(committed.moved_addresses, content, noticeId);
+      } catch (err) {
+        req.log.warn({ err }, 'account switch notice failed');
+      }
+    }
     const row = await runnerValidation.resolveCanonicalPayload(engine, committed.account_id);
     const auth = row ? runnerValidation.canonicalAuthFromPayload(row) : null;
     if (!row || !auth) throw new ServiceUnavailableError('Selected account is unavailable', 'account_unavailable');
@@ -1254,16 +1272,24 @@ async function handleBootstrapAuth(
   const fallbackPayload = payload;
   let discoveryError: unknown;
   try {
-    const matchedAccount = await new ProviderAccountsService(ctx.db, ctx.keyring).resolveCandidate(
+    // Same enrollment rule as POST /auth store: only a secure host may enroll an
+    // unknown Claude subscription. An insecure host's unknown login is refused
+    // definitively and gets the canonical account back.
+    const { account: matchedAccount } = await new ProviderAccountsService(ctx.db, ctx.keyring).resolveCandidateDetailed(
       candidate,
       engine,
       accountIdFrom(payload.account_id),
       host.id,
       payload.session_id === undefined,
+      false,
+      host.secure === 1,
     );
     payload = { ...payload, account_id: matchedAccount.id };
   } catch (err) {
-    if (!(err instanceof ValidationError) && !(err instanceof ApiError && err.code === 'account_removed'))
+    if (
+      !(err instanceof ValidationError) &&
+      !(err instanceof ApiError && (err.code === 'account_removed' || err.code === 'account_enroll_insecure_host'))
+    )
       throw err;
     discoveryError = err;
   }

@@ -2581,6 +2581,10 @@ score is `max(short, weekly)` used percent.
   the scope, increments the generation, clears the request and returns `{account_id, account_label,
   session_id, binding_generation, auth, canonical_digest, canonical_last_refresh}`. Agent sessions bound to
   the old account follow when no other live scope on that host still uses it.
+- Each agent session that followed gets one server notice (`ACCOUNT/1 switched: …`, idempotent per
+  scope and binding generation) naming the new and the previous account with their 5h and weekly
+  usage, the reason, and that work continues. The notice is best effort: if it fails, the switch
+  still stands and the failure is logged.
 - Audit actions `provider_account.switch_requested` and `provider_account.switched`; WebSocket
   `accounts.updated` and `provider.scope.switch`.
 - Usage reports for an account the session no longer holds return `{status: "ignored", reason: "stale_account"}`.

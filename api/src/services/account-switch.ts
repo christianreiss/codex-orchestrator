@@ -58,6 +58,24 @@ export interface PoolAccount {
   last_selected_at: string | null;
 }
 
+/**
+ * Server notice for every agent whose scope moved accounts: names the new and
+ * the previous account with their usage so the agent keeps working instead of
+ * reacting to a quota figure that suddenly dropped.
+ */
+export function accountSwitchNoticeContent(engine: Engine, from: PoolAccount | undefined, to: PoolAccount | undefined, reason: string | null): string {
+  const usage = (a: PoolAccount | undefined) => {
+    if (!a) return 'usage unknown';
+    const parts = [
+      a.short_used_percent === null ? null : `5h ${Math.round(a.short_used_percent)}%`,
+      a.weekly_used_percent === null ? null : `weekly ${Math.round(a.weekly_used_percent)}%`,
+    ].filter(Boolean);
+    return parts.length ? parts.join(', ') : 'no usage reading yet';
+  };
+  const name = (a: PoolAccount | undefined, id: string) => (a ? `${a.label} (#${a.id})` : id);
+  return `ACCOUNT/1 switched: this ${engine} session now runs on ${name(to, 'the new account')}, ${usage(to)}; previously ${name(from, 'the old account')}, ${usage(from)}. Reason: ${reason ?? 'unspecified'}. The switch happened at a turn boundary; keep working. Quota figures now refer to the new account, and the first request rebuilds the prompt cache. Use account_status for the pool.`;
+}
+
 const liveLease = (row: Lease, now: string) => row.ownershipMode === 'connection' || row.expiresAt > now;
 const generationOf = (row: Pick<Lease, 'bindingGeneration'>) => row.bindingGeneration ?? 1;
 
@@ -320,7 +338,7 @@ export class AccountSwitchService {
     scopeId: string;
     accountId: number;
     generation: number;
-  }): Promise<{ previous_account_id: number; account_id: number; binding_generation: number }> {
+  }): Promise<{ previous_account_id: number; account_id: number; binding_generation: number; reason: string | null; moved_addresses: string[] }> {
     const { hostId, engine, sessionId, scopeId, generation } = input;
     if (!LIVE_SWITCH_ENGINES.has(engine))
       throw new ConflictError('Live account switching is not supported for this engine yet', 'account_switch_unsupported_engine');
@@ -354,7 +372,7 @@ export class AccountSwitchService {
         },
       },
     );
-    await this.moveAgentSessions(hostId, engine, scopeId, session.accountId, target);
+    const movedAddresses = await this.moveAgentSessions(hostId, engine, scopeId, session.accountId, target);
     const owner = ownerRuntimeFor(this.db);
     if (owner) {
       const account = ownedAccount(owner.state.snapshot(), target, engine);
@@ -371,7 +389,13 @@ export class AccountSwitchService {
     } else {
       await this.db.update(providerAccounts).set({ lastSelectedAt: boundAt }).where(eq(providerAccounts.id, target));
     }
-    return { previous_account_id: session.accountId, account_id: target, binding_generation: generation + 1 };
+    return {
+      previous_account_id: session.accountId,
+      account_id: target,
+      binding_generation: generation + 1,
+      reason: session.desiredReason ?? null,
+      moved_addresses: movedAddresses,
+    };
   }
 
   /**
@@ -380,10 +404,11 @@ export class AccountSwitchService {
    * of this host and engine still uses the previous account; otherwise the
    * session heals on its next registration.
    */
-  private async moveAgentSessions(hostId: number, engine: Engine, scopeId: string, from: number, to: number) {
+  private async moveAgentSessions(hostId: number, engine: Engine, scopeId: string, from: number, to: number): Promise<string[]> {
     const others = (await this.leases({ hostId, engine })).filter((r) => r.scopeId !== scopeId && r.accountId === from);
-    if (others.length) return;
+    if (others.length) return [];
     const owner = ownerRuntimeFor(this.db);
+    const moved: string[] = [];
     if (owner) {
       await mutateOwnerState(owner, {
         kind: 'session.provider.switch',
@@ -393,23 +418,26 @@ export class AccountSwitchService {
             .table('agentSessions')
             .all()
             .filter((r) => r.hostId === hostId && r.engine === engine && r.providerAccountId === from && !r.endedAt);
-          for (const row of rows) stageUpdate(command, 'agentSessions', row.id, { providerAccountId: to });
+          moved.length = 0;
+          for (const row of rows) {
+            stageUpdate(command, 'agentSessions', row.id, { providerAccountId: to });
+            if (row.agentBusAddressId) moved.push(row.agentBusAddressId);
+          }
           return null;
         },
       });
-      return;
+      return moved;
     }
-    await this.db
-      .update(agentSessions)
-      .set({ providerAccountId: to })
-      .where(
-        and(
-          eq(agentSessions.hostId, hostId),
-          eq(agentSessions.engine, engine),
-          eq(agentSessions.providerAccountId, from),
-          isNull(agentSessions.endedAt),
-        ),
-      );
+    const where = and(
+      eq(agentSessions.hostId, hostId),
+      eq(agentSessions.engine, engine),
+      eq(agentSessions.providerAccountId, from),
+      isNull(agentSessions.endedAt),
+    );
+    for (const row of await this.db.select({ address: agentSessions.agentBusAddressId }).from(agentSessions).where(where))
+      if (row.address) moved.push(row.address);
+    await this.db.update(agentSessions).set({ providerAccountId: to }).where(where);
+    return moved;
   }
 
   private candidates(pool: PoolAccount[]) {

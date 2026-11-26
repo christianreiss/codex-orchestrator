@@ -120,7 +120,7 @@ describe.skipIf(!handle)('live Claude account switching under the owner runtime'
         switches.commitSwitch({ hostId, engine: 'claude', sessionId: leaseIds[1]!, scopeId: scope, accountId: b, generation: 2 }),
       ).rejects.toMatchObject({ code: 'account_switch_stale' });
       const committed = await switches.commitSwitch({ hostId, engine: 'claude', sessionId: leaseIds[1]!, scopeId: scope, accountId: b, generation: 1 });
-      expect(committed).toEqual({ previous_account_id: a, account_id: b, binding_generation: 2 });
+      expect(committed).toMatchObject({ previous_account_id: a, account_id: b, binding_generation: 2, moved_addresses: [] });
       expect(rows().every((r) => r.accountId === b && r.bindingGeneration === 2 && r.desiredAccountId === null)).toBe(true);
       const durable = await seedDb
         .select()
