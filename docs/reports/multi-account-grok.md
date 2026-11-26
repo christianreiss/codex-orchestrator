@@ -1,6 +1,8 @@
 # Multi-account live switching for Grok Build (`cgx`): design
 
 Status: research and design only. The repo was read, not changed. Repo `main` @ 742d209ba (cxx 0.9.211), date 2026-11-26.
+Companion reports: [Codex](multi-account-codex.md) and [Kimi](multi-account-kimi.md); the shared design
+across engines is in [multi-account-engines.md](multi-account-engines.md).
 
 **Sources and their limits**
 - Upstream source is the public `xai-org/grok-build` HEAD `2bdd1d6a6369de0e8c68132ea4539e9abd9e14a8`. It was synced 2026-09-29, it is the newest public commit, and there are no tags or releases.
