@@ -1,7 +1,13 @@
 <script lang="ts">
   import Timestamp from "$lib/components/page/Timestamp.svelte";
-  /** Provider usage as one table: a row per account, its quota windows inline. */
+  /**
+   * Provider usage as one table: a row per account, its quota windows inline. An engine with
+   * several accounts gets a collapsible group header (the same as on Accounts); the expanded
+   * engines live in the `open` URL parameter.
+   */
   import { base } from "$app/paths";
+  import { goto } from "$app/navigation";
+  import { page } from "$app/state";
   import * as Table from "$lib/components/ui/table";
   import { Badge } from "$lib/components/ui/badge";
   import { Button } from "$lib/components/ui/button";
@@ -15,6 +21,8 @@
   import GrokUsage from "./GrokUsage.svelte";
   import UsageMeter from "./UsageMeter.svelte";
   import { accountQuotaRows } from "./account-usage";
+  import AccountGroupRow from "$lib/components/accounts/AccountGroupRow.svelte";
+  import { accountEntries, displayName, entryKey, parseOpen, toggleOpen } from "$lib/components/accounts/account-state";
 
   type Props = {
     accounts: ProviderAccount[] | undefined;
@@ -25,6 +33,16 @@
   let { accounts, loading = false, error = null, onRetry }: Props = $props();
   const fleet = useFleetEngines();
   const visibleAccounts = $derived(accounts?.filter((account) => $fleet.isEnabled(account.engine)));
+  const entries = $derived(visibleAccounts && accountEntries(visibleAccounts, "listed"));
+  const openGroups = $derived(parseOpen(page.url.searchParams.get("open")));
+  function toggle(engine: string) {
+    const params = new URLSearchParams(page.url.searchParams);
+    const next = toggleOpen(params.get("open"), engine);
+    if (next) params.set("open", next);
+    else params.delete("open");
+    const query = params.toString();
+    void goto(query ? `?${query}` : page.url.pathname, { replaceState: true, noScroll: true, keepFocus: true });
+  }
 
   function status(account: ProviderAccount): { label: string; variant: "success" | "warning" | "destructive" | "secondary" } {
     if (account.refresh_state === "login_required") return { label: "Login needed", variant: "destructive" };
@@ -55,11 +73,11 @@
 {:else}
 <DataTable
   reflow
-  items={visibleAccounts}
+  items={entries}
   {loading}
   {error}
   {onRetry}
-  key={(account) => account.id}
+  key={entryKey}
   caption="Provider accounts and their quota usage"
   emptyTitle="No accounts for enabled engines"
   emptyDescription="Manage retained accounts or add a login for an enabled engine in Accounts."
@@ -72,18 +90,32 @@
     <Table.Head class="whitespace-nowrap">Reset in</Table.Head>
     <Table.Head>Updated</Table.Head>
   {/snippet}
-  {#snippet row(account)}
+  {#snippet row(entry)}
+    {#if entry.kind === "group"}
+      {@const open = openGroups.has(entry.pool.engine)}
+      <AccountGroupRow pool={entry.pool} columns={5} {open} onToggle={() => toggle(entry.pool.engine)} />
+      {#if open}
+        {#each entry.rows as account (account.id)}{@render accountRow(account, true)}{/each}
+      {/if}
+    {:else}
+      {@render accountRow(entry.account, false)}
+    {/if}
+  {/snippet}
+</DataTable>
+{/if}
+
+{#snippet accountRow(account: ProviderAccount, nested: boolean)}
     {@const rows = accountQuotaRows(account)}
     {@const grok = account.engine === "grok" ? account.usage.current_window : null}
     {@const state = status(account)}
     {@const resets = resetLines(account, rows)}
     <Table.Row>
       <Table.Cell>
-        <a href={`${base}/accounts`} class="flex items-center gap-2 font-medium hover:underline">
+        <a href={`${base}/accounts`} class={cn("flex items-center gap-2 font-medium hover:underline", nested && "pl-6")}>
           <span class={cn("h-2 w-2 shrink-0 rounded-full", ENGINE_META[account.engine].color)} aria-hidden="true"></span>
-          <span class="min-w-0 break-words">{account.label}</span>
+          <span class="min-w-0 break-words">{displayName(account)}</span>
         </a>
-        <p class="mt-0.5 text-body-sm text-muted-foreground" data-testid="provider-plan">
+        <p class={cn("mt-0.5 text-body-sm text-muted-foreground", nested && "pl-6")} data-testid="provider-plan">
           {ENGINE_META[account.engine].label} · {account.plan?.name ?? "Plan unavailable"}{account.plan?.name && account.plan.stale ? " (last known)" : ""}
         </p>
       </Table.Cell>
@@ -135,6 +167,4 @@
         {:else}No reading yet{/if}
       </Table.Cell>
     </Table.Row>
-  {/snippet}
-</DataTable>
-{/if}
+{/snippet}

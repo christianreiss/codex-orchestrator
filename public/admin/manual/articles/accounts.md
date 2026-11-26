@@ -2,7 +2,7 @@
 title: Provider accounts
 section: Fleet operations
 verified: 2026-11-26
-sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/(providers)/accounts/+page.svelte, frontend/src/lib/components/accounts/AccountPolicy.svelte, frontend/src/lib/components/accounts/AccountScopes.svelte
+sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/(providers)/accounts/+page.svelte, frontend/src/lib/components/accounts/AccountPolicy.svelte, frontend/src/lib/components/accounts/AccountScopes.svelte, frontend/src/lib/components/accounts/AccountGroupRow.svelte, frontend/src/lib/components/accounts/account-state.ts, api/src/services/account-switch.ts
 ---
 
 Grok Build (`cgx`) is supported alongside Codex, Claude and Kimi Code; see [Grok Build](cgx) for
@@ -20,7 +20,11 @@ An account is a subscription, not a login session. Client uploads with a known d
 
 ## Usage and assignments
 
-Every account shows separate short and weekly utilization, reset times, observation freshness, verification state, and active hosts. Unknown quota remains unknown; stale readings are labeled and retained conservatively until their reset. The Overview's Provider usage table also shows each account separately. Percentages from different subscriptions are never added together.
+Every account shows separate short and weekly utilization, reset times, observation freshness, verification state, and active hosts. Unknown quota remains unknown; stale readings are labeled and retained conservatively until their reset. The Overview's Provider usage table shows the same accounts and the same groups. A group header's averages describe the pool at a glance; they are never a quota of their own, and each account keeps its own windows.
+
+An engine with more than one account is one collapsible group, collapsed by default. Its header names the engine and the number of accounts (and how many are usable when some are paused or unverified), then a state: **N need attention** when a login or verification is broken, **No usable account** when none is enabled and verified, **Pool near quota** only when every usable account is at 80% or more, otherwise **OK**. It then names the least-used account with its usage, the average short and weekly window over the usable accounts that report one and how many of them do ("1 of 2 reporting"): an account without a reading is not counted as zero. For Claude the header also shows the distribution policy (mode and strategy). Expand a group with its header button; the expanded groups are kept in the address (`?open=claude`), so a reload or a shared link keeps them. A search or an engine filter holds every group open so matching accounts stay visible, and groups without a match are left out. An account still carrying the server's default name ("Claude", "Claude account") is shown by its login e-mail when one is known, otherwise as "Claude account #1", so it never reads like the provider itself; Rename shows the stored name.
+
+An account at 80% or more on either window shows **Near quota**. When another enabled, verified account of the same engine is below 80% or has no reading yet, the row adds "Other accounts have headroom", and the **near quota** count in the header leaves it out: work continues on the other accounts, as agents are advised. The count includes an engine's high accounts only when none of its usable accounts has headroom, or when the engine has a single usable account. Paused and unverified accounts never count as headroom.
 
 At a new native CLI launch, cxx chooses a verified enabled account with lower quota utilization. Accounts within the policy band (Balanced) share work by active reservation count, then least recent assignment. An idle account without usable quota observations receives a bounded trial so native usage can become known. Existing hard-fail, warning and VIP controls still apply when all known accounts are exhausted.
 
@@ -58,6 +62,7 @@ Migration `0035_provider_accounts.sql` preserves each previous canonical head as
 - frontend/src/routes/(providers)/accounts/+page.svelte
 - frontend/src/lib/components/accounts/AccountPolicy.svelte
 - frontend/src/lib/components/accounts/AccountScopes.svelte
+- frontend/src/lib/components/accounts/AccountGroupRow.svelte, frontend/src/lib/components/accounts/account-state.ts (engine groups, pool state and display names)
 
 ## Quota warnings, reset recovery and PayG
 

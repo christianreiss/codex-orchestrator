@@ -558,14 +558,37 @@ test("Overview lists what needs you, counted like the owning pages and linked to
     ["1 agent is waiting for your answer", "/admin/agents"],
     ["1 temporary access window is open", "/admin/hosts?insecure=1"],
     ["1 engine fails login verification", "/admin/dashboard?tab=runner"],
-    ["2 accounts need attention or are near quota 1 needs attention · 1 near quota", "/admin/accounts"],
+    // claude-2 is at 92%, but claude-3 in the same pool has headroom: only the broken login waits on the operator.
+    ["1 account needs attention or is near quota 1 needs attention", "/admin/accounts"],
     ["3 unclaimed feedback reports", "/admin/reports"],
   ]);
+  // Provider usage groups the two Claude accounts under one pool header, collapsed by default.
+  const group = page.getByTestId("account-group");
+  await expect(group).toHaveCount(1);
+  await expect(group).toContainText("Claude 2 accounts");
+  await expect(group).toContainText("OK");
+  await expect(group).toContainText("Least used: claude-3 (10%) · average short 51%, weekly 25% (2 of 2 reporting)");
+  await expect(page.getByRole("row", { name: /claude-2/ })).toHaveCount(0);
   await expect(page.getByText("Nothing needs you right now.")).toHaveCount(0);
   // A waiting request opens its own triage box; dismissed, the row still leads to the access panel.
   await expect(page.getByRole("dialog", { name: "build-01.example.test is asking for access" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  const toggle = group.getByRole("button", { name: /^Claude 2 accounts/ });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page).toHaveURL(/[?&]open=claude/);
+  await expect(page.getByRole("row", { name: /claude-2/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /codex-1/ })).toBeVisible();
+  // The expanded groups survive a tab switch and come back with the Provider tab.
+  await page.getByRole("tab", { name: "Engines" }).click();
+  await expect(page).toHaveURL(/[?&]tab=engines/);
+  await expect(page).toHaveURL(/[?&]open=claude/);
+  await page.getByRole("tab", { name: "Provider" }).click();
+  await expect(page).not.toHaveURL(/[?&]tab=/);
+  await expect(page).toHaveURL(/[?&]open=claude/);
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await list.getByRole("link", { name: /waiting for temporary access approval/ }).click();
   await expect(page.getByRole("dialog", { name: "Insecure access" })).toBeVisible();
 });

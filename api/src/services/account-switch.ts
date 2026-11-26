@@ -11,8 +11,6 @@ import { stageUpdate } from '../control-plane/state/rows.js';
 import { persistAuditLog } from './audit-log.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { quotaWindowScore } from './account-selection.js';
-import { readQuotaPolicy } from './quota-policy.js';
-import { quotaSnapshot } from './quota-observation.js';
 import { emulationBlocks } from './quota-emulation.js';
 import { ProviderAccountsService } from './provider-accounts.js';
 import { SettingsService } from './settings.js';
@@ -76,6 +74,51 @@ export function accountSwitchNoticeContent(engine: Engine, from: PoolAccount | u
   return `ACCOUNT/1 switched: this ${engine} session now runs on ${name(to, 'the new account')}, ${usage(to)}; previously ${name(from, 'the old account')}, ${usage(from)}. Reason: ${reason ?? 'unspecified'}. The switch happened at a turn boundary; keep working. Quota figures now refer to the new account, and the first request rebuilds the prompt cache. Use account_status for the pool.`;
 }
 
+/** Where one listed account stands in its engine's pool (`/admin/accounts` `pool`). */
+export interface PoolPosition {
+  /** max(short, weekly) used percent; a passed reset is no reading, unlimited is 0, an emulated block is 100. */
+  score: number | null;
+  /** The short and weekly window as scored (null without a current reading), for pool averages. */
+  short: number | null;
+  weekly: number | null;
+  /** Enabled and verified: the account can take new work and live switches. */
+  usable: boolean;
+  emulation_blocked: boolean;
+}
+
+/** The fields of a `ProviderAccountsService.list()` row that decide its pool position. */
+export interface PoolPositionInput {
+  state: string;
+  verification_state: string;
+  usage: object;
+  quota_policy?: { unlimited?: boolean } | null;
+  quota_snapshot?: { short?: Parameters<typeof emulationBlocks>[0] } | null;
+}
+
+/**
+ * The single scoring rule of the pool, shared by the policy, live switching,
+ * agent warnings and the admin list, so they never disagree about an account.
+ */
+export function poolPosition(account: PoolPositionInput, now: number): PoolPosition {
+  const usage = account.usage as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const str = (v: unknown) => (typeof v === 'string' ? v : null);
+  const unlimited = account.quota_policy?.unlimited === true;
+  // An emulated budget that blocks managed work makes the account full
+  // for the policy: running scopes move away and nothing moves onto it.
+  const blocked = !unlimited && emulationBlocks(account.quota_snapshot?.short);
+  const short = quotaWindowScore(num(usage.short_used_percent), str(usage.short_resets_at), now);
+  const weekly = quotaWindowScore(num(usage.weekly_used_percent), str(usage.weekly_resets_at), now);
+  const scores = [short, weekly].filter((x): x is number => x !== null);
+  return {
+    score: unlimited ? 0 : blocked ? 100 : scores.length ? Math.max(...scores) : null,
+    short,
+    weekly,
+    usable: account.state === 'enabled' && account.verification_state === 'verified',
+    emulation_blocked: blocked,
+  };
+}
+
 const liveLease = (row: Lease, now: string) => row.ownershipMode === 'connection' || row.expiresAt > now;
 const generationOf = (row: Pick<Lease, 'bindingGeneration'>) => row.bindingGeneration ?? 1;
 
@@ -123,39 +166,31 @@ export class AccountSwitchService {
   async pool(engine: Engine): Promise<PoolAccount[]> {
     const listed = await this.accounts.list(engine);
     const now = Date.now();
-    return Promise.all(
-      listed
-        .filter((a) => a.state !== 'removed')
-        .map(async (a) => {
-          const usage = a.usage as Record<string, unknown>;
-          const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-          const str = (v: unknown) => (typeof v === 'string' ? v : null);
-          const unlimited = (await readQuotaPolicy(this.db, engine, a.id)).effective.unlimited;
-          // An emulated budget that blocks managed work makes the account full
-          // for the policy: running scopes move away and nothing moves onto it.
-          const blocked = !unlimited && emulationBlocks((await quotaSnapshot(this.db, a.id, engine).catch(() => null))?.short);
-          const scores = [
-            quotaWindowScore(num(usage.short_used_percent), str(usage.short_resets_at), now),
-            quotaWindowScore(num(usage.weekly_used_percent), str(usage.weekly_resets_at), now),
-          ].filter((x): x is number => x !== null);
-          return {
-            id: a.id,
-            label: a.label,
-            email: a.label.includes('@') ? a.label : null,
-            state: a.state,
-            verified: a.verification_state === 'verified',
-            short_used_percent: num(usage.short_used_percent),
-            short_resets_at: str(usage.short_resets_at),
-            weekly_used_percent: num(usage.weekly_used_percent),
-            weekly_resets_at: str(usage.weekly_resets_at),
-            fetched_at: str(usage.fetched_at),
-            score: unlimited ? 0 : blocked ? 100 : scores.length ? Math.max(...scores) : null,
-            emulation_blocked: blocked,
-            active_sessions: a.sessions.length,
-            last_selected_at: a.last_selected_at,
-          };
-        }),
-    );
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    const str = (v: unknown) => (typeof v === 'string' ? v : null);
+    // The listed row already carries the effective quota policy and snapshot.
+    return listed
+      .filter((a) => a.state !== 'removed')
+      .map((a) => {
+        const usage = a.usage as Record<string, unknown>;
+        const position = poolPosition(a, now);
+        return {
+          id: a.id,
+          label: a.label,
+          email: a.label.includes('@') ? a.label : null,
+          state: a.state,
+          verified: a.verification_state === 'verified',
+          short_used_percent: num(usage.short_used_percent),
+          short_resets_at: str(usage.short_resets_at),
+          weekly_used_percent: num(usage.weekly_used_percent),
+          weekly_resets_at: str(usage.weekly_resets_at),
+          fetched_at: str(usage.fetched_at),
+          score: position.score,
+          emulation_blocked: position.emulation_blocked,
+          active_sessions: a.sessions.length,
+          last_selected_at: a.last_selected_at,
+        };
+      });
   }
 
   private async label(engine: Engine, id: number): Promise<string> {
