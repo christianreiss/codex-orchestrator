@@ -44,13 +44,21 @@
     void goto(query ? `?${query}` : page.url.pathname, { replaceState: true, noScroll: true, keepFocus: true });
   }
 
-  const fetching = $derived($overview.isFetching || $accounts.isFetching || $engineState.isFetching);
+  // Only the operator's own Refresh says "Refreshing…". Live events (host heartbeats, account
+  // updates) refetch in the background about every second on a busy fleet; showing each one
+  // made the freshness line and the button flicker. The timestamp moves when new data lands.
+  let refreshing = $state(false);
   // Freshness of what the page shows: the older of the two snapshots (0 = never loaded).
   const updatedAt = $derived(
     $overview.dataUpdatedAt && $accounts.dataUpdatedAt ? Math.min($overview.dataUpdatedAt, $accounts.dataUpdatedAt) : 0,
   );
-  function refresh() {
-    void Promise.all([$overview.refetch(), $accounts.refetch(), $runner.refetch(), $engineState.refetch()]);
+  async function refresh() {
+    refreshing = true;
+    try {
+      await Promise.all([$overview.refetch(), $accounts.refetch(), $runner.refetch(), $engineState.refetch()]);
+    } finally {
+      refreshing = false;
+    }
   }
 
   const accountRows = $derived($accounts.data?.accounts);
@@ -85,10 +93,10 @@
 <PageShell title="Overview" description="What needs you, then provider usage, engines and login verification.">
   {#snippet actions()}
     {#if updatedAt}
-      <span class="text-body-sm text-muted-foreground">{#if fetching}Refreshing…{:else}Updated <Timestamp value={updatedAt} live />{/if}</span>
+      <span class="text-body-sm text-muted-foreground">{#if refreshing}Refreshing…{:else}Updated <Timestamp value={updatedAt} live />{/if}</span>
     {/if}
-    <Button variant="outline" onclick={refresh} disabled={fetching}>
-      <RefreshCw class="h-4 w-4 {fetching ? 'animate-spin' : ''}" /> Refresh
+    <Button variant="outline" onclick={refresh} disabled={refreshing}>
+      <RefreshCw class="h-4 w-4 {refreshing ? 'animate-spin' : ''}" /> Refresh
     </Button>
     <Button href={`${base}/hosts?dialog=new-host`}><Plus class="h-4 w-4" /> Add host</Button>
   {/snippet}
