@@ -1321,7 +1321,8 @@ function buildEntries(deps: ToolDeps): Map<string, ToolEntry> {
       description:
         'Create or replace a project file by stored_name. Content is required; an empty string represents zero bytes when encoding is base64. Description and mime_type are optional. ' +
         'For a binary artifact — a PDF, an archive, a screenshot — base64-encode it and pass encoding:"base64"; ' +
-        'size_bytes and content_sha256 are then computed over the decoded bytes. Files cap at 4 MiB decoded.',
+        'size_bytes and content_sha256 are then computed over the decoded bytes. Files cap at 4 MiB decoded. ' +
+        'To upload a file that already exists on this machine, prefer the shell command `cxx project file put SLUG FILE [--stored-name NAME] [--description TEXT] [--mime-type TYPE]` (cxx 0.9.149+; also cdx/clx/cgx/ckx): it reads the file from disk, so its bytes never pass through your context, and prints only name, size and SHA-256.',
       inputSchema: {
         type: 'object',
         properties: {

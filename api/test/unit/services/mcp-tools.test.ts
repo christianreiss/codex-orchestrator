@@ -385,6 +385,15 @@ describe('McpToolsRegistry', () => {
     expect(list).toContain('project_file_delete');
   });
 
+  it('points project_file_upsert at the path-based CLI upload for local files', () => {
+    // Inline content puts every byte through model context; agents only find
+    // the CLI alternative if the tool they are about to call names it.
+    const upsert = registry.list().find((tool) => tool.name === 'project_file_upsert');
+    expect(upsert?.description).toMatch(/cxx project file put SLUG FILE/);
+    expect(upsert?.description).toMatch(/cxx 0\.9\.149\+/);
+    expect(upsert?.description).toMatch(/never pass through your context/);
+  });
+
   it('omits the shared_memory_* tools when no shared memory service is wired', () => {
     const list = registry.list().map((t) => t.name);
     expect(list).not.toContain('shared_memory_list');
