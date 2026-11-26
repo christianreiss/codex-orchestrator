@@ -211,6 +211,21 @@ export function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+/**
+ * Why a reported target HEAD cannot be a commit, or null when it may be one.
+ *
+ * The Director never reads a worktree, so it cannot prove a SHA exists; it can
+ * still refuse the shape an agent produces by padding a short hash with zeros
+ * to satisfy the length check. Eight leading or trailing zeros occur in a real
+ * SHA about once in two billion commits, and the all-zero null SHA is caught by
+ * the same rule.
+ */
+export function reportedShaProblem(sha: string): string | null {
+  if (!/^[a-f0-9]{40,64}$/.test(sha)) return 'target_head_sha must be a full 40-64 lowercase hex commit SHA; use git rev-parse HEAD';
+  if (/^0{8}|0{8}$/.test(sha)) return 'target_head_sha starts or ends with eight or more zeros, which looks like a padded short hash; report the full output of git rev-parse on the target branch';
+  return null;
+}
+
 /** Absolute-path normalization: collapse duplicate and trailing separators. */
 export function normalizePath(raw: string): string {
   const value = String(raw ?? '').trim();
@@ -1969,7 +1984,8 @@ export class GitDirectorService {
     if (!['merged', 'aborted', 'unknown'].includes(outcome)) throw new ValidationError('outcome must be merged, aborted or unknown');
     if (args.outcome !== undefined && (!requestId || !worktreePath)) throw new ValidationError('request_id and worktree_path are required for a reported outcome');
     if (outcome === 'merged' && !targetHeadSha) throw new ValidationError('target_head_sha is required for a reported merge');
-    if (outcome === 'merged' && !/^[a-f0-9]{40,64}$/.test(targetHeadSha!)) throw new ValidationError('target_head_sha must be a full 40-64 lowercase hex commit SHA; use git rev-parse HEAD');
+    const shaProblem = outcome === 'merged' ? reportedShaProblem(targetHeadSha!) : null;
+    if (shaProblem) throw new ValidationError(shaProblem);
     if (!requestId && !worktreePath) {
       throw new ValidationError('request_id or worktree_path is required', { param: 'request_id' });
     }
