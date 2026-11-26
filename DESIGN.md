@@ -86,7 +86,8 @@ owning components when moving a setting; update this table in the same change.
 
 | Setting family | Editable home |
 | --- | --- |
-| API master/surface controls and gateway keys | `/admin/api-keys` |
+| API master/surface controls, each API's source (Subscription or API key) and gateway keys | `/admin/api-keys` |
+| Provider API keys spent while an API's source is API key, and their failover order | `/admin/provider-keys` (the source itself is set under `/admin/api-keys#exposed-apis`) |
 | People (admin users) | `/admin/people` |
 | Shared secrets | `/admin/secrets` |
 | Engine switches, model/effort/version defaults and native engine configuration | `/admin/engines` |
@@ -274,7 +275,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 
 The standalone public product and installation page lives in `website/index.html`. Both language editions are static HTML. On every neutral entry the root checks the ordered browser languages (German and English, including regional variants), and defaults to German. Direct language links also work without JavaScript. When changing website/language.js, update its integrity digest in both documents and the script hash in the Weby vhost CSP. It uses the console typography and signal palette, a fleet diagram, a native CLI comparison and a link to the guided installer. The selling surface has no authenticated shell.
 
-This is a source audit, not a live visual acceptance report. All 43 `+page.svelte` entrypoints are represented below (rechecked 2026-11-10), including redirects and the legacy catch-all. The five workflow routes were added on 2026-10-20 with automated interaction and responsive coverage; manual screen-reader and independent usability acceptance remain separate. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
+This is a source audit, not a live visual acceptance report. All 45 `+page.svelte` entrypoints are represented below (rechecked 2026-11-26), including redirects and the legacy catch-all. The five workflow routes were added on 2026-10-20 with automated interaction and responsive coverage; manual screen-reader and independent usability acceptance remain separate. Route groups such as `(providers)` do not appear in browser URLs. Paths in this table include the `/admin` base. Child project pages inherit `PageShell` from their layout. “Step-2 check” is an unverified risk to exercise, not a confirmed defect.
 
 | Current entry / view | Primary task and pattern | Existing composition | Step-2 check |
 | --- | --- | --- | --- |
@@ -306,13 +307,14 @@ This is a source audit, not a live visual acceptance report. All 43 `+page.svelt
 | `/admin/activity` | Inspect configuration/system changes; history | `PageShell`, filters, change events | Empty/error, details and legacy deep links; generic MCP call history removed 2026-10-24 |
 | `/admin/reports` (Feedback) | Triage feedback reports about the orchestrator; list/detail | `PageShell`, `Toolbar`, `ReportInbox`, `ListDetail` | Create/detail, long evidence, status transitions; feedback destination/configuration, opt-in, old-version/retest and uncertain publication evidence |
 | `/admin/accounts` | Manage provider accounts, quota overrides (PayG, warnings, reset recovery) and the per-engine distribution policy; list, policy form, active scopes with account switch | `PageShell`, `Toolbar`, `DataTable`, `AccountGroupRow` (collapsible engine groups), `Section`, `ChoiceCard` (policy mode and strategy), `RangeSlider` (soft and hard limit), `SegmentedControl` (band), `FormField`, `SaveState`, `DraftGuard`, account dialogs | Codex/Claude/Grok, missing quota, expired auth, unknown identity, default account names, switched-off engines hidden with a muted count, policy load/save failure, no active scopes; groups collapsed by default, held open by search or engine filter, `?open=` in the URL |
+| `/admin/provider-keys` | Manage the provider API keys (OpenAI, Anthropic, xAI, Moonshot AI) a gateway API spends while its source is API key; one failover-ordered list per provider | `PageShell`, `Section` per provider, `DataTable` (reflow), `RowActions`, `ProviderKeyDialog` (`FormField`, `SimpleSelect`, `DraftGuard`), `ConfirmDialog`, `HiddenEngineNote`, `StateBlock`, `Timestamp` | Key value write-only (never prefilled or echoed), save then verify with the verdict in the dialog (verified, limited rights, rejected, check failed), non-drag reorder, delete/pause consequence by failover position and source, API key source without a usable key, switched-off engine hidden with a count, read-only without `keys.manage`, denied and stale states, 320 px |
 | `/admin/engines` | Configure providers; settings, one engine per tab (`?engine=`) | `PageShell`, `Tabs`, `Section`, engine master switches, `EngineSection`, `EngineDangerZone` | Per-engine deltas, tab and hash deep links, save failure, invalid saved native settings with an outside-disclosure correction action and retained editor draft, suspended/destroy states |
 | `/admin/limits` | Configure usage limits; settings | `PageShell`, `Section`, per-engine quota policy tabs | Hard/soft enforcement, per-engine warning policy, save failure |
 | `/admin/library` | Find shared knowledge; list | `PageShell`, type switch, `LibraryList`, `MemoriesPanel`, `RolesPanel` (roles module switch in the `PageShell` toggle) | All types, memory alternate views, search and permissions; roles off versus empty |
 | `/admin/library/[type]/[name]` | Edit shared artifact; editor | Skill/artifact editors, `RoleEditor` (draft, publish, policy, `history` slot with versions/proposals/holders); invalid-type `PageShell`/`StateBlock` | Valid types, unknown type/name, unsaved changes; role draft versus published, proposal sheet focus |
 | `/admin/library/agent-rules` | Edit effective instructions; editor | `PageShell`, module picker, live preview, advanced/history/manual modes | Preview failure and stored versus effective content |
 | `/admin/people` | Manage admin users; list | `PageShell`, people section, wipe-all danger zone | Role/permission denial, last-owner protection, wipe confirmation |
-| `/admin/api-keys` | Issue and revoke gateway keys; list + configuration | `PageShell`, API-key section, Configure panel | Reveal/copy, revoke, disabled surface/backend, legacy anchors |
+| `/admin/api-keys` | Issue and revoke gateway keys and choose each API's source; list + configuration | `PageShell`, API-key section ("Answered by" in the new-key dialog, source badge in the list), Configure panel (Exposed APIs with a Source column and its `ConfirmDialog`) | Reveal/copy, revoke, disabled surface/backend, switch to API key names the billing and needs a usable provider key, engine unused under API key, legacy anchors |
 | `/admin/secrets` | Manage agent-readable credentials; list | `PageShell`, secrets section, secret dialog | Reveal/copy, store switch off/empty, permission denial |
 | `/admin/settings` | Set fleet behavior, server retention and local housekeeping; settings in four tabs (`?group=hosts|agents|rollout|retention`) | Standard `PageShell`, one `Tabs` row (NAV-4), `Section`, policy/session/retention controls, `ConfirmedSwitchSetting` (coordination, supervisor), rollout switch with confirm dialogs, `HostOverrideBadge`, `ModelTierBoard` (Agents) | Immediate-save truth, read-only/stale states with the missing capability named, fleet-vs-host scope badges, deep links to rows, lazy tab content; reconcile switch state before retrying an ambiguous save; model tiers: drag plus non-drag move, explicit Save/Discard, hidden-engine placements kept |
 | `/admin/account` | Manage own identity/security; tabbed settings | `PageShell`, one `Tabs` row (Profile/Security/Appearance/Devices), `Section`, existing account components; hash-selected, draft-preserving panels | Direct links/history, hidden panels inert, password disclosure, active-only device list/revoke confirmation, receipt-correlated pairing timeline/completion/expiry, inline failures, all theme modes |
@@ -333,9 +335,9 @@ This is a source audit, not a live visual acceptance report. All 43 `+page.svelt
 | Cmd/Ctrl-K, global search, shortcuts help | Command palette, search modal, shortcuts components | Focus entry/exit, no results, accessible selection; shortcuts do not intercept typing; a switched-off engine's views are not offered, Recent included; old page names and Settings row aliases still find their page |
 | Chatty assistant | Shared shell assistant and chatty components (English panel; Chatty answers in the language it is asked in) | Availability/role gates, drafts, errors and confirmation of concrete changes; server-verified answer links (navigate in place, phone panel minimizes), latest-answer suggestion chips and action buttons (safe navigation, or the shared `ConfirmDialog` with typed name for danger, then the existing admin endpoint) |
 | Client/session detail and attachments | Portal components inside Agents | Directory, retained chats, attention, timeline, composer, uploads, remote sessions, close/reconnect states |
-| Host creation, quick VM, seed auth and insecure approval popup | Host sheets/dialogs and shared `SeedAuthPanel` | One auth upload UI; focus return, pending/error, safety consequences |
+| Host creation, quick VM, seed auth and insecure approval popup | Host sheets/dialogs and shared `SeedAuthPanel` | One upload UI for subscription/host auth (provider API keys for the API key source are entered on Provider keys); focus return, pending/error, safety consequences |
 | Project About/settings, card editor, report creation/detail | Project and report sheets/dialogs | Preserve originating selection and draft; destructive scope clear |
-| Account add/login/seed/reveal/revoke; People/API keys/Secrets dialogs | Domain components plus shared dialog/sheet primitives | No credential exposure in status text or URLs; copy result and permissions clear |
+| Account add/login/seed/reveal/revoke; People/API keys/Provider keys/Secrets dialogs | Domain components plus shared dialog/sheet primitives | No credential exposure in status text or URLs; copy result and permissions clear |
 | Workflow run preparation, coordinator recovery and managed run group | Typed inputs, explicit controls, retained mutation receipt, existing `RoomConversation` | No implicit agent spawn; pause is no external process stop; run-owned membership; closed history |
 | Editor history/version/preview/manual mode; memory alternate views and shared-memory restore from Activity; role proposal sheet, revert/withdraw/publish dialogs | Library components | Read-only versus editable state, failed preview, long documents; agent-authored proposal text shown as data |
 | Schedule form/result, Git detail, transfer audit | `ListDetail` / domain sheets | Correct action and event scope; explicit uncertainty |
@@ -415,8 +417,8 @@ an uncertain send is a new draft/receipt ID; unchanged retries preserve the ID.
 
 Authentication presentation slice (2026-10-25): `AuthShell` owns branding, heading,
 bounded task surface and footer spacing for sign-in, reset, CLI approval and setup.
-`SeedAuthPanel` remains the single provider-credential UI in Accounts, host dialogs
-and setup, with one engine selector above its method tabs and keyboard-accessible
+`SeedAuthPanel` remains the only upload UI for subscription/host auth in Accounts,
+host dialogs and setup (provider API keys are entered on Provider keys), with one engine selector above its method tabs and keyboard-accessible
 file input. CLI approval details stack at narrow widths. Applicable rules: NAV-2/3,
 VIS-1/2/3/4/5, INT-2/3/4/5/7, ACC-1/3/4/5. No new exception. Browser captures,
 automated checks and outstanding manual acceptance are recorded with delivery;
@@ -813,3 +815,45 @@ Accounts and the Overview's Provider usage table show an engine with several acc
 ### App shell consistency (2026-11-26)
 
 Operator feedback: the top bar mixed four control shapes and heights (a 20 px live pill beside 36 px tinted chips, a bordered search field and a borderless appearance icon), and the healthy live state and the appearance switch were permanently visible. The sidebar brand row (about 53 px) missed the 48 px header rule. The active hub carried an edge bar beside a second filled row, and the account box stacked a bordered name button over three unlabeled icons (Manual, Account, Shortcuts). Now every top-bar control is 36 px with a 16 px glyph, and status chips (degraded live updates, open temporary access, unhandled reports) share one recipe and differ only in tone. The search trigger stays rightmost, and a connected live transport is announced through a polite status region instead of a chip. A connecting or disconnected chip appears only after 1.5 s, so a page load or a quick reconnect does not flash one; disabled updates show at once. The appearance radio group moved into the account menu; its save failure stays in the full-width header (INT-5). Rail rows share one geometry, the current page is the one filled row and the brand row is 48 px. The three utility icons became labeled account-menu items, and `?`, Cmd/Ctrl-K and the palette commands are unchanged. The rail now carries the dark-theme status pairs in both themes, so the temporary-access request row is no longer a pale light-theme box on navy (`tokens.contrast.test.ts` checks the rail pairs in both modes). The per-host access chip reads "1 temporary access window open". Applicable rules: NAV-1/2/3/4, VIS-1/2/3/4/5, INT-5/6/7, ACC-1/2/3/4. No exception. Checked: `npm run check` and the full Playwright suite in Chromium. Its 20 failures also fail at the base commit: the `/accounts` effect loop, which also breaks the deep-link sweep, and the route inventory, which misses the project changelog pages. Not run: other browsers, a screen reader and 400 % zoom.
+
+### Provider keys and the API source (2026-11-26)
+
+A gateway API can now be answered by the operator's own provider API keys (source "API key") instead of a subscription engine ("Subscription"). Providers gains **Provider keys** (`/admin/provider-keys`, after Accounts in `nav.ts`) for those keys. They are neither the gateway keys under Access → API keys nor subscription logins: `SeedAuthPanel` stays the only upload UI for subscription/host auth. The page is built from `GET /admin/provider-keys` alone. Each provider (OpenAI, Anthropic, xAI, Moonshot AI) whose engine is switched on gets one `Section` with a `DataTable reflow` in failover order; the others are hidden and counted by `HiddenEngineNote` (INT-1). The columns are:
+
+- the order, with "Move … up/down" buttons as the non-drag path (ACC-1);
+- the name;
+- the key hint in mono;
+- the endpoint (provider default or custom base URL);
+- the status in words: Active/Paused plus Verified, Rejected, Unchecked or Check failed, with the provider's reason and a `Timestamp` (VIS-4, INT-6);
+- last used and last error.
+
+`RowActions` verifies, pauses or resumes, edits and deletes a key. `ProviderKeyDialog` has these fields:
+
+- the provider (`SimpleSelect`);
+- the name;
+- a write-only key field (`type=password`, `autocomplete=new-password`, never prefilled or echoed, cleared after a save);
+- an optional base URL with the provider default as placeholder.
+
+Server rejections land beside their field (INT-2). `DraftGuard` and a discard confirmation cover the draft (INT-3). Saving does not verify on the server, so the dialog chains the verification and shows its verdict. "Verify again" never re-submits the key, and an edit sends only the changed fields.
+
+Deleting a key, and pausing the last usable key of an API on API key, use `ConfirmDialog`. It names the key and the failover consequence: the next key takes over, or the API answers 503 (INT-4). Action failures stay beside the provider's table (INT-5). Loading, denied, error and stale-refresh states use `StateBlock` (INT-7). Without `keys.manage` the page is read-only and names the capability.
+
+On API keys, the Exposed APIs table gains a Source column (`SimpleSelect`):
+
+- Switching to API key opens a `ConfirmDialog` that names the provider account billed and what stops applying. It cannot be confirmed without a usable key and links to Provider keys, and a server refusal (409) stays in the dialog. Switching back to Subscription is immediate.
+- Under API key, the default-engine select is disabled with "Not used with API key".
+- "No usable … key" is a warning badge linked to that provider's section.
+
+The table now reflows below 640 px with visible cell labels (ACC-4), and the Endpoints summary judges an API on API key by its provider keys. The new-key dialog adds "Answered by" (API default, Subscription, Provider API key); a Provider API key pin sends no engine. The key list marks pins with a badge.
+
+Rules checked: NAV-1/2/3/4, VIS-1/4/5, INT-1/2/3/4/5/6/7, ACC-1/3/4. No new exception.
+
+Checked:
+
+- `npm run check`: 0 errors, plus the one known warning in `CommunicatorApiSection.svelte`; 1077 node tests pass.
+- `e2e/admin-provider-keys.spec.ts` (17 tests: states, read-only, engine off, 320 px, the dialog, reorder, delete and pause confirmations, the verify verdict, Axe).
+- Six new tests in `e2e/admin-api-access.spec.ts` (the Source column and "Answered by").
+- The full Playwright suite in Chromium: 590 of 591 pass. The one failure is the known pre-existing route inventory gap (the two project changelog pages). The Providers hub expectation in `admin-console.spec.ts` was updated for the new page and that file rerun.
+- Screenshots at 1440 px and 320 px.
+
+Not run: other browsers, dark-theme screenshots, contrast tooling, a screen reader and 400 % zoom.

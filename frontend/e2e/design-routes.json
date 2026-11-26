@@ -64,6 +64,10 @@
     "path": "/admin/accounts"
   },
   {
+    "source": "src/routes/(providers)/provider-keys/+page.svelte",
+    "path": "/admin/provider-keys"
+  },
+  {
     "source": "src/routes/(providers)/engines/+page.svelte",
     "path": "/admin/engines"
   },

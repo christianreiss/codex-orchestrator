@@ -36,6 +36,7 @@ const ICON_NAMES = [
   "HelpCircle",
   "Keyboard",
   "KeyRound",
+  "KeySquare",
   "Layers",
   "LayoutDashboard",
   "Lock",

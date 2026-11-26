@@ -121,6 +121,7 @@ export const BUILDER_CATALOG = {
 export const CANONICAL_DESTINATIONS = [
   { path: "/dashboard", heading: "Overview", title: "Overview" },
   { path: "/accounts", heading: "Accounts", title: "Accounts" },
+  { path: "/provider-keys", heading: "Provider keys", title: "Provider keys" },
   { path: "/agents", heading: "Agents", title: "Agents" },
   { path: "/activity", heading: "Activity", title: "Activity" },
   { path: "/reports", heading: "Feedback", title: "Feedback" },
@@ -176,6 +177,24 @@ export const CHATTY_RICH_EVENTS = [
   },
 ];
 
+/** `GET /admin/provider-keys`: one verified OpenAI key, every other provider empty. */
+export const PROVIDER_KEYS_FIXTURE = {
+  providers: [
+    { provider: "openai", label: "OpenAI", engine: "codex", engine_enabled: true, default_base_url: "https://api.openai.com/v1", surface: "openai", base_path: "/v1", source: "emulated", counts: { total: 1, active: 1, usable: 1 } },
+    { provider: "anthropic", label: "Anthropic", engine: "claude", engine_enabled: true, default_base_url: "https://api.anthropic.com/v1", surface: "anthropic", base_path: "/anthropic/v1", source: "emulated", counts: { total: 0, active: 0, usable: 0 } },
+    { provider: "xai", label: "xAI", engine: "grok", engine_enabled: true, default_base_url: "https://api.x.ai/v1", surface: "grok", base_path: "/grok/v1", source: "emulated", counts: { total: 0, active: 0, usable: 0 } },
+    { provider: "moonshot", label: "Moonshot AI", engine: "kimi", engine_enabled: true, default_base_url: "https://api.moonshot.ai/v1", surface: "kimi", base_path: "/kimi/v1", source: "emulated", counts: { total: 0, active: 0, usable: 0 } },
+  ],
+  keys: [
+    {
+      id: 1, provider: "openai", label: "Production OpenAI account with a deliberately long readable name", key_hint: "sk-proj-…a1b2", base_url: null,
+      effective_base_url: "https://api.openai.com/v1", sort_order: 0, state: "active", verification_state: "valid", verification_reason: null,
+      verification_checked_at: "2026-11-26T08:00:00Z", last_used_at: "2026-11-26T09:00:00Z", last_error_at: null, last_error_status: null,
+      last_error_reason: null, created_by_admin_user_id: 1, created_at: "2026-11-25T08:00:00Z", updated_at: "2026-11-26T08:00:00Z",
+    },
+  ],
+};
+
 export function fixture(pathname: string): Record<string, unknown> {
   const workflow = workflowFixture(pathname);
   if (workflow) return workflow;
@@ -211,13 +230,14 @@ export function fixture(pathname: string): Record<string, unknown> {
     case "/admin/claude/settings": return { default_model: "claude-sonnet-5", max_tokens: 8192 };
     case "/admin/api/surfaces": return {
       surfaces: [
-        { surface: "openai", label: "OpenAI-compatible", base_path: "/v1", wire: "openai", backend: "codex", identity_backend: "codex", disabled: false, key_count: 0 },
-        { surface: "anthropic", label: "Anthropic-compatible", base_path: "/anthropic/v1", wire: "anthropic", backend: "claude", identity_backend: "claude", disabled: false, key_count: 0 },
-        { surface: "grok", label: "Grok (OpenAI-compatible)", base_path: "/grok/v1", wire: "openai", backend: "grok", identity_backend: "grok", disabled: false, key_count: 0 },
-        { surface: "kimi", label: "Kimi Code", base_path: "/kimi/v1", wire: "openai", backend: "kimi", identity_backend: "kimi", disabled: true, key_count: 0 },
+        { surface: "openai", label: "OpenAI-compatible", base_path: "/v1", wire: "openai", backend: "codex", identity_backend: "codex", disabled: false, key_count: 0, source: "emulated", provider: "openai", provider_label: "OpenAI", provider_keys: { active: 1, usable: 1 } },
+        { surface: "anthropic", label: "Anthropic-compatible", base_path: "/anthropic/v1", wire: "anthropic", backend: "claude", identity_backend: "claude", disabled: false, key_count: 0, source: "emulated", provider: "anthropic", provider_label: "Anthropic", provider_keys: { active: 0, usable: 0 } },
+        { surface: "grok", label: "Grok (OpenAI-compatible)", base_path: "/grok/v1", wire: "openai", backend: "grok", identity_backend: "grok", disabled: false, key_count: 0, source: "emulated", provider: "xai", provider_label: "xAI", provider_keys: { active: 0, usable: 0 } },
+        { surface: "kimi", label: "Kimi Code", base_path: "/kimi/v1", wire: "openai", backend: "kimi", identity_backend: "kimi", disabled: true, key_count: 0, source: "emulated", provider: "moonshot", provider_label: "Moonshot AI", provider_keys: { active: 0, usable: 0 } },
       ],
       backends: [{ engine: "codex", label: "Codex" }, { engine: "claude", label: "Claude" }, { engine: "grok", label: "Grok" }, { engine: "kimi", label: "Kimi Code" }],
     };
+    case "/admin/provider-keys": return PROVIDER_KEYS_FIXTURE;
     case "/admin/auth/status":
       return { authenticated: true, enforced: true, user, roles: ["owner"], capabilities: [...CAPABILITIES] };
     case "/admin/setup/status":

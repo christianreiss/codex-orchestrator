@@ -71,7 +71,13 @@
   const fleet = useFleetEngines();
   const surfaces = apiSurfacesQuery();
   const SURFACE: Record<ApiKeyEngine, string> = { openai: "openai", claude: "anthropic", grok: "grok", kimi: "kimi" };
-  const keyEngine = (record: KeyRow) => record.backend_engine ?? $surfaces.data?.surfaces.find((row) => row.surface === SURFACE[record.format])?.backend ?? null;
+  const surfaceOf = (record: KeyRow) => $surfaces.data?.surfaces.find((row) => row.surface === SURFACE[record.format]);
+  // Under API key the provider path belongs to the API's own engine (OpenAI to Codex, and so on).
+  const keyEngine = (record: KeyRow) => {
+    const surface = surfaceOf(record);
+    if ((record.source ?? surface?.source) === "upstream") return surface?.identity_backend ?? null;
+    return record.backend_engine ?? surface?.backend ?? null;
+  };
   const all = $derived(everyKey.filter((record) => { const engine = keyEngine(record); return !engine || $fleet.isEnabled(engine); }));
   const hiddenKeys = $derived(everyKey.length - all.length);
 
@@ -214,7 +220,17 @@
           <code class="font-mono text-caption text-muted-foreground">{record.key_prefix}</code>
         </Table.Cell>
         <Table.Cell class="text-body-sm">{vendorLabel(record.format)}</Table.Cell>
-        <Table.Cell class="text-body-sm">{record.backend_engine ? BACKEND_LABEL[record.backend_engine] : "Endpoint default"}</Table.Cell>
+        <Table.Cell class="text-body-sm">
+          {#if record.source === "upstream"}
+            <!-- A provider-key pin never uses an engine; the badge replaces it. -->
+            <Badge variant="info" title={`Pinned: always forwarded to ${surfaceOf(record)?.provider_label ?? "the provider"} with a stored provider key, whatever the API's source.`}>Provider API key</Badge>
+          {:else}
+            {record.backend_engine ? BACKEND_LABEL[record.backend_engine] : "Endpoint default"}
+            {#if record.source === "emulated"}
+              <Badge variant="secondary" class="ml-1" title="Pinned: always answered by a subscription engine, even when the API's source is API key.">Subscription</Badge>
+            {/if}
+          {/if}
+        </Table.Cell>
         <Table.Cell>
           <Switch
             checked={active}

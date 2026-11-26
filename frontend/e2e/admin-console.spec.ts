@@ -393,7 +393,7 @@ test("desktop shell exposes direct task navigation and the command palette", asy
   const hubPages: Array<[string, string, string[]]> = [
     ["Coordination", "/admin/agent-messaging", ["Messaging", "Wake-ups", "Git merges", "Shared files", "Workflows"]],
     ["Activity", "/admin/activity", ["Activity", "Feedback"]],
-    ["Providers", "/admin/accounts", ["Accounts", "Engines", "Usage limits"]],
+    ["Providers", "/admin/accounts", ["Accounts", "Provider keys", "Engines", "Usage limits"]],
     ["Access & Settings", "/admin/people", ["People", "API keys", "Connectors", "External clients", "Secrets", "Settings"]],
   ];
   for (const [hub, path, pages] of hubPages) {

@@ -20,14 +20,21 @@
   const origin = $derived(typeof window === "undefined" ? "" : window.location.origin);
   let open = $state(false);
 
-  /** One status per endpoint; "unknown" never claims the endpoint is enabled. */
+  /**
+   * One status per endpoint; "unknown" never claims the endpoint is enabled.
+   * Under the API key source the default engine is not used: the endpoint needs a
+   * usable provider key, and its own engine's switch still gates it.
+   */
   const rows = $derived(
     ($query.data?.surfaces ?? []).map((row) => {
-      const backend = $engines.data?.engines?.find((entry) => entry.engine === row.backend);
+      const upstream = row.source === "upstream";
+      const backend = $engines.data?.engines?.find((entry) => entry.engine === (upstream ? row.identity_backend : row.backend));
+      const noKey = upstream && (row.provider_keys?.usable ?? 0) === 0;
       const unknown = $apiState.isError || $engines.isError || !backend || !$apiState.data;
-      const off = Boolean($apiState.data?.disabled || row.disabled || backend?.enabled === false);
-      const status = $apiState.data?.disabled ? "All traffic off" : row.disabled ? "Disabled" : backend?.enabled === false ? "Default engine off" : unknown ? ($apiState.isPending || $engines.isPending ? "Checking…" : "Status unavailable") : "Enabled";
-      return { row, url: `${origin}${row.base_path}`, off, unknown, status };
+      const off = Boolean($apiState.data?.disabled || row.disabled || noKey || backend?.enabled === false);
+      const status = $apiState.data?.disabled ? "All traffic off" : row.disabled ? "Disabled" : noKey ? "No usable provider key" : backend?.enabled === false ? (upstream ? "Engine off" : "Default engine off") : unknown ? ($apiState.isPending || $engines.isPending ? "Checking…" : "Status unavailable") : upstream ? "Enabled, API key" : "Enabled";
+      const title = upstream ? `Source: API key. Forwarded to ${row.provider_label ?? "the provider"} with stored provider keys.` : `Default engine: ${row.backend}. Assigned keys use their own engine.`;
+      return { row, url: `${origin}${row.base_path}`, off, unknown, status, title };
     }),
   );
   const anyOff = $derived(rows.some((entry) => entry.off));
@@ -55,7 +62,7 @@
         <p role="alert" class="text-body-sm text-destructive">Failed to load API status: {$apiState.error?.message ?? $engines.error?.message}</p>
       {/if}
       <ul class="divide-y">
-        {#each rows as { row, url, off, unknown, status } (row.surface)}
+        {#each rows as { row, url, off, unknown, status, title } (row.surface)}
           <li class="grid grid-cols-[1fr_auto] items-center gap-x-2 gap-y-0.5 py-2" data-endpoint={row.surface}>
             <button
               type="button"
@@ -63,7 +70,7 @@
               aria-label={`Show ${labels[row.surface]} keys`}
               onclick={() => { onSelect(keyVendor[row.surface]); open = false; }}
             >{labels[row.surface]}</button>
-            <span class="flex items-center gap-1.5 text-caption text-muted-foreground" title={`Default engine: ${row.backend}. Assigned keys use their own engine.`}>
+            <span class="flex items-center gap-1.5 text-caption text-muted-foreground" {title}>
               <span aria-hidden="true" class="h-1.5 w-1.5 rounded-full {off ? 'bg-warning' : unknown ? 'bg-muted-foreground' : 'bg-success'}"></span>
               {status}
             </span>

@@ -336,6 +336,8 @@ export type ApiKeyEngine = "openai" | "claude" | "grok" | "kimi";
 export interface AdminApiKey {
   /** NULL or omitted means the endpoint default. */
   backend_engine?: ApiBackendEngine | null;
+  /** Pinned source; NULL or omitted follows the surface default. */
+  source?: ApiSource | null;
   id: number;
   name: string;
   key_prefix: string;
@@ -360,6 +362,8 @@ export interface AdminApiKeyCreated {
 
 export interface CreateApiKeyPayload {
   backend_engine?: ApiBackendEngine;
+  /** Omit to follow the surface default source. */
+  source?: ApiSource;
   name: string;
   /** ISO 8601 timestamp or `null` to never expire. */
   expires_at?: string | null;
@@ -1004,6 +1008,16 @@ export type ApiSurfaceId = "openai" | "anthropic" | "grok" | "kimi";
 /** Backend engine that answers a surface's requests. */
 export type ApiBackendEngine = "codex" | "claude" | "grok" | "kimi";
 
+/**
+ * Who answers a surface: `emulated` (a subscription backend through the runner)
+ * or `upstream` (forwarded 1:1 to the surface's provider with a stored provider
+ * API key). The two never fall back to each other.
+ */
+export type ApiSource = "emulated" | "upstream";
+
+/** The real provider behind a surface's `upstream` source; fixed per surface. */
+export type ProviderId = "openai" | "anthropic" | "xai" | "moonshot";
+
 /** GET /admin/api/surfaces row. Keys and the kill switch belong to the surface. */
 export interface ApiSurfaceRow {
   surface: ApiSurfaceId;
@@ -1014,6 +1028,12 @@ export interface ApiSurfaceRow {
   identity_backend: ApiBackendEngine;
   disabled: boolean;
   key_count: number;
+  /** Default source of unpinned keys; absent from older servers, meaning `emulated`. */
+  source?: ApiSource;
+  provider?: ProviderId;
+  provider_label?: string;
+  /** Stored provider keys: `active`, and active and not rejected (`usable`). */
+  provider_keys?: { active: number; usable: number };
 }
 
 export interface ApiSurfacesValue {
@@ -1025,6 +1045,70 @@ export interface ApiSurfaceUpdate {
   surface: ApiSurfaceId;
   backend?: ApiBackendEngine;
   disabled?: boolean;
+}
+
+/* ─────────────── Provider API keys (the `upstream` source) ─────────────── */
+
+export type ProviderKeyState = "active" | "paused";
+export type ProviderKeyVerificationState = "unverified" | "valid" | "invalid" | "error";
+
+/**
+ * One stored provider API key: metadata only. The key value is write-only, so
+ * no response ever carries it; `key_hint` is its type prefix and last four
+ * characters. Reasons are `<reason> (HTTP <status>)` from a fixed vocabulary.
+ */
+export interface ProviderKey {
+  id: number;
+  provider: ProviderId;
+  label: string;
+  key_hint: string;
+  /** NULL means the provider default, which `effective_base_url` then shows. */
+  base_url: string | null;
+  effective_base_url: string | null;
+  sort_order: number;
+  state: ProviderKeyState;
+  verification_state: ProviderKeyVerificationState;
+  verification_reason: string | null;
+  verification_checked_at: string | null;
+  last_used_at: string | null;
+  last_error_at: string | null;
+  last_error_status: number | null;
+  last_error_reason: string | null;
+  created_by_admin_user_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One provider row of `GET /admin/provider-keys`, in surface order. */
+export interface ProviderKeyProvider {
+  provider: ProviderId;
+  label: string;
+  engine: FleetEngineId;
+  engine_enabled: boolean;
+  default_base_url: string;
+  surface: ApiSurfaceId | null;
+  base_path: string | null;
+  source: ApiSource;
+  counts: { total: number; active: number; usable: number };
+}
+
+export interface ProviderKeysValue {
+  providers: ProviderKeyProvider[];
+  keys: ProviderKey[];
+}
+
+export interface CreateProviderKeyPayload {
+  provider: ProviderId;
+  label: string;
+  key: string;
+  base_url?: string;
+}
+
+/** At least one field; `base_url: ""` returns to the provider default. */
+export interface UpdateProviderKeyPayload {
+  label?: string;
+  key?: string;
+  base_url?: string;
 }
 
 /** Engine id of a fleet-wide master switch. */

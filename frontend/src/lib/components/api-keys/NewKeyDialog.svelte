@@ -6,6 +6,7 @@
   import KeyRound from "@lucide/svelte/icons/key-round";
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Select from "$lib/components/ui/select";
+  import { SimpleSelect } from "$lib/components/ui/select";
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { Label } from "$lib/components/ui/label";
@@ -13,7 +14,8 @@
   import { CopyButton } from "$lib/components/ui/copy-button";
   import { keysApi, keyQueryKeys } from "$lib/api/keys";
   import { apiSurfacesQuery, apiStateQuery, engineStateQuery, apiSurfacesQueryKey } from "$lib/api/settings";
-  import type { AdminApiKeyCreated, ApiKeyEngine, ApiBackendEngine, CreateApiKeyPayload } from "$lib/api/types";
+  import type { AdminApiKeyCreated, ApiKeyEngine, ApiBackendEngine, ApiSource, ApiSurfaceRow, CreateApiKeyPayload } from "$lib/api/types";
+  import { SOURCE_LABEL } from "$lib/components/provider-keys/provider-key-model";
   import { KEY_SURFACE, FORMAT_LABEL, BACKEND_LABEL, connectionUrls, curlExample } from "./connection";
 
   type Props = {
@@ -28,18 +30,40 @@
   const apiState = apiStateQuery();
   let format = $state<ApiKeyEngine>("openai");
   let backend = $state<ApiBackendEngine | undefined>();
+  /** "Answered by": the API default (no pin) or a pinned source. */
+  let answer = $state<"default" | ApiSource>("default");
   let name = $state("");
   let expiresEnabled = $state(false);
   let expiresAt = $state("");
   // Gate dismissal synchronously, before mutation observers publish pending.
   let creating = $state(false);
   let issued = $state<AdminApiKeyCreated | null>(null);
-  let issuedConnection = $state<{ format: ApiKeyEngine; backend: ApiBackendEngine; baseUrl: string } | null>(null);
+  let issuedConnection = $state<{ format: ApiKeyEngine; backend: ApiBackendEngine | null; source: ApiSource | null; baseUrl: string } | null>(null);
   const selected = $derived($surfaces.data?.surfaces.find(row => row.surface === KEY_SURFACE[format]));
+  // Older servers omit the source fields: Subscription, no provider keys.
+  const defaultSource = (row: ApiSurfaceRow | undefined): ApiSource => row?.source ?? "emulated";
+  const providerName = (row: ApiSurfaceRow | undefined) => row?.provider_label ?? "the provider";
   const origin = $derived(typeof window === "undefined" ? "" : window.location.origin);
   const baseUrl = $derived(selected ? `${origin}${selected.base_path}` : "");
   const engineRows = $derived($engines.data?.engines ?? []);
   const engineEnabled = $derived(engineRows.find(row => row.engine === backend)?.enabled === true);
+  /** Under API key the provider path is gated by the API's own engine switch (OpenAI by Codex, and so on). */
+  const upstreamReady = (row: ApiSurfaceRow | undefined) => Boolean(row && (row.provider_keys?.usable ?? 0) > 0 && engineRows.find(e => e.engine === row.identity_backend)?.enabled === true);
+  const upstreamProblem = (row: ApiSurfaceRow | undefined) => !row ? "" : (row.provider_keys?.usable ?? 0) === 0 ? `No usable ${providerName(row)} API key is stored; add one under Provider keys.` : `The ${BACKEND_LABEL[row.identity_backend]} engine is disabled, which also stops the ${providerName(row)} key path.`;
+  const effectiveSource = $derived<ApiSource>(answer === "default" ? defaultSource(selected) : answer);
+  const pinsUpstream = $derived(answer === "upstream");
+  const answerOptions = $derived([
+    { value: "default", label: `API default (${SOURCE_LABEL[defaultSource(selected)]})` },
+    { value: "emulated", label: "Subscription" },
+    { value: "upstream", label: "Provider API key" },
+  ]);
+  const answerHint = $derived(
+    answer === "upstream"
+      ? `Always forwarded to ${providerName(selected)} with a stored provider key and billed to that account. The engine is not used.`
+      : answer === "emulated"
+        ? "Always answered by a subscription engine, even when the API switches to API key."
+        : "Follows the API's source, also when it changes later.",
+  );
   const setupError = $derived($surfaces.isError || $engines.isError || $apiState.isError);
   const setupReady = $derived.by(() => {
     // Read every query's data before testing readiness. Query observers track
@@ -48,21 +72,25 @@
     const stateData = $apiState.data;
     return Boolean(selected && engineData && stateData && !setupError);
   });
-  const available = $derived(setupReady && !$apiState.data?.disabled && !selected?.disabled && engineEnabled);
+  const available = $derived(setupReady && !$apiState.data?.disabled && !selected?.disabled && (effectiveSource === "upstream" ? upstreamReady(selected) : engineEnabled));
+  const canSubmit = $derived(Boolean(name.trim()) && setupReady && !creating && (pinsUpstream || (Boolean(backend) && engineEnabled)));
   const connection = $derived(issuedConnection);
   const urls = $derived(connection ? connectionUrls(connection.format, connection.baseUrl) : []);
   const example = $derived(connection && issued ? curlExample(connection.format, connection.baseUrl, issued.key) : "");
   const connectionEngineEnabled = $derived(engineRows.find(row => row.engine === connection?.backend)?.enabled === true);
   const connectionSurface = $derived($surfaces.data?.surfaces.find(row => row.surface === (connection ? KEY_SURFACE[connection.format] : "")));
-  const availability = $derived(setupError ? "Status unavailable" : !$apiState.data || !connectionSurface || !$engines.data ? "Checking availability…" : $apiState.data.disabled ? "All API traffic is disabled" : connectionSurface.disabled ? "Endpoint is disabled" : !connectionEngineEnabled ? "Assigned engine is disabled" : "Enabled");
+  const connectionSource = $derived<ApiSource>(connection?.source ?? defaultSource(connectionSurface));
+  const availability = $derived(setupError ? "Status unavailable" : !$apiState.data || !connectionSurface || !$engines.data ? "Checking availability…" : $apiState.data.disabled ? "All API traffic is disabled" : connectionSurface.disabled ? "Endpoint is disabled" : connectionSource === "upstream" ? (upstreamReady(connectionSurface) ? "Enabled" : upstreamProblem(connectionSurface)) : !connectionEngineEnabled ? "Assigned engine is disabled" : "Enabled");
+  const answeredBy = (source: ApiSource | null, row: ApiSurfaceRow | undefined) =>
+    source === "upstream" ? `${providerName(row)} API key` : source === "emulated" ? "Subscription" : `API default (${SOURCE_LABEL[defaultSource(row)]})`;
 
   const createMut = createMutation<AdminApiKeyCreated, Error, {
-    format: ApiKeyEngine; payload: CreateApiKeyPayload; backend: ApiBackendEngine; baseUrl: string;
+    format: ApiKeyEngine; payload: CreateApiKeyPayload; backend: ApiBackendEngine | null; source: ApiSource | null; baseUrl: string;
   }>({
     mutationFn: ({ format, payload }) => keysApi.create(format, payload),
     onSettled: () => { creating = false; },
     onSuccess: (data, vars) => {
-      issuedConnection = { format: vars.format, backend: data.record.backend_engine ?? vars.backend, baseUrl: vars.baseUrl };
+      issuedConnection = { format: vars.format, backend: data.record.backend_engine ?? vars.backend, source: data.record.source ?? vars.source, baseUrl: vars.baseUrl };
       issued = data;
       void qc.invalidateQueries({ queryKey: keyQueryKeys.list(vars.format) });
       void qc.invalidateQueries({ queryKey: apiSurfacesQueryKey });
@@ -73,6 +101,7 @@
     if (open) {
       format = defaultEngine;
       backend = undefined;
+      answer = "default";
       name = "";
       expiresEnabled = false;
       expiresAt = "";
@@ -85,7 +114,7 @@
 
   function handleSubmit(event: SubmitEvent) {
     event.preventDefault();
-    if (creating || !backend || !engineEnabled || !setupReady) return;
+    if (!canSubmit) return;
     const trimmed = name.trim();
     if (!trimmed) return;
     const date = expiresEnabled && expiresAt ? new Date(expiresAt) : null;
@@ -94,9 +123,17 @@
       return;
     }
     creating = true;
+    // A provider-key pin ignores the engine, so none is sent; "API default" sends no source at all.
+    const source = answer === "default" ? null : answer;
+    const engine = pinsUpstream ? null : backend ?? null;
     $createMut.mutate({
-      format, backend, baseUrl,
-      payload: { name: trimmed, backend_engine: backend, expires_at: date?.toISOString() ?? null },
+      format, backend: engine, source, baseUrl,
+      payload: {
+        name: trimmed,
+        ...(engine ? { backend_engine: engine } : {}),
+        ...(source ? { source } : {}),
+        expires_at: date?.toISOString() ?? null,
+      },
     });
   }
 
@@ -117,7 +154,7 @@
       </Dialog.Title>
       <Dialog.Description>
         {#if issued}Connection details for <span class="font-medium break-all">{issued.record.name}</span>. Copy the full key now; it is shown only once.
-        {:else}Choose the API format your application uses and the engine that will answer this key’s requests.{/if}
+        {:else}Choose the API format your application uses and who answers this key’s requests: a subscription engine or a provider API key.{/if}
       </Dialog.Description>
     </Dialog.Header>
 
@@ -135,11 +172,12 @@
             </div>
             <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-3 text-body">
               <dt class="text-muted-foreground">API format</dt><dd>{FORMAT_LABEL[connection.format]}</dd>
-              <dt class="text-muted-foreground">Engine</dt><dd class="font-medium">{BACKEND_LABEL[connection.backend]}</dd>
+              <dt class="text-muted-foreground">Answered by</dt><dd>{answeredBy(connection.source, connectionSurface)}</dd>
+              <dt class="text-muted-foreground">Engine</dt><dd class="font-medium">{connection.source === "upstream" ? "Not used" : connection.backend ? BACKEND_LABEL[connection.backend] : "Endpoint default"}</dd>
               <dt class="text-muted-foreground">Expires</dt><dd>{issued.record.expires_at ? formatDateTime(issued.record.expires_at) : "Never"}</dd>
               <dt class="text-muted-foreground">Availability</dt><dd><span role="status">{availability}</span></dd>
             </dl>
-            <p class="text-caption text-muted-foreground">This key keeps its assigned engine when the endpoint default changes.</p>
+            <p class="text-caption text-muted-foreground">{connection.source === "upstream" ? `This key is always forwarded to ${providerName(connectionSurface)} with a stored provider key, whatever the API's source.` : connection.source === "emulated" ? "This key keeps its subscription and assigned engine when the endpoint default changes." : "This key keeps its assigned engine when the endpoint default changes, and follows the endpoint's source."}</p>
           </section>
           <section class="min-w-0 space-y-3" aria-label="Connection URLs">
             <h3 class="text-body font-semibold">Connect your application</h3>
@@ -177,8 +215,13 @@
                 <p class="text-caption text-muted-foreground">Matches your application’s SDK and request format.</p>
               </div>
               <div class="grid gap-2">
+                <Label for="key-source">Answered by</Label>
+                <SimpleSelect id="key-source" class="w-full" value={answer} options={answerOptions} disabled={!setupReady || creating} aria-describedby="key-source-hint" onValueChange={(v) => { answer = v === "emulated" || v === "upstream" ? v : "default"; }} />
+                <p id="key-source-hint" class="text-caption text-muted-foreground">{answerHint}</p>
+              </div>
+              <div class="grid gap-2">
                 <Label for="key-backend">Engine</Label>
-                <Select.Root type="single" value={backend ?? ""} onValueChange={(v) => { backend = v ? v as ApiBackendEngine : undefined; }} disabled={!setupReady || creating}>
+                <Select.Root type="single" value={backend ?? ""} onValueChange={(v) => { backend = v ? v as ApiBackendEngine : undefined; }} disabled={!setupReady || creating || pinsUpstream}>
                   <Select.Trigger id="key-backend" class="w-full">{backend ? BACKEND_LABEL[backend] : "Choose an engine"}</Select.Trigger>
                   <Select.Content>
                     <!-- Only engines switched on fleet-wide are offered. -->
@@ -187,8 +230,8 @@
                     {/each}
                   </Select.Content>
                 </Select.Root>
-                <p class="text-caption text-muted-foreground">Uses this engine for this key only. Other keys keep their routing.</p>
-                {#if backend && !engineEnabled && setupReady}<p role="alert" class="text-caption text-destructive">This engine is disabled. Choose another engine.</p>{/if}
+                <p class="text-caption text-muted-foreground">{pinsUpstream ? `Not used: this key is forwarded to ${providerName(selected)}.` : "Uses this engine for this key only. Other keys keep their routing."}</p>
+                {#if backend && !engineEnabled && setupReady && !pinsUpstream}<p role="alert" class="text-caption text-destructive">This engine is disabled. Choose another engine.</p>{/if}
               </div>
               <div class="grid gap-2">
                 <Label for="key-name">Name</Label>
@@ -200,8 +243,9 @@
                 <h3 class="text-body font-semibold">Connection preview</h3>
                 <p class="mt-1 text-caption text-muted-foreground">Base URL for your SDK</p>
                 {#if baseUrl}<code class="mt-3 block break-all font-mono text-caption">{baseUrl}</code>{/if}
-                <p class="mt-3 text-body">Engine: <span class="font-medium">{backend ? BACKEND_LABEL[backend] : "Choose an engine"}</span></p>
-                <p class="mt-2 text-caption text-muted-foreground">{!setupReady ? "Loading connection settings…" : !backend ? "Select an engine to finish setting up this connection." : available ? "API traffic is enabled." : $apiState.data?.disabled ? "All API traffic is disabled. You can create a key now and enable traffic under Configure." : selected?.disabled ? "This endpoint is disabled. You can create a key now and enable it under Configure." : "The selected engine is disabled."}</p>
+                <p class="mt-3 text-body">Answered by: <span class="font-medium">{answeredBy(answer === "default" ? null : answer, selected)}</span></p>
+                <p class="mt-1 text-body">Engine: <span class="font-medium">{pinsUpstream ? "Not used" : backend ? BACKEND_LABEL[backend] : "Choose an engine"}</span></p>
+                <p class="mt-2 text-caption text-muted-foreground">{!setupReady ? "Loading connection settings…" : !pinsUpstream && !backend ? "Select an engine to finish setting up this connection." : available ? "API traffic is enabled." : $apiState.data?.disabled ? "All API traffic is disabled. You can create a key now and enable traffic under Configure." : selected?.disabled ? "This endpoint is disabled. You can create a key now and enable it under Configure." : effectiveSource === "upstream" ? `${upstreamProblem(selected)} Until then this key's requests fail.` : "The selected engine is disabled."}</p>
               </div>
               <div class="flex items-center justify-between gap-3 rounded-md border p-3">
                 <div><Label for="key-expires-toggle">Expires</Label><p class="text-caption text-muted-foreground">Off = never expires.</p></div>
@@ -225,7 +269,7 @@
       {#if issued}<Button onclick={() => handleDialogOpenChange(false)}>Done</Button>
       {:else}
         <Button type="button" variant="outline" onclick={() => handleDialogOpenChange(false)} disabled={creating}>Cancel</Button>
-        <Button type="submit" form="new-api-key" disabled={!name.trim() || !backend || !engineEnabled || !setupReady || creating}>{creating ? "Creating…" : "Create key"}</Button>
+        <Button type="submit" form="new-api-key" disabled={!canSubmit}>{creating ? "Creating…" : "Create key"}</Button>
       {/if}
     </Dialog.Footer>
   </Dialog.Content>

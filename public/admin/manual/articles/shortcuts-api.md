@@ -2,7 +2,7 @@
 title: Keyboard shortcuts and API reference
 section: Integrations and reference
 verified: 2026-11-20
-sources: api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/grok-v1/index.ts, api/src/routes/health.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/services/api-surfaces.ts, api/src/services/gateway-backends.ts, api/src/services/openai-keys.ts, api/src/routes/admin/keys/gateway-keys.ts, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ExposedApisTable.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts, docs/API.md, docs/interface-api.md
+sources: api/src/routes/v1/index.ts, api/src/routes/anthropic-v1/index.ts, api/src/routes/grok-v1/index.ts, api/src/routes/health.ts, api/src/routes/admin/keys/openai.ts, api/src/routes/admin/keys/claude.ts, api/src/services/api-surfaces.ts, api/src/services/gateway-backends.ts, api/src/services/openai-keys.ts, api/src/routes/admin/keys/gateway-keys.ts, api/src/routes/admin/provider-keys/index.ts, api/src/services/provider-api-keys.ts, api/src/services/gateway-upstream/failover.ts, frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/ExposedApisTable.svelte, frontend/src/lib/components/api-keys/NewKeyDialog.svelte, frontend/src/routes/(providers)/provider-keys/+page.svelte, frontend/src/lib/components/provider-keys/ProviderKeyDialog.svelte, frontend/src/routes/setup/+page.svelte, frontend/src/lib/utils/shortcuts.ts, frontend/src/routes/+layout.svelte, frontend/src/lib/components/shortcuts/ShortcutsModal.svelte, frontend/src/lib/components/command-palette/commands.ts, docs/API.md, docs/interface-api.md
 ---
 
 Keyboard shortcuts, the API key controls, and a pointer to the full API route reference. Pulled from the code as of this manual's verified date.
@@ -57,11 +57,26 @@ Open **Configure** in the section header for *Service availability & routing*: r
 |--------|---------|
 | API | `OpenAI-compatible` (`/v1`), `Anthropic-compatible` (`/anthropic/v1`) or `Grok (OpenAI-compatible)` (`/grok/v1`), with its wire format |
 | Base URL | `{origin}` + the base path, with a **Copy** button; derived from the browser origin |
-| Default engine | Which engine answers keys without an assignment: **Codex**, **Claude**, **Grok** or **Kimi Code**. A **rerouted** badge marks an API not on its own engine. Changes apply to the next request — no restart. An engine switched off under **Engines → Engine master switches** cannot be picked, and a row whose default engine is off shows **backend off**. Unassigned keys answer `503 api_disabled` until it is enabled or the default changes; keys assigned to another enabled engine keep working |
+| Source | Who answers keys without their own source: **Subscription** (a subscription engine, the default) or **API key** (your stored provider API keys; see below). Switching to API key asks for confirmation, because the requests are then billed to that provider account, and needs at least one usable key. Switching back is immediate. A row on API key without a usable key shows **No usable … key**, linked to Provider keys |
+| Default engine | Not used while the source is API key. Otherwise: which engine answers keys without an assignment: **Codex**, **Claude**, **Grok** or **Kimi Code**. A **rerouted** badge marks an API not on its own engine. Changes apply to the next request — no restart. An engine switched off under **Engines → Engine master switches** cannot be picked, and a row whose default engine is off shows **backend off**. Unassigned keys answer `503 api_disabled` until it is enabled or the default changes; keys assigned to another enabled engine keep working |
 | Enabled | The API's own kill switch (`openai_api_disabled`, `claude_api_disabled`, `grok_api_disabled`); off returns `503 api_disabled` on that API only |
 | Keys | Active keys for that API; the link opens its keys in the list |
 
 The backend decides whose subscription, model catalog and limits apply; the API keeps its URL, wire format, error shape and keys. Limits follow the backend: Grok refuses streaming, images and sampling controls on every API; on the Anthropic API, Codex receives `system` as a leading transcript line and Grok never receives `max_tokens`; Codex reports no token usage. `/models` lists the backend's models, and a request for a model id native to the API (e.g. `claude-*` on `/anthropic/v1`) that the backend does not serve runs on the backend's default model — the response's `model` field says which.
+
+With the source **API key**, a request goes unchanged to the API's own provider — OpenAI for `/v1`, Anthropic for `/anthropic/v1`, xAI for `/grok/v1`, Moonshot AI for `/kimi/v1` — with one of the keys stored under **Provider keys**, and is billed to that provider account. The default engine, model policy and tiers do not apply; the provider's own models, streaming and limits do. The API's own engine switch under **Engines → Engine master switches** still gates it (Codex for `/v1`, Claude for `/anthropic/v1`, and so on). The two sources never fall back to each other: an API on API key without a usable provider key answers `503` rather than spending a subscription. Choosing the source needs the `keys.manage` capability (`POST /admin/api/surfaces/:surface/source`).
+
+### Provider keys
+
+**Providers → Provider keys** (`/provider-keys`) holds the real API keys of your OpenAI, Anthropic, xAI and Moonshot AI accounts — not the orchestrator's own gateway keys, which a pasted `sk-cdx-`/`sk-ant-`/`sk-cgx-`/`sk-ckx-` key is refused as. The page has one list per provider, in failover order, showing each key's name, its first characters and last four, its endpoint (the provider default or a custom base URL), whether it is active or paused, the last verification (**Verified**, **Rejected**, **Unchecked** or **Check failed**, with the provider's reason), when it was last used and its last error. A provider whose engine is switched off is hidden, with a count of its kept keys.
+
+- **Add key** asks for the provider, a name, the key and an optional base URL (https only, and private or reserved addresses are refused, unless the host is listed in `GATEWAY_UPSTREAM_PRIVATE_HOSTS`). The key is stored encrypted, never shown again and never sent to hosts. After saving, the dialog checks the key against the provider's models endpoint and shows the verdict; a key the provider accepts with limited rights is still verified, and endpoints it may not call answer with the provider's error.
+- **Edit key** renames it, replaces the key value (leave the field empty to keep it) or changes the base URL. A new key or base URL is checked again.
+- **Verify key** re-runs the check. **Pause key** takes a key out of the failover order without deleting it.
+- The arrows beside each key change the order. Requests use the first usable key (active and not rejected); when the provider refuses it (401, 403 or 429) or cannot be reached before the answer starts, the next key takes over. Other provider errors are returned as they are.
+- **Delete key** names what changes: the next key taking over, or, for the last usable key of an API on API key, that its requests fail with `503`.
+
+Reading the page needs `auth.read_metadata`; every change needs `keys.manage`. `GET /admin/provider-keys` returns the lists and per-provider counts; a key value is never part of any response.
 
 **Backend defaults** — collapsed Claude and Grok sections containing the Claude proxy defaults and the **Grok API gateway** controls (gateway default model and per-model switches), which apply on every API routed to that engine.
 
@@ -69,20 +84,21 @@ The backend decides whose subscription, model catalog and limits apply; the API 
 
 **Keys table**
 
-Lists the keys for the selected API (or all) with columns: Name, API, Engine (assigned engine or Endpoint default), Active (toggle switch), Last used (relative time), Expires (date, "Never", or an "Expired" badge), and an actions menu with **Revoke key**. Choosing it shows a *Revoke API key?* confirmation before permanently deleting the key.
+Lists the keys for the selected API (or all) with columns: Name, API, Engine (assigned engine or Endpoint default; a key pinned to a source carries a **Subscription** badge, or **Provider API key** in place of the engine), Active (toggle switch), Last used (relative time), Expires (date, "Never", or an "Expired" badge), and an actions menu with **Revoke key**. Choosing it shows a *Revoke API key?* confirmation before permanently deleting the key.
 
 ### Creating a key
 
 Click **New key** (or run "New API key" from the command palette). The dialog form has:
 
 - **API format** — OpenAI-compatible, Anthropic-compatible, or Grok (OpenAI-compatible), preselected from the active filter
-- **Engine** — explicitly select Codex, Claude, Grok, or Kimi Code for this key; fleet-disabled engines cannot be selected. This assignment applies only to the new key and is independent of API format.
+- **Answered by** — **API default** follows the API's source, also when it changes later; **Subscription** always uses a subscription engine, even when the API switches to API key; **Provider API key** always forwards to the API's provider with a stored provider key and is billed to that account
+- **Engine** — explicitly select Codex, Claude, Grok, or Kimi Code for this key; fleet-disabled engines cannot be selected. This assignment applies only to the new key and is independent of API format. Not used, and not sent, for a **Provider API key** key.
 - **Name** — required text field
 - **Expires** — toggle off for no expiry; toggle on to reveal a datetime picker
 
 The connection preview shows the base URL and current availability before creation. On success, the wider dialog shows the full key, assigned engine, expiration and availability, with individual copy buttons for the key, SDK base URL, models URL and generation URLs. Expand the curl example and replace its model placeholder with an ID from the models endpoint. Long values wrap; only the body scrolls when needed on small screens. Save the key before closing — the full key is shown only once.
 
-Existing keys and older API callers that omit `backend_engine` retain endpoint-default routing. New UI-created keys keep their assigned engine when the endpoint default changes. To change an assigned engine, create a replacement key. `POST /admin/{openai|claude|grok}/keys` accepts optional `backend_engine: codex|claude|grok|kimi`; creation and list records return its nullable value. Invalid assignments return 400 and disabled engines return 409.
+Existing keys and older API callers that omit `backend_engine` retain endpoint-default routing. New UI-created keys keep their assigned engine when the endpoint default changes. To change an assigned engine, create a replacement key. `POST /admin/{openai|claude|grok}/keys` accepts optional `backend_engine: codex|claude|grok|kimi` and optional `source: emulated|upstream` (Subscription or Provider API key; omitted follows the API's source); creation and list records return both nullable values. Invalid assignments return 400 and disabled engines return 409.
 
 ## API routes
 
@@ -105,7 +121,7 @@ All `/admin/*` JSON endpoints require an authenticated admin session and name a 
 
 Authentication uses a bearer token: `sk-cdx-…` keys for the OpenAI-compat surface, `sk-ant-…` keys for the Anthropic-compat surface, and `sk-cgx-…` keys (`Authorization: Bearer` only) for `/grok/v1`. Requests proxy through the shared runner with quota accounting; Grok subscription usage is fetched server-side and shown in Overview and Accounts; wrapper quota enforcement remains unavailable.
 
-Each of the three surfaces is served by a backend engine chosen in **Access → API keys → Configure → Routing** (`versions` rows `api_surface_backend_openai|anthropic|grok`, read per request). `api/src/services/api-surfaces.ts` defines the surfaces and the routing; `api/src/services/gateway-backends.ts` builds each engine's backend (credential snapshot, verification bookkeeping, model catalog) once and shares it between surfaces. Keys and kill switches stay with the surface.
+While its source is Subscription, each of the three surfaces is served by a backend engine chosen in **Access → API keys → Configure → Routing** (`versions` rows `api_surface_backend_openai|anthropic|grok`, read per request). `api/src/services/api-surfaces.ts` defines the surfaces and the routing; `api/src/services/gateway-backends.ts` builds each engine's backend (credential snapshot, verification bookkeeping, model catalog) once and shares it between surfaces. Keys and kill switches stay with the surface.
 
 ## Source references
 
@@ -115,6 +131,10 @@ Each of the three surfaces is served by a backend engine chosen in **Access → 
 - api/src/routes/health.ts (liveness/readiness probes)
 - api/src/services/openai-keys.ts, api/src/routes/admin/keys/gateway-keys.ts (key prefixes, validation and auth)
 - frontend/src/lib/components/api-keys/ApiKeysSection.svelte, frontend/src/lib/components/api-keys/KeysList.svelte (API keys section of the Access page)
+- frontend/src/lib/components/api-keys/ExposedApisTable.svelte, frontend/src/lib/components/api-keys/NewKeyDialog.svelte (Source column and "Answered by")
+- api/src/routes/admin/provider-keys/index.ts, api/src/services/provider-api-keys.ts (provider keys and the source switch)
+- api/src/services/gateway-upstream/failover.ts (which provider answers move to the next key)
+- frontend/src/routes/(providers)/provider-keys/+page.svelte, frontend/src/lib/components/provider-keys/ProviderKeyDialog.svelte (Provider keys page)
 - frontend/src/lib/utils/shortcuts.ts (global single-key shortcut handler)
 - frontend/src/routes/+layout.svelte (shortcut + Cmd-K wiring)
 - frontend/src/lib/components/shortcuts/ShortcutsModal.svelte (shortcuts help modal)
