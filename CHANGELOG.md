@@ -6,6 +6,8 @@
 
 - Claude sessions switch accounts live: the switch waits for the next turn boundary, flushes the old account's rotation, and the next prompt runs on the new account without a restart. Triggered by the policy, the Accounts page (running scopes with "Switch to …"), `clx accounts use` or the agent tools `account_status`/`account_switch` (`#account-switch`).
 
+- Fix: the live Claude account switch never completed on hosts with the communicator. Its local relay and the server refused `/auth/accounts`, `/auth/sessions/switch-request` and `/auth/sessions/switch`, so the switch stayed pending and `account_status` answered `403 communicator route forbidden`. cxx 0.9.208 and the server tunnel these routes; a unit test keeps both route lists identical.
+
 - Quota warnings know the pool: QUOTA/1 notices and `quota_get` name the other accounts and their usage and recommend continuing or switching; they only advise pausing when every account is at its limit, so agents no longer stop because one account nears its quota.
 
 # 2026-11-25

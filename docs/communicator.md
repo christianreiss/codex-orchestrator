@@ -766,8 +766,12 @@ credentials or result rows, and the 15-second connection recheck remains active.
 A `hello` identifies protocol,
 username and cxx version. UUID-correlated `request`/response frames preserve HTTP
 method, relative path, permitted headers, status and base64 body. Account lease
-acquisition and heartbeat/release (`/auth/sessions` and its two lifecycle routes)
-use the same transport and retain their engine/session identities. The dispatcher
+acquisition and heartbeat/release (`/auth/sessions` and its two lifecycle routes),
+the account pool read `GET /auth/accounts` and the live switch routes
+`/auth/sessions/switch-request` and `/auth/sessions/switch` use the same transport
+and retain their engine/session identities. The wrapper's managed route inventory
+(`routes.go`) and `communicatorPathAllowed` must stay identical; a unit test
+compares them. The dispatcher
 runs requests through the existing Fastify routes and hooks with the verified
 remote address. It rejects admin/provider routes, path traversal, recursive
 transports, forwarding headers, cookies and replacement host credentials.

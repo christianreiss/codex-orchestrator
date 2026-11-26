@@ -68,7 +68,7 @@ export function communicatorPathAllowed(path: string): boolean {
     pathname.includes('/attachments/')
   )
     return false;
-  return /^(?:\/auth(?:\/sessions(?:\/(?:heartbeat|release))?)?|\/versions|\/skills(?:\/[^?]*)?|\/agents\/retrieve|\/config\/retrieve|\/sync\/(?:bootstrap|status|cache)|\/cron\/(?:check|report)|\/mcp(?:\/[^?]*)?|\/host\/[^?]+|\/wrapper\/(?:v2\/)?[^?]+|\/claude\/usage\/report)$/.test(
+  return /^(?:\/auth(?:\/accounts|\/sessions(?:\/(?:heartbeat|release|switch|switch-request))?)?|\/versions|\/skills(?:\/[^?]*)?|\/agents\/retrieve|\/config\/retrieve|\/sync\/(?:bootstrap|status|cache)|\/cron\/(?:check|report)|\/mcp(?:\/[^?]*)?|\/host\/[^?]+|\/wrapper\/(?:v2\/)?[^?]+|\/claude\/usage\/report)$/.test(
     pathname,
   );
 }

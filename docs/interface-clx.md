@@ -2027,6 +2027,9 @@ The server identifies every Claude login through Anthropic's OAuth profile (acco
 UUID; see `docs/interface-api.md` → *Claude multiple accounts and live switching*), so a second
 subscription becomes a second account instead of overwriting the first.
 
+On hosts whose requests go through the communicator, the live switch and `account_status` need cxx
+0.9.208. Before 0.9.208 the communicator refused the switch routes, so a switch stayed pending.
+
 - First login on a PC: `clx login` → account 1. Every further subscription: `clx accounts add`, which runs
   `claude auth login` in a private `CLAUDE_CONFIG_DIR` under `~/.cxx/` (0700, not `/tmp`), uploads with
   `enroll: true`, prints whether a new account was created or an existing one refreshed, and removes the

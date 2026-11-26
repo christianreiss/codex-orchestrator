@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { OwnerStateSnapshot, OwnerStateStore } from '../../../src/control-plane/state/store.js';
 import { bindOwnerRuntime } from '../../../src/control-plane/state/runtime.js';
 import { DeadlineQueue } from '../../../src/control-plane/deadlines.js';
@@ -183,6 +185,9 @@ describe('communicator transport', () => {
       '/auth/sessions',
       '/auth/sessions/heartbeat',
       '/auth/sessions/release',
+      '/auth/sessions/switch',
+      '/auth/sessions/switch-request',
+      '/auth/accounts?engine=claude&session_id=abc',
       '/sync/bootstrap',
       '/sync/status',
       '/cron/check',
@@ -192,6 +197,19 @@ describe('communicator transport', () => {
       '/wrapper/v2/config?engine=grok',
     ])
       expect(communicatorPathAllowed(path)).toBe(true);
+    for (const path of ['/auth/accounts/1', '/auth/sessions/switchx', '/admin/accounts'])
+      expect(communicatorPathAllowed(path), path).toBe(false);
+  });
+
+  it('keeps the route inventory identical to the wrapper communicator', () => {
+    // A route the server tunnels but the wrapper refuses (or the reverse) fails
+    // only on a live host: the live account switch shipped with exactly that gap.
+    const go = readFileSync(resolve(import.meta.dirname, '../../../../wrappers/cxx/internal/communicator/routes.go'), 'utf8');
+    const ts = readFileSync(resolve(import.meta.dirname, '../../../src/routes/communicator.ts'), 'utf8');
+    const goRoutes = /managedRoutes = regexp\.MustCompile\(`([^`]+)`\)/.exec(go)?.[1];
+    const tsRoutes = /return \/(\^\(\?:\\\/auth[^\n]+\$)\/\.test\(/.exec(ts)?.[1]?.replaceAll('\\/', '/');
+    expect(goRoutes).toBeTruthy();
+    expect(tsRoutes).toBe(goRoutes);
   });
   it('retains route contracts and IP while stripping authority-changing headers', async () => {
     await setup();
