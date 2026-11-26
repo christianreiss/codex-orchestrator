@@ -96,6 +96,10 @@ still synchronize credentials but have no in-band agent notification channel.
 A notice is not a native reload acknowledgement. Clients may keep a healthy
 access token cached and reload disk during refresh or authentication recovery;
 an account change or unrecovered failure may require resuming through the wrapper.
+A live Claude account switch (cxx 0.9.207) relies on Claude Code re-reading
+`.credentials.json` when its mtime changes; the wrapper writes it only at a turn
+boundary, after flushing the previous account's rotation. If a client keeps the
+old account, resuming through the wrapper remains the fallback.
 OpenAI documents automatic refresh during active use in its
 [authentication guide](https://learn.chatgpt.com/docs/auth#login-caching).
 
