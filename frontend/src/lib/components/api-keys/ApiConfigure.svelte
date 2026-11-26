@@ -23,7 +23,7 @@
 <div id="configuration" class="scroll-mt-20 space-y-5 rounded-md border p-4">
   <section id="exposed-apis" class="scroll-mt-20 space-y-2">
     <h4 class="text-body font-medium">Routing</h4>
-    <p class="text-body-sm text-muted-foreground">Turn an API on or off and choose the engine that answers it by default.</p>
+    <p class="text-body-sm text-muted-foreground">Turn an API on or off, choose its source (a subscription engine or your provider API keys) and the engine that answers it by default.</p>
     <ExposedApisTable {onShowKeys} />
   </section>
 

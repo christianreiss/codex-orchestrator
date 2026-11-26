@@ -25,6 +25,7 @@ import {
   FileUp,
   Gauge,
   KeyRound,
+  KeySquare,
   LayoutDashboard,
   Library,
   Lock,
@@ -158,6 +159,11 @@ export const NAV: NavItem[] = [
     description: "Provider logins and their usage", keywords: ["accounts", "chatgpt", "claude", "grok", "kimi", "quota", "credentials", "balance"], icon: UserRoundCog,
   },
   {
+    id: "provider-keys", group: "providers", route: "/provider-keys", label: "Provider keys",
+    description: "Provider API keys that answer the gateway APIs when their source is API key",
+    keywords: ["provider api keys", "openai", "anthropic", "xai", "moonshot", "upstream", "source", "failover", "billing", "pay as you go"], icon: KeySquare,
+  },
+  {
     id: "engines", group: "providers", route: "/engines", label: "Engines",
     description: "Switch engines on or off; default models and versions",
     keywords: ["models", "effort", "defaults", "versions", "codex", "claude", "grok", "kimi", "kimi", "sync", "native config", "danger"], icon: SlidersHorizontal,
@@ -215,7 +221,7 @@ const HUB_DEFINITIONS: HubDefinition[] = [
   { id: "projects", section: "Operate", label: "Projects", description: "Boards, documents and reports", icon: FolderKanban, mobilePriority: 3 },
   { id: "coordination", section: "Operate", label: "Coordination", description: "Messaging, wake-ups, git merges, shared files and workflows", icon: Waypoints },
   { id: "activity", section: "Operate", label: "Activity", description: "What changed, and feedback about the orchestrator", icon: Activity },
-  { id: "providers", section: "Configure", label: "Providers", description: "Provider accounts and engine defaults", icon: Cpu },
+  { id: "providers", section: "Configure", label: "Providers", description: "Provider accounts, provider API keys and engine defaults", icon: Cpu },
   { id: "library", section: "Configure", label: "Library", description: "Skills, agent rules, memories and reply styles", icon: Library },
   { id: "access", section: "Configure", label: "Access & Settings", description: "People, API keys, connectors, external clients, secrets and fleet-wide settings", icon: ShieldCheck },
 ];

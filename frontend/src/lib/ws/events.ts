@@ -58,6 +58,7 @@ export function ownerStateInvalidations(payload: unknown): QueryKey[] {
     else if (name.startsWith("insecure")) events=["host.updated","settings.changed"];
     else if (name==="secrets") events=["secret.updated"];
     else if (name==="openaiApiKeys") events=["api-key.changed"];
+    else if (name==="providerApiKeys") events=["provider_key.changed"];
     else if (name.startsWith("wrapper")) events=["version.wrapper_rollout"];
     else if (["controlPlaneOutbox","installTokens","authSeedTokens","mcpSessionTokens","schemaMigrations","agentTransfers"].includes(name)) events=[];
     else return [[]];
@@ -186,6 +187,8 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
     ["keys", "claude"],
     ["keys", "grok"], ["keys", "kimi"],
   ],
+  // Provider API keys (the upstream source). The surfaces table counts usable keys per provider.
+  "provider_key.changed": [["provider-keys"], ["settings", "api-surfaces"]],
 
   // Fleet secrets. The module card shows a live count, so every mutation
   // refreshes the state key as well as the listing. `secret.revealed` is
@@ -218,7 +221,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   "quota.policy.updated": [["settings", "quota-policy"], ["accounts"]],
   "accounts.updated": [["accounts"], ["accounts", "policy"], ["accounts", "scopes"], ["overview"], ["hosts"]],
   "host.spawn.state_changed": [["settings", "host-spawn"], ["hosts"]],
-  "settings.changed": [["settings", "speech-input"],["projects", "changelog-state"],["supervisor"], ["settings"], ["runner"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"], ["keys", "kimi", "state"]],
+  "settings.changed": [["provider-keys"], ["settings", "speech-input"],["projects", "changelog-state"],["supervisor"], ["settings"], ["runner"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"], ["keys", "kimi", "state"]],
   // Fleet engine master switch. Settings covers the switch rows and the
   // exposed API surfaces; hosts, overview, accounts, setup, messaging and the
   // runner card all render per-engine state that the switch suspends.

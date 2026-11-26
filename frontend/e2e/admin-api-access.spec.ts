@@ -9,8 +9,23 @@ const surfaces = [
   { surface: 'grok', label: 'Grok (OpenAI-compatible)', base_path: '/grok/v1', wire: 'openai', backend: 'grok', identity_backend: 'grok', disabled: false, key_count: 0 },
   { surface: 'kimi', label: 'Kimi Code (OpenAI-compatible)', base_path: '/kimi/v1', wire: 'openai', backend: 'kimi', identity_backend: 'kimi', disabled: true, key_count: 0 },
 ];
-async function fixture(page: Page, options: { disabledEngine?: string; failSettings?: boolean; failCreate?: boolean; hold?: boolean; longUrl?: boolean; delayedSurfaces?: boolean } = {}) {
+const PROVIDER = { openai: ['openai', 'OpenAI'], anthropic: ['anthropic', 'Anthropic'], grok: ['xai', 'xAI'], kimi: ['moonshot', 'Moonshot AI'] } as const;
+type SourceOptions = {
+  /** Serve the source fields; without them the rows look like an older server's. */
+  sources?: Partial<Record<keyof typeof PROVIDER, 'emulated' | 'upstream'>>;
+  usable?: Partial<Record<keyof typeof PROVIDER, number>>;
+  sourceError?: { status: number; code: string; message: string };
+  capabilities?: readonly string[];
+};
+async function fixture(page: Page, options: { disabledEngine?: string; failSettings?: boolean; failCreate?: boolean; hold?: boolean; longUrl?: boolean; delayedSurfaces?: boolean } & SourceOptions = {}) {
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
+  const sources = options.sources ? { openai: 'emulated', anthropic: 'emulated', grok: 'emulated', kimi: 'emulated', ...options.sources } as Record<string, string> : null;
+  const withSource = (row: (typeof surfaces)[number]) => {
+    if (!sources) return row;
+    const [provider, provider_label] = PROVIDER[row.surface as keyof typeof PROVIDER];
+    const usable = options.usable?.[row.surface as keyof typeof PROVIDER] ?? 0;
+    return { ...row, source: sources[row.surface], provider, provider_label, provider_keys: { active: usable, usable } };
+  };
   let release: (() => void) | undefined;
   let record: Record<string, unknown> | undefined;
   let recordPath = '';
@@ -19,13 +34,20 @@ async function fixture(page: Page, options: { disabledEngine?: string; failSetti
     if (req.resourceType() === 'document' || !req.headers().accept?.includes('application/json')) return route.continue();
     const path = new URL(req.url()).pathname.replace(/\/admin\/engines\/active$/, "/admin/engines/state");
     const json = (body: unknown, status = 200) => route.fulfill({ json: body, status });
-    if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: ['owner'] }, capabilities: [...CAPABILITIES] });
+    if (path === '/admin/auth/status') return json({ authenticated: true, enforced: true, user: { id: 1, username: 'operator', roles: ['owner'] }, capabilities: [...(options.capabilities ?? CAPABILITIES)] });
     if (path === '/admin/setup/status') return json({ setup_complete: true, critical_complete: true, checks: [], next_actions: [], wizard: { completed_at: '2026-10-15T00:00:00Z' } });
     if (path === '/admin/ws/info') return json({ enabled: false });
     if (path === '/admin/api/surfaces') {
       if (options.delayedSurfaces) await new Promise(resolve => setTimeout(resolve, 150));
       if (options.failSettings) return json({ message: 'Connection settings unavailable' }, 503);
-      return json({ surfaces: surfaces.map(row => options.longUrl ? { ...row, base_path: `${'/long-proxy-prefix'.repeat(8)}${row.base_path}` } : row), backends: [] });
+      return json({ surfaces: surfaces.map(withSource).map(row => options.longUrl ? { ...row, base_path: `${'/long-proxy-prefix'.repeat(8)}${row.base_path}` } : row), backends: [] });
+    }
+    const sourceMatch = /^\/admin\/api\/surfaces\/(\w+)\/source$/.exec(path);
+    if (sourceMatch && req.method() === 'POST') {
+      const body = req.postDataJSON(); writes.push({ path, body });
+      if (options.sourceError) return json({ status: 'error', ...options.sourceError }, options.sourceError.status);
+      if (sources) sources[sourceMatch[1]] = body.source;
+      return json(withSource(surfaces.find(row => row.surface === sourceMatch[1])!));
     }
     if (path === '/admin/engines/state') return json({ engines: ['codex', 'claude', 'grok', 'kimi'].map(engine => ({ engine, label: engine === 'codex' ? 'Codex' : engine === 'claude' ? 'Claude' : engine === 'grok' ? 'Grok' : 'Kimi Code', enabled: options.disabledEngine !== engine })) });
     if (path === '/admin/api/state') return json({ disabled: false });
@@ -188,4 +210,125 @@ test('API format and expiration can change without changing the assigned engine'
   await expect(dialog.getByRole('heading', { name: 'Key created' })).toBeVisible();
   expect(writes).toEqual([{ path: '/admin/claude/keys', body: { name: 'Expiring connection', backend_engine: 'codex', expires_at: expires } }]);
   await expect(dialog.getByRole('region', { name: 'Key details' })).toContainText('Codex');
+});
+
+// "Answered by" pins a key's source; "API default" sends none, which the tests above cover.
+test('Answered by: a provider API key pin sends no engine and shows where it goes', async ({ page }) => {
+  const { writes } = await fixture(page, { sources: { openai: 'emulated' }, usable: { openai: 1 } });
+  await page.goto('/admin/api-keys?dialog=new&engine=openai');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: 'Answered by', exact: true })).toHaveText('API default (Subscription)');
+  await dialog.getByLabel('Name', { exact: true }).fill('Billed to OpenAI');
+  await dialog.getByRole('button', { name: 'Answered by', exact: true }).click();
+  await page.getByRole('option', { name: 'Provider API key', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Engine', exact: true })).toBeDisabled();
+  await expect(dialog).toContainText('Always forwarded to OpenAI with a stored provider key and billed to that account.');
+  await dialog.getByRole('button', { name: 'Create key', exact: true }).click();
+  await expect(dialog.getByRole('heading', { name: 'Key created' })).toBeVisible();
+  expect(writes).toEqual([{ path: '/admin/openai/keys', body: { name: 'Billed to OpenAI', source: 'upstream', expires_at: null } }]);
+  const details = dialog.getByRole('region', { name: 'Key details' });
+  await expect(details).toContainText('OpenAI API key');
+  await expect(details).toContainText('Not used');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(page.getByRole('row').filter({ hasText: 'Billed to OpenAI' })).toContainText('Provider API key');
+});
+
+test('Answered by: a subscription pin keeps the chosen engine', async ({ page }) => {
+  const { writes } = await fixture(page, { sources: { anthropic: 'upstream' }, usable: { anthropic: 1 } });
+  await page.goto('/admin/api-keys?dialog=new&engine=claude');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('button', { name: 'Answered by', exact: true })).toHaveText('API default (API key)');
+  await dialog.getByLabel('Name', { exact: true }).fill('Stays on Claude');
+  await dialog.getByRole('button', { name: 'Answered by', exact: true }).click();
+  await page.getByRole('option', { name: 'Subscription', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Create key', exact: true })).toBeDisabled();
+  await chooseEngine(page, 'Claude');
+  await dialog.getByRole('button', { name: 'Create key', exact: true }).click();
+  await expect(dialog.getByRole('heading', { name: 'Key created' })).toBeVisible();
+  expect(writes).toEqual([{ path: '/admin/claude/keys', body: { name: 'Stays on Claude', backend_engine: 'claude', source: 'emulated', expires_at: null } }]);
+  await expect(dialog.getByRole('region', { name: 'Key details' })).toContainText('Subscription');
+  await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+  const row = page.getByRole('row').filter({ hasText: 'Stays on Claude' });
+  await expect(row).toContainText('Claude');
+  await expect(row).toContainText('Subscription');
+});
+
+test('Source column: switching to API key names the billing and disables the engine', async ({ page }) => {
+  const { writes } = await fixture(page, { sources: { openai: 'emulated' }, usable: { openai: 1 } });
+  await page.goto('/admin/api-keys#exposed-apis');
+  const select = page.getByRole('button', { name: 'Source for /v1', exact: true });
+  await expect(select).toHaveText('Subscription');
+  await select.click();
+  await page.getByRole('option', { name: 'API key', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: 'Answer /v1 with OpenAI API keys?' })).toBeVisible();
+  await expect(dialog).toContainText('billed to that OpenAI account');
+  await expect(dialog).toContainText('1 usable OpenAI key');
+  expect(writes).toEqual([]);
+  await dialog.getByRole('button', { name: 'Switch to API key', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(writes).toEqual([{ path: '/admin/api/surfaces/openai/source', body: { source: 'upstream' } }]);
+  await expect(select).toHaveText('API key');
+  await expect(page.getByRole('button', { name: 'Backend for /v1', exact: true })).toBeDisabled();
+  const row = page.locator('#exposed-apis').getByRole('row').filter({ has: select });
+  await expect(row).toContainText('Not used with API key');
+  await expect(row).toContainText('OpenAI, 1 usable key');
+
+  // Back to the subscription costs nothing and asks nothing.
+  await select.click();
+  await page.getByRole('option', { name: 'Subscription', exact: true }).click();
+  await expect.poll(() => writes.length).toBe(2);
+  expect(writes[1]).toEqual({ path: '/admin/api/surfaces/openai/source', body: { source: 'emulated' } });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('Source column: no usable key blocks the switch and a server refusal stays in the dialog', async ({ page }) => {
+  const { writes } = await fixture(page, { sources: { grok: 'upstream' }, usable: { openai: 1 }, sourceError: { status: 409, code: 'provider_key_missing', message: 'No usable provider key' } });
+  await page.goto('/admin/api-keys#exposed-apis');
+  // Already upstream without a key: the row says so and links to the fix.
+  const grok = page.locator('#exposed-apis').getByRole('row').filter({ has: page.getByRole('button', { name: 'Source for /grok/v1', exact: true }) });
+  await expect(grok.getByRole('link', { name: 'No usable xAI key' })).toHaveAttribute('href', '/admin/provider-keys#provider-xai');
+
+  await page.getByRole('button', { name: 'Source for /anthropic/v1', exact: true }).click();
+  await page.getByRole('option', { name: 'API key', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('No usable Anthropic key is stored, so /anthropic/v1 would answer 503.');
+  await expect(dialog.getByRole('link', { name: 'Add one under Provider keys' })).toHaveAttribute('href', '/admin/provider-keys#provider-anthropic');
+  await expect(dialog.getByRole('button', { name: 'Switch to API key', exact: true })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(writes).toEqual([]);
+
+  // The count said one key, but it went away before the switch landed.
+  await page.getByRole('button', { name: 'Source for /v1', exact: true }).click();
+  await page.getByRole('option', { name: 'API key', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Switch to API key', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('No usable OpenAI key is stored. Add one under Provider keys before switching to API key.');
+  await expect(dialog.getByRole('heading', { name: 'Answer /v1 with OpenAI API keys?' })).toBeVisible();
+  expect(writes).toEqual([{ path: '/admin/api/surfaces/openai/source', body: { source: 'upstream' } }]);
+});
+
+test('Exposed APIs reflow at 320 px with the Source column reachable', async ({ page }) => {
+  await fixture(page, { sources: { anthropic: 'upstream', grok: 'upstream' }, usable: { anthropic: 1 } });
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto('/admin/api-keys#exposed-apis');
+  const select = page.getByRole('button', { name: 'Source for /grok/v1', exact: true });
+  await select.scrollIntoViewIfNeeded();
+  await expect(select).toBeInViewport();
+  await expect(page.locator('#exposed-apis').getByRole('link', { name: 'No usable xAI key' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await page.locator('#exposed-apis').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
+test('Source column is read-only without keys.manage', async ({ page }) => {
+  await fixture(page, { sources: {}, capabilities: CAPABILITIES.filter(c => c !== 'keys.manage') });
+  await page.goto('/admin/api-keys#exposed-apis');
+  await expect(page.getByRole('button', { name: 'Source for /v1', exact: true })).toBeDisabled();
+});
+
+test('the endpoint summary judges an API key source by its provider keys', async ({ page }) => {
+  await fixture(page, { sources: { openai: 'upstream', grok: 'upstream' }, usable: { openai: 2 } });
+  await page.goto('/admin/api-keys');
+  await page.getByRole('button', { name: 'API endpoints', exact: true }).click();
+  await expect(page.locator('[data-endpoint="openai"]')).toContainText('Enabled, API key');
+  await expect(page.locator('[data-endpoint="grok"]')).toContainText('No usable provider key');
 });
