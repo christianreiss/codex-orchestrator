@@ -12,6 +12,7 @@ import {
   DETACHED_LEASE_GRACE_MS,
   acquireOwnedProvider,
   freshBindingGeneration,
+  noteProviderRenewal,
   reapAbandonedProviders,
 } from '../../../src/control-plane/streams/provider-leases.js';
 import { createDbFake } from '../../helpers/db-fake.js';
@@ -103,6 +104,8 @@ describe('abandoned provider leases', () => {
     await acquireOwnedProvider(h.owner, 1, 'claude', 'scope-alive', alive, 90);
     h.attach(alive, 'claude');
     const t0 = Date.now();
+    noteProviderRenewal(h.owner, dead, t0 - 60_000);
+    noteProviderRenewal(h.owner, alive, t0 - 60_000);
     // Absence counts from the first look, not from anything stored.
     expect(await reapAbandonedProviders(h.owner, LIVE, t0)).toEqual([]);
     expect(await reapAbandonedProviders(h.owner, LIVE, t0 + DETACHED_LEASE_GRACE_MS - 1000)).toEqual([]);
@@ -116,12 +119,41 @@ describe('abandoned provider leases', () => {
     const id = 'b'.repeat(32);
     await acquireOwnedProvider(h.owner, 1, 'claude', 'scope', id, 90);
     const t0 = Date.now();
+    noteProviderRenewal(h.owner, id, t0 - 60_000);
     expect(await reapAbandonedProviders(h.owner, LIVE, t0)).toEqual([]);
     const back = h.attach(id, 'claude');
     expect(await reapAbandonedProviders(h.owner, LIVE, t0 + 4 * 60_000)).toEqual([]);
     back.detach();
     expect(await reapAbandonedProviders(h.owner, LIVE, t0 + 6 * 60_000)).toEqual([]);
     expect(await reapAbandonedProviders(h.owner, LIVE, t0 + 6 * 60_000 + DETACHED_LEASE_GRACE_MS)).toEqual([id]);
+  });
+
+  it('keeps a lease whose holder never renewed it, and one that still sends heartbeats', async () => {
+    const h = harness();
+    const old = 'e'.repeat(32);
+    const beating = 'h'.repeat(32);
+    // A wrapper before the switch supervisor only redials its attachment: it could not take the lease back.
+    await acquireOwnedProvider(h.owner, 1, 'claude', 'scope-old', old, 90);
+    await acquireOwnedProvider(h.owner, 1, 'claude', 'scope-beating', beating, 90);
+    const t0 = Date.now();
+    noteProviderRenewal(h.owner, beating, t0);
+    expect(await reapAbandonedProviders(h.owner, LIVE, t0)).toEqual([]);
+    noteProviderRenewal(h.owner, beating, t0 + DETACHED_LEASE_GRACE_MS - 60_000);
+    expect(await reapAbandonedProviders(h.owner, LIVE, t0 + DETACHED_LEASE_GRACE_MS)).toEqual([]);
+    expect(await reapAbandonedProviders(h.owner, LIVE, t0 + 2 * DETACHED_LEASE_GRACE_MS)).toEqual([beating]);
+    expect(await reapAbandonedProviders(h.owner, LIVE, t0 + 20 * DETACHED_LEASE_GRACE_MS)).toEqual([]);
+    expect(h.lease(old)).toBeDefined();
+  });
+
+  it('never removes an internal lease for absence', async () => {
+    const h = harness();
+    const internal = 'i'.repeat(32);
+    await acquireOwnedProvider(h.owner, 0, 'claude', internal, internal, 90);
+    const t0 = Date.now();
+    noteProviderRenewal(h.owner, internal, t0 - 60_000);
+    expect(await reapAbandonedProviders(h.owner, LIVE, t0)).toEqual([]);
+    expect(await reapAbandonedProviders(h.owner, LIVE, t0 + 10 * DETACHED_LEASE_GRACE_MS)).toEqual([]);
+    expect(h.lease(internal)).toBeDefined();
   });
 
   it('leaves other engines and timed leases alone, and removes every lease of a deleted host', async () => {
@@ -133,6 +165,7 @@ describe('abandoned provider leases', () => {
     await acquireOwnedProvider(h.owner, 1, 'claude', 'scope-timed', timed, 90, undefined, 'timed');
     await acquireOwnedProvider(h.owner, 7, 'codex', 'scope-orphan', orphan, 90);
     const t0 = Date.now();
+    for (const id of [codex, timed]) noteProviderRenewal(h.owner, id, t0 - 60_000);
     // Host 7 does not exist: its lease goes at once, whatever the engine.
     expect(await reapAbandonedProviders(h.owner, LIVE, t0)).toEqual([orphan]);
     expect(await reapAbandonedProviders(h.owner, LIVE, t0 + 10 * DETACHED_LEASE_GRACE_MS)).toEqual([]);

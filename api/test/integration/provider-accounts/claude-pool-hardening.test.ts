@@ -23,7 +23,7 @@ import { ProviderAccountsService } from '../../../src/services/provider-accounts
 import { setClaudeIdentityFetch } from '../../../src/services/claude-identity.js';
 import { writeAccountPolicy } from '../../../src/services/account-policy.js';
 import { AccountSwitchService, SWITCH_STALE_READING_MS } from '../../../src/services/account-switch.js';
-import { CLAUDE_READING_HOLD_MS, ClaudeUsageService } from '../../../src/services/claude-usage.js';
+import { CLAUDE_READING_HOLD_MS, ClaudeUsageService, forgetClaudeReadingConfirmations } from '../../../src/services/claude-usage.js';
 import type { RunnerClient } from '../../../src/services/runner-client.js';
 
 const handle = await getTestDb();
@@ -291,6 +291,18 @@ describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
       await file(a, 150, { weekly: [60, week] });
       await file(a, 170, { weekly: [20, week] });
       expect(await reading(a)).toEqual([null, 60]);
+    });
+
+    it('ends the hold after a restart too, although every held report writes a new row', async () => {
+      const a = (await put('alice-1')).account_id!;
+      const week = at(3 * 24 * 60);
+      await file(a, 0, { weekly: [95, week] });
+      // The process that saw the 95 is gone; lower reports keep arriving.
+      forgetClaudeReadingConfirmations();
+      for (const minute of [10, 30, 50]) await file(a, minute, { weekly: [12, week] });
+      expect(await reading(a)).toEqual([null, 95]);
+      await file(a, CLAUDE_READING_HOLD_MS / 60_000 + 1, { weekly: [12, week] });
+      expect(await reading(a)).toEqual([null, 12]);
     });
 
     it('refuses the previous account\'s reading for as long as the bound account has its own window', async () => {

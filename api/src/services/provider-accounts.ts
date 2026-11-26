@@ -2,7 +2,7 @@ import { quotaSnapshot } from './quota-observation.js';
 import { emulationBlocks, emulationLimitError } from './quota-emulation.js';
 import {persistAuditLog} from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
-import { ownedAccount, ownedProviderSession, acquireOwnedProvider, releaseOwnedProvider, drainOwnedProviders, freshBindingGeneration } from '../control-plane/streams/provider-leases.js';
+import { ownedAccount, ownedProviderSession, acquireOwnedProvider, releaseOwnedProvider, drainOwnedProviders, freshBindingGeneration, noteProviderRenewal } from '../control-plane/streams/provider-leases.js';
 import { readQuotaPolicy } from './quota-policy.js';
 import { createHash } from 'node:crypto';
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, lte } from 'drizzle-orm';
@@ -755,7 +755,7 @@ export class ProviderAccountsService {
     const account = await this.get(session.accountId, engine);
     if (account.state === 'removed') throw new ConflictError('Account removed');
     const owner = ownerRuntimeFor(this.db);
-    if(owner && session.ownershipMode==='connection')return {account_id:session.accountId,expires_at:session.expiresAt};
+    if(owner && session.ownershipMode==='connection'){noteProviderRenewal(owner,id);return {account_id:session.accountId,expires_at:session.expiresAt};}
     const expiresAt = new Date(Date.now() + 300_000).toISOString();
     if(owner){
       await mutateOwnerState(owner,{kind:'provider.session.renew',payload:{hostId,engine,id},prepare({snapshot,draft,write}){

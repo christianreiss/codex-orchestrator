@@ -121,8 +121,9 @@ interface StoredWindow {
 
 /**
  * When the stored share of an account's window was last actually reported.
- * Kept in memory only: after a restart the stored row's own time stands in,
- * which can extend one hold by the time since the last report, never more.
+ * Kept in memory only. After a restart the stored row's own time stands in
+ * once: a held report also writes a row, so reading that time again on every
+ * report would renew the hold for as long as lower reports keep arriving.
  */
 const confirmations = new Map<string, { reset: number; percent: number; at: number }>();
 
@@ -143,6 +144,11 @@ const confirmations = new Map<string, { reset: number; percent: number; at: numb
  *   resets that both lie ahead cannot be ordered: an account's windows do not
  *   overlap, so the later reset is not evidence of being newer.
  */
+/** Drops what this process remembers about confirmations, as a restart does. */
+export function forgetClaudeReadingConfirmations(): void {
+  confirmations.clear();
+}
+
 function mergeWindow(
   key: string,
   reported: StoredWindow,
@@ -157,9 +163,12 @@ function mergeWindow(
   const reset = reported.resetsAt ? Date.parse(reported.resetsAt) : NaN;
   if (running && Number.isFinite(reset) && Math.abs(reset - priorReset) < SAME_RESET_MS) {
     const stored = prior.percent as number;
-    const seen = confirmations.get(key);
-    const confirmedAt = seen && seen.reset === priorReset && seen.percent === stored ? seen.at : Date.parse(prior.fetchedAt);
-    if (reported.percent < stored && now - confirmedAt <= CLAUDE_READING_HOLD_MS) {
+    let seen = confirmations.get(key);
+    if (!seen || seen.reset !== priorReset || seen.percent !== stored) {
+      seen = { reset: priorReset, percent: stored, at: Date.parse(prior.fetchedAt) };
+      confirmations.set(key, seen);
+    }
+    if (reported.percent < stored && now - seen.at <= CLAUDE_READING_HOLD_MS) {
       return { percent: stored, resetsAt: prior.resetsAt };
     }
     confirmations.set(key, { reset: priorReset, percent: reported.percent, at: now });

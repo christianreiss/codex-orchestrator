@@ -36,14 +36,31 @@ export function freshBindingGeneration(now: number = Date.now()): number {
 export const DETACHED_LEASE_GRACE_MS = 5 * 60_000;
 /** When each attachment was first seen missing. In memory only: absence counts from this owner's boot. */
 const detachedSince = new WeakMap<OwnerRuntime, Map<string, number>>();
+/**
+ * When the holder of a connection-owned lease last renewed it by heartbeat. A
+ * wrapper that does so also takes back a lease it finds missing (heartbeat
+ * 404, cxx 0.9.207 and later); an older one only redials its attachment and
+ * would run on without a lease, its token uploads refused. In memory only.
+ */
+const renewedByHolder = new WeakMap<OwnerRuntime, Map<string, number>>();
+
+export function noteProviderRenewal(owner: OwnerRuntime, id: string, at: number = Date.now()): void {
+  const renewed = renewedByHolder.get(owner) ?? new Map<string, number>();
+  renewedByHolder.set(owner, renewed);
+  renewed.set(id, at);
+}
 
 /**
- * Removes leases nothing holds any more: connection-owned leases of the given
- * engines whose provider attachment has been gone for the grace period (the
- * wrapper was killed or its host went down, so it never released), and leases
- * of any engine whose host was deleted. Only engines whose wrapper re-reserves
- * a lease it finds missing are passed in: a suspended laptop comes back after
- * the grace period and must be able to recover. Returns the removed ids.
+ * Removes leases nothing holds any more: connection-owned host leases of the
+ * given engines that have had neither a provider attachment nor a heartbeat
+ * for the grace period (the wrapper was killed or its host went down, so it
+ * never released), and leases of any engine whose host was deleted.
+ *
+ * A lease is removed for absence only once its holder has shown that it can
+ * take the lease back (`noteProviderRenewal`): a suspended laptop returns after
+ * the grace period and must be able to recover. Internal leases (host 0: AI
+ * assist, chat inference) have no attachment at all and end with their task.
+ * Returns the removed ids.
  */
 export async function reapAbandonedProviders(
   owner: OwnerRuntime,
@@ -54,23 +71,34 @@ export async function reapAbandonedProviders(
   const presence = ownerPresence(owner);
   const seen = detachedSince.get(owner) ?? new Map<string, number>();
   detachedSince.set(owner, seen);
+  const renewed = renewedByHolder.get(owner) ?? new Map<string, number>();
+  renewedByHolder.set(owner, renewed);
   const state = owner.state.snapshot();
   const rows = state.table('providerAccountSessions').all();
   const ids = new Set(rows.map((r) => r.id));
   for (const id of seen.keys()) if (!ids.has(id)) seen.delete(id);
+  for (const id of renewed.keys()) if (!ids.has(id)) renewed.delete(id);
   const due = new Set<string>();
   for (const row of rows) {
     if (row.hostId > 0 && !state.table('hosts').get(row.hostId)) {
       due.add(row.id);
       continue;
     }
-    if (row.ownershipMode !== 'connection' || !engines.has(row.engine) || presence.hasProvider(row.id)) {
+    const renewal = renewed.get(row.id);
+    if (
+      row.hostId <= 0 ||
+      row.ownershipMode !== 'connection' ||
+      !engines.has(row.engine) ||
+      renewal === undefined ||
+      presence.hasProvider(row.id)
+    ) {
       seen.delete(row.id);
       continue;
     }
     const since = seen.get(row.id) ?? now;
     seen.set(row.id, since);
-    if (now - since >= DETACHED_LEASE_GRACE_MS) due.add(row.id);
+    // A heartbeat is a sign of life too: the attachment can be down while HTTP still works.
+    if (now - Math.max(since, renewal) >= DETACHED_LEASE_GRACE_MS) due.add(row.id);
   }
   if (!due.size) return [];
   const removed: string[] = [];
@@ -85,7 +113,8 @@ export async function reapAbandonedProviders(
         const row = s.table('providerAccountSessions').get(id);
         if (!row) continue;
         const hostGone = row.hostId > 0 && !s.table('hosts').get(row.hostId);
-        if (!hostGone && presence.hasProvider(id)) continue;
+        const alive = presence.hasProvider(id) || now - (renewed.get(id) ?? 0) < DETACHED_LEASE_GRACE_MS;
+        if (!hostGone && alive) continue;
         draft.remove('providerAccountSessions', id);
         removed.push(id);
       }
@@ -94,7 +123,10 @@ export async function reapAbandonedProviders(
       return null;
     },
   });
-  for (const id of removed) seen.delete(id);
+  for (const id of removed) {
+    seen.delete(id);
+    renewed.delete(id);
+  }
   return removed;
 }
 
