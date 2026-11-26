@@ -241,6 +241,15 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'DELETE /admin/kimi/keys/:id': cap('keys.manage'),
   'POST /admin/grok/keys/:id/toggle': cap('keys.manage'),
   'POST /admin/kimi/keys/:id/toggle': cap('keys.manage'),
+  // Stored upstream provider keys and the surface source that spends them.
+  'GET /admin/provider-keys': cap('auth.read_metadata'),
+  'POST /admin/provider-keys': cap('keys.manage'),
+  'PATCH /admin/provider-keys/:id': cap('keys.manage'),
+  'POST /admin/provider-keys/:id/state': cap('keys.manage'),
+  'POST /admin/provider-keys/:id/verify': cap('keys.manage'),
+  'POST /admin/provider-keys/order': cap('keys.manage'),
+  'DELETE /admin/provider-keys/:id': cap('keys.manage'),
+  'POST /admin/api/surfaces/:surface/source': cap('keys.manage'),
 
   // ── Global settings ──────────────────────────────────────────────────────
   'GET /admin/api/state': cap('settings.read'),

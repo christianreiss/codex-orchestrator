@@ -527,7 +527,15 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/api/state` — admin session, `settings.manage`: set the API kill switch
 - `POST /admin/api/surfaces/{surface}` — admin session, `settings.manage`: set a surface backend and disabled flag ([spec](interface-api.md#exposed-api-routing-any-to-any))
 - `GET /admin/api/state` — admin session, `settings.read`: read the API kill switch
-- `GET /admin/api/surfaces` — admin session, `settings.read`: list exposed API surfaces with backend, kill switch and active key count
+- `GET /admin/api/surfaces` — admin session, `settings.read`: list exposed API surfaces with backend, kill switch, active key count, source and provider key counts
+- `POST /admin/api/surfaces/{surface}/source` — admin session, `keys.manage`: set a surface's default source, `emulated` or `upstream` ([spec](interface-api.md#provider-api-key-admin))
+- `GET /admin/provider-keys` — admin session, `auth.read_metadata`: providers and stored provider API keys, metadata and key hint only ([spec](interface-api.md#provider-api-key-admin))
+- `POST /admin/provider-keys` — admin session, `keys.manage`: store a provider API key (write-only, never returned) ([spec](interface-api.md#provider-api-key-admin))
+- `PATCH /admin/provider-keys/{id}` — admin session, `keys.manage`: change a provider key's label, key or base URL ([spec](interface-api.md#provider-api-key-admin))
+- `POST /admin/provider-keys/{id}/state` — admin session, `keys.manage`: pause or resume a provider key ([spec](interface-api.md#provider-api-key-admin))
+- `POST /admin/provider-keys/{id}/verify` — admin session, `keys.manage`: check a provider key against the provider's model list ([spec](interface-api.md#provider-api-key-admin))
+- `POST /admin/provider-keys/order` — admin session, `keys.manage`: set a provider's complete failover order ([spec](interface-api.md#provider-api-key-admin))
+- `DELETE /admin/provider-keys/{id}` — admin session, `keys.manage`: delete a provider key ([spec](interface-api.md#provider-api-key-admin))
 - `GET /admin/engines/active` — admin session, `admin.read`: engines currently active fleet-wide (needs `admin.read`) ([spec](interface-api.md#engine-master-switches))
 - `GET /admin/engines/state` — admin session, `settings.read`: fleet-wide engine master switches
 - `POST /admin/engines/{engine}/state` — admin session, `settings.manage`: switch one engine on or off fleet-wide ([spec](interface-api.md#engine-master-switches))

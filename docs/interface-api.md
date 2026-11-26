@@ -320,7 +320,11 @@ so a change applies without a restart.
   explicit invalid values (including NULL) return 400, and fleet-disabled engines
   return `409 engine_disabled`. Creation and list records include nullable
   `backend_engine`; the legacy `engine` field remains the key namespace.
-  Assignments cannot be edited; issue a replacement key to change the engine.
+  Creation also accepts an optional `source` (`emulated`|`upstream`; omitted or
+  null follows the surface default, anything else is `400 invalid_request`),
+  and records carry nullable `source` (see the upstream source section below).
+  Assignments cannot be edited; issue a replacement key to change the engine
+  or the source.
 - Validation and responses: all four key surfaces (`/admin/{openai,claude,grok,kimi}/keys`) share one implementation (`api/src/routes/admin/keys/gateway-keys.ts`). `name` is a required non-blank string of at most 255 characters; `expires_at` is optional (`null` or blank means never), otherwise RFC3339; toggle needs a boolean `active` (`true`/`false`, `1`/`0` and their strings are accepted); `:id` must be a positive integer. Any violation, or a body that is not a JSON object, is `400 invalid_request`; an id from another surface's namespace is `404 not_found`. Records carry the same fields on every surface (`admin_user_id` included). Toggle returns `{id, active, message}`, delete `{id, message}`; each mutation writes a `<surface>.key.create|toggle|delete` audit row and an `apikey.*` WS event.
 - The backend supplies the canonical credential snapshot, the runner `engine`,
   the capability table and the model catalog. Each engine's backend exists once
@@ -440,6 +444,76 @@ provider API key stored server-side in `provider_api_keys` (see
   listed in `GATEWAY_UPSTREAM_PRIVATE_HOSTS`. Timeouts:
   `GATEWAY_UPSTREAM_CONNECT_TIMEOUT` (10 s), `GATEWAY_UPSTREAM_HEADERS_TIMEOUT`
   (900 s), `GATEWAY_UPSTREAM_BODY_IDLE_TIMEOUT` (300 s between body chunks).
+
+#### Provider API key admin
+
+Admin session routes (`api/src/routes/admin/provider-keys/index.ts`). A key
+value is write-only: no response, audit row, log line, owner mutation payload
+or WS event carries the key, its hash or its envelope.
+
+A provider key record (`ProviderKey`) is
+`{id, provider, label, key_hint, base_url, effective_base_url, sort_order,
+state, verification_state, verification_reason, verification_checked_at,
+last_used_at, last_error_at, last_error_status, last_error_reason,
+created_by_admin_user_id, created_at, updated_at}`. `key_hint` is the key's
+type prefix and last four characters (`sk-proj-…a1b2`). `base_url` is null for
+the provider default, which `effective_base_url` then shows. `state` is
+`active|paused`, `verification_state` is `unverified|valid|invalid|error`, and
+both reasons are `<reason> (HTTP <status>)` from a fixed vocabulary, never a
+provider body.
+
+- `GET /admin/provider-keys` (`auth.read_metadata`) →
+  `{providers:[{provider, label, engine, engine_enabled, default_base_url,
+  surface, base_path, source, counts:{total, active, usable}}], keys:[ProviderKey]}`.
+  There is one provider row per provider, in surface order. Keys are sorted by
+  provider, then failover order.
+- `POST /admin/provider-keys` (`keys.manage`) with
+  `{provider: "openai"|"anthropic"|"xai"|"moonshot", label, key, base_url?}` →
+  `ProviderKey`. The new key is `active` and `unverified`, and goes last in
+  the failover order. The label is required (at most 255 characters). The key
+  must be 16–1024 characters without whitespace. Errors: `400 invalid_request`
+  (`param` names the field); `400 gateway_key_not_allowed` when the key is one
+  of this orchestrator's own gateway keys (by shape or by stored hash);
+  `400 invalid_base_url`; `409 provider_key_duplicate` when the same key is
+  already stored for this provider.
+- `PATCH /admin/provider-keys/{id}` (`keys.manage`) with at least one of
+  `{label, key, base_url}` → `ProviderKey`. Send `base_url` as null or `""` to
+  return to the provider default. Changing the key or the base URL resets
+  verification to `unverified`. An unknown id is `404 provider_key_not_found`.
+- `POST /admin/provider-keys/{id}/state` (`keys.manage`) with
+  `{state: "active"|"paused"}` → `ProviderKey`. A paused key is never a
+  candidate.
+- `POST /admin/provider-keys/{id}/verify` (`keys.manage`) → `ProviderKey`
+  after calling `GET {effective_base_url}/models` with the key through the
+  forward's guarded agent (10 s). 2xx is `valid`, 401/403 is `invalid` (no
+  longer a candidate), and anything else, including a refused address or a
+  timeout, is `error`. A result that arrives after the key or base URL changed
+  is discarded.
+- `POST /admin/provider-keys/order` (`keys.manage`) with
+  `{provider, ids:[id, …]}`, listing every key of that provider exactly once →
+  `{keys:[ProviderKey]}` (that provider's keys, in the new order). A
+  different set of ids is `409 provider_key_order_mismatch`.
+- `DELETE /admin/provider-keys/{id}` (`keys.manage`) → `{id, message}`.
+- `POST /admin/api/surfaces/{surface}/source` (`keys.manage`) with
+  `{source: "emulated"|"upstream"}` → the surface's `GET /admin/api/surfaces`
+  row. Switching to `upstream` needs the provider's engine on fleet-wide
+  (`409 engine_disabled`) and at least one usable key
+  (`409 provider_key_missing`). Switching back to `emulated` is always
+  allowed. A change writes `api_surface_source_<surface>`, the audit row
+  `admin.api.surface_source {surface, source, previous}` and the
+  `settings.changed` event.
+- Audit (`admin_events`): `provider_key.created {key_id, provider, label}`,
+  `provider_key.updated {key_id, provider, fields}`,
+  `provider_key.state {key_id, provider, state}`,
+  `provider_key.reordered {provider, ids}`,
+  `provider_key.deleted {key_id, provider, label}`,
+  `provider_key.verified` and `provider_key.invalidated`
+  `{key_id, provider, verification_state, reason}`. The request path's
+  invalidation runs as principal `system:provider-key-verify`.
+- WS: `provider_key.changed {id, provider, action}`, where `action` is one of
+  `created|updated|state|reordered|deleted|verified|invalidated` (`id` is null
+  for `reordered`). Use-and-error telemetry publishes nothing; it is flushed
+  every 30 s.
 
 The API Access UI defaults to endpoints and key management. `#configuration` opens routing, collapsible backend defaults and the global API control. Existing anchors (`#service-availability`, `#exposed-apis`, `#claude-proxy`, `#grok-proxy`, including inner engine anchors) still open their matching controls. `?dialog=new&engine=openai|claude|grok` opens key creation and selects that API's key tab; key namespaces are independent of the selected backend. The creation dialog requires an explicit engine choice independently of API format. Its responsive connection summary shows the assigned engine, expiry, availability, copyable key, SDK base URL, models and generation URLs, plus a curl example with a model placeholder. The key list distinguishes assigned engines from Endpoint default. Configuration changes the default only for unassigned keys; endpoint switches apply to all keys.
 

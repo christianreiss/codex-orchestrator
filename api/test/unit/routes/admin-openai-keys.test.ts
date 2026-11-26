@@ -28,6 +28,7 @@ describe('admin OpenAI key wire shape', () => {
       expires_at: null,
       engine: 'codex',
       backend_engine: null,
+      source: null,
       created_at: '2026-05-20T10:00:00Z',
       updated_at: '2026-05-20T10:30:00Z',
     });

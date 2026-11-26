@@ -80,8 +80,10 @@ export const CAPABILITIES = [
   // runner's verification path.
   'auth.manage',
 
-  // Provider API keys (OpenAI, Anthropic). Separate from `settings.manage`
-  // because these are billable bearer credentials, not preferences.
+  // Gateway keys, the stored upstream provider API keys (OpenAI, Anthropic,
+  // xAI, Moonshot AI) and the surface source that spends them. Separate from
+  // `settings.manage` because these are billable bearer credentials, not
+  // preferences.
   'keys.manage',
 
   // Authored fleet content: agent documents, skills, Claude-native collections,

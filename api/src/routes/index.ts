@@ -37,6 +37,7 @@ import { registerAdminClaudeKeyRoutes } from './admin/keys/claude.js';
 import { registerKimiCompatRoutes } from './kimi-v1/index.js';
 import { registerGrokCompatRoutes } from './grok-v1/index.js';
 import { createGatewayWiring } from '../services/gateway-backends.js';
+import { registerAdminProviderKeyRoutes } from './admin/provider-keys/index.js';
 
 import { registerAdminAuthAndUsersRoutes } from './admin-auth-users/index.js';
 import { registerAdminHostsRoutes } from './admin/hosts/index.js';
@@ -115,6 +116,8 @@ export async function registerAllRoutes(app: FastifyInstance, ctx: RouteContext)
   await registerAdminClaudeKeyRoutes(app, ctx);
   await registerGrokCompatRoutes(app, ctx, { gateway });
   await registerKimiCompatRoutes(app, ctx, { gateway });
+  // Provider keys share the forward's service and guarded agent (verification).
+  await registerAdminProviderKeyRoutes(app, ctx, { upstream: gateway.upstream });
 
   // Admin surface
   await registerAdminAuthAndUsersRoutes(app, ctx);

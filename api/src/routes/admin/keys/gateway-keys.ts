@@ -11,6 +11,7 @@
  *
  *   GET    /admin/<surface>/keys              list, newest first
  *   POST   /admin/<surface>/keys              issue; the plaintext key is returned once
+ *                                             (optional backend_engine and source pins)
  *   POST   /admin/<surface>/keys/:id/toggle   set is_active from a boolean `active`
  *   DELETE /admin/<surface>/keys/:id          delete
  *
@@ -21,7 +22,7 @@ import type { FastifyRequest } from 'fastify';
 import type { RouteContext } from '../../index.js';
 import type { OpenaiApiKey } from '../../../db/schema.js';
 import { ApiError, NotFoundError } from '../../../http/errors.js';
-import { parseKeyBackend } from '../../../services/api-key-routing.js';
+import { parseKeyBackend, parseKeySource } from '../../../services/api-key-routing.js';
 import { appendAuditLog } from '../../../services/audit-log.js';
 import { normalizeBool } from '../../../services/config-normalizer.js';
 import { OpenAiKeyService } from '../../../services/openai-keys.js';
@@ -90,7 +91,7 @@ export function toAdminApiKey(
     | 'engine'
     | 'createdAt'
     | 'updatedAt'
-  > & { backendEngine?: string | null },
+  > & { backendEngine?: string | null; source?: string | null },
 ) {
   return {
     id: row.id,
@@ -103,6 +104,7 @@ export function toAdminApiKey(
     expires_at: row.expiresAt ?? null,
     engine: row.engine,
     backend_engine: row.backendEngine ?? null,
+    source: row.source ?? null,
     created_at: row.createdAt ?? null,
     updated_at: row.updatedAt ?? null,
   };
@@ -135,8 +137,9 @@ export function gatewayKeyHandlers(ctx: Pick<RouteContext, 'db' | 'keyring'>, su
       const name = parseName(body.name);
       const expiresAt = parseExpiresAt(body.expires_at);
       const backendEngine = await parseKeyBackend(ctx.db, body.backend_engine);
+      const source = parseKeySource(body.source);
       const adminUserId = req.admin?.user.id ?? null;
-      const issued = await keys.issue({ name, engine, adminUserId, expiresAt, backendEngine });
+      const issued = await keys.issue({ name, engine, adminUserId, expiresAt, backendEngine, source });
       await audit('create', { key_id: issued.record.id, name, admin_user_id: adminUserId });
       wsPublisher.publish('apikey.created', { id: issued.record.id, engine, name });
       return { key: issued.key, record: toAdminApiKey(issued.record) };

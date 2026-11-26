@@ -83,5 +83,24 @@ describe('per-key engine creation across API formats', () => {
         expect(db.tables.get(openaiApiKeys) ?? []).toHaveLength(0);
       } finally { await app.close(); }
     });
+    it(`${namespace}: pins the source or follows the surface default`, async () => {
+      const { app, db } = await harness();
+      try {
+        const pinned = await app.inject({ method: 'POST', url: `/admin/${namespace}/keys`, payload: { name: 'upstream', source: 'upstream' } });
+        expect(pinned.statusCode, pinned.body).toBe(200);
+        expect(pinned.json().record).toMatchObject({ source: 'upstream', backend_engine: null });
+        const followed = await app.inject({ method: 'POST', url: `/admin/${namespace}/keys`, payload: { name: 'default', source: null } });
+        expect(followed.json().record.source).toBeNull();
+        expect(db.tables.get(openaiApiKeys)!.map((row) => row.source)).toEqual(['upstream', null]);
+        const list = await app.inject(`/admin/${namespace}/keys`);
+        expect(list.json().data.map((row: { source: string | null }) => row.source).sort()).toEqual([null, 'upstream'].sort());
+        for (const source of ['proxy', '', 1]) {
+          const reply = await app.inject({ method: 'POST', url: `/admin/${namespace}/keys`, payload: { name: 'bad', source } });
+          expect(reply.statusCode, reply.body).toBe(400);
+          expect(reply.json()).toMatchObject({ code: 'invalid_request', message: expect.stringContaining('source') });
+        }
+        expect(db.tables.get(openaiApiKeys)).toHaveLength(2);
+      } finally { await app.close(); }
+    });
   }
 });

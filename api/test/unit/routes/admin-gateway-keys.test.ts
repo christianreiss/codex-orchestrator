@@ -123,6 +123,7 @@ describe.each(SURFACES)('/admin/$surface/keys', ({ surface, engine, prefix }) =>
       expires_at: '2027-01-01T00:00:00Z',
       engine,
       backend_engine: null,
+      source: null,
       created_at: expect.any(String),
       updated_at: expect.any(String),
     });

@@ -474,7 +474,15 @@
       "PUT /admin/model-policy/:engine",
       "POST /admin/workflow-runs",
       "POST /admin/workflow-runs/:id/control",
-      "POST /admin/workflow-runs/:id/prepare-cancel"
+      "POST /admin/workflow-runs/:id/prepare-cancel",
+      "DELETE /admin/provider-keys/:id",
+      "GET /admin/provider-keys",
+      "PATCH /admin/provider-keys/:id",
+      "POST /admin/api/surfaces/:surface/source",
+      "POST /admin/provider-keys",
+      "POST /admin/provider-keys/:id/state",
+      "POST /admin/provider-keys/:id/verify",
+      "POST /admin/provider-keys/order"
     ]
   }
 }
