@@ -56,6 +56,9 @@ export interface PoolAccount {
 export interface PoolPosition {
   /** max(short, weekly) used percent; a passed reset is no reading, unlimited is 0, an emulated block is 100. */
   score: number | null;
+  /** The short and weekly window as scored (null without a current reading), for pool averages. */
+  short: number | null;
+  weekly: number | null;
   /** Enabled and verified: the account can take new work and live switches. */
   usable: boolean;
   emulation_blocked: boolean;
@@ -82,12 +85,13 @@ export function poolPosition(account: PoolPositionInput, now: number): PoolPosit
   // An emulated budget that blocks managed work makes the account full
   // for the policy: running scopes move away and nothing moves onto it.
   const blocked = !unlimited && emulationBlocks(account.quota_snapshot?.short);
-  const scores = [
-    quotaWindowScore(num(usage.short_used_percent), str(usage.short_resets_at), now),
-    quotaWindowScore(num(usage.weekly_used_percent), str(usage.weekly_resets_at), now),
-  ].filter((x): x is number => x !== null);
+  const short = quotaWindowScore(num(usage.short_used_percent), str(usage.short_resets_at), now);
+  const weekly = quotaWindowScore(num(usage.weekly_used_percent), str(usage.weekly_resets_at), now);
+  const scores = [short, weekly].filter((x): x is number => x !== null);
   return {
     score: unlimited ? 0 : blocked ? 100 : scores.length ? Math.max(...scores) : null,
+    short,
+    weekly,
     usable: account.state === 'enabled' && account.verification_state === 'verified',
     emulation_blocked: blocked,
   };

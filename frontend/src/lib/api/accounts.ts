@@ -52,10 +52,11 @@ export interface ProviderAccount {
   sessions: Array<{ id: string; host_id: number; expires_at: string; scope_id?: string; binding_generation?: number; account_switch?: AccountSwitchDirective | null }>;
   /**
    * Position in the engine's account pool, scored like live switching: `score` is max(short, weekly)
-   * used percent (a passed reset is no reading, unlimited 0, an emulated block 100); `usable` means
-   * enabled and verified.
+   * used percent (a passed reset is no reading, unlimited 0, an emulated block 100); `short` and
+   * `weekly` are the windows as scored (null without a current reading); `usable` means enabled and
+   * verified.
    */
-  pool?: { score: number | null; usable: boolean; emulation_blocked: boolean };
+  pool?: { score: number | null; short?: number | null; weekly?: number | null; usable: boolean; emulation_blocked: boolean };
 }
 
 /** A pending account switch for one scope (host + user + native credential directory). */

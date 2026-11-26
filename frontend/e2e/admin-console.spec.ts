@@ -562,15 +562,25 @@ test("Overview lists what needs you, counted like the owning pages and linked to
     ["1 account needs attention or is near quota 1 needs attention", "/admin/accounts"],
     ["3 unclaimed feedback reports", "/admin/reports"],
   ]);
-  const pool = page.getByTestId("account-pool");
-  await expect(pool).toHaveCount(1);
-  await expect(pool).toHaveText(/Claude pool\s+· 2 usable accounts\s+· Most headroom: claude-3 \(10%\)\s+· At 80% or more: claude-2 \(92%\)/);
-  await expect(pool.getByRole("link", { name: "Claude pool" })).toHaveAttribute("href", "/admin/accounts?engine=claude");
+  // Provider usage groups the two Claude accounts under one pool header, collapsed by default.
+  const group = page.getByTestId("account-group");
+  await expect(group).toHaveCount(1);
+  await expect(group).toContainText("Claude 2 accounts");
+  await expect(group).toContainText("OK");
+  await expect(group).toContainText("Least used: claude-3 (10%) · average short 51%, weekly 25% (2 of 2 reporting)");
+  await expect(page.getByRole("row", { name: /claude-2/ })).toHaveCount(0);
   await expect(page.getByText("Nothing needs you right now.")).toHaveCount(0);
   // A waiting request opens its own triage box; dismissed, the row still leads to the access panel.
   await expect(page.getByRole("dialog", { name: "build-01.example.test is asking for access" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  const toggle = group.getByRole("button", { name: /^Claude 2 accounts/ });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page).toHaveURL(/[?&]open=claude/);
+  await expect(page.getByRole("row", { name: /claude-2/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /codex-1/ })).toBeVisible();
   await list.getByRole("link", { name: /waiting for temporary access approval/ }).click();
   await expect(page.getByRole("dialog", { name: "Insecure access" })).toBeVisible();
 });

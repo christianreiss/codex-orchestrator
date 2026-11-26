@@ -3,7 +3,10 @@ import { describe, it } from "node:test";
 import type { ProviderAccount } from "../../api/accounts";
 
 const mod: string = "./account-state.ts";
-const { accountStatus, isNearQuota, needsAttention, sortAccounts, matchesSearch, sessionHosts, enginePools, nearQuotaCounted, poolCoveredIds, scoreText } = (await import(mod)) as typeof import("./account-state");
+const {
+  accountStatus, isNearQuota, needsAttention, sortAccounts, matchesSearch, sessionHosts, enginePools, nearQuotaCounted, poolCoveredIds, scoreText,
+  poolState, poolUsageText, accountEntries, entryKey, parseOpen, toggleOpen, displayName,
+} = (await import(mod)) as typeof import("./account-state");
 
 function account(patch: Partial<ProviderAccount> & { id: number }): ProviderAccount {
   return {
@@ -85,6 +88,71 @@ describe("account pools", () => {
     assert.deepEqual(nearQuotaCounted(accounts).map((a) => a.id), [1]);
     // Without server pool data the highest window decides, as before.
     assert.deepEqual(nearQuotaCounted([account({ id: 4, usage: { ...account({ id: 4 }).usage, short_used_percent: 95 } })]).map((a) => a.id), [4]);
+  });
+});
+
+describe("account groups", () => {
+  const usage = (id: number, short: number | null, weekly: number | null) => ({ ...account({ id }).usage, short_used_percent: short, weekly_used_percent: weekly });
+  const row = (id: number, short: number | null, weekly: number | null, patch: Partial<ProviderAccount> = {}) => {
+    const score = short === null && weekly === null ? null : Math.max(short ?? 0, weekly ?? 0);
+    return account({ id, usage: usage(id, short, weekly), pool: { score, short, weekly, usable: true, emulation_blocked: false }, ...patch });
+  };
+
+  it("leads the header with the pool state and states the averages with their coverage", () => {
+    // Production shape: one busy account, one without a reading. One busy account is not the pool.
+    const [pool] = enginePools([row(1, 10, 87), row(8, null, null)]);
+    assert.deepEqual(poolState(pool), { tone: "success", label: "OK" });
+    assert.equal(pool.avgShort, 10);
+    assert.equal(pool.avgWeekly, 87);
+    assert.equal(poolUsageText(pool), "Least used: Account 8 (no reading yet) · average short 10%, weekly 87% (1 of 2 reporting)");
+    const [both] = enginePools([row(1, 10, 87), row(2, 30, 20)]);
+    assert.equal(poolUsageText(both), "Least used: Account 2 (30%) · average short 20%, weekly 54% (2 of 2 reporting)");
+  });
+
+  it("averages the windows as the server scores them, never a passed window", () => {
+    const passed = account({ id: 2, usage: usage(2, 20, 95), pool: { score: 20, short: 20, weekly: null, usable: true, emulation_blocked: false } });
+    const [pool] = enginePools([row(1, 40, 60), passed]);
+    assert.equal(pool.avgWeekly, 60);
+    assert.equal(pool.avgShort, 30);
+  });
+
+  it("states problems before quota and near quota only for a whole pool", () => {
+    assert.deepEqual(poolState(enginePools([row(1, 90, 90), row(2, 85, 10)])[0]), { tone: "warning", label: "Pool near quota" });
+    assert.deepEqual(poolState(enginePools([row(1, 90, 90), row(2, 10, 10, { verification_state: "failed" })])[0]), { tone: "danger", label: "1 needs attention" });
+    const paused = { state: "paused" as const, pool: { score: 10, usable: false, emulation_blocked: false } };
+    const [none] = enginePools([row(1, 10, 10, paused), row(2, 10, 10, paused)]);
+    assert.deepEqual(poolState(none), { tone: "warning", label: "No usable account" });
+    assert.equal(poolUsageText(none), "");
+  });
+
+  it("groups engines with several accounts and keeps single accounts as rows", () => {
+    const broken = row(5, 10, 10, { engine: "codex", refresh_state: "login_required" });
+    const accounts = [row(1, 10, 10), row(2, 90, 10), broken, row(6, 10, 10, { engine: "grok" })];
+    const problems = accountEntries(accounts);
+    assert.deepEqual(problems.map(entryKey), ["account:5", "engine:claude", "account:6"]);
+    const group = problems[1];
+    assert.equal(group.kind, "group");
+    if (group.kind === "group") assert.deepEqual(group.rows.map((a) => a.id), [2, 1]);
+    const listed = accountEntries([row(6, 10, 10, { engine: "grok" }), row(1, 10, 10), row(2, 90, 10)], "listed");
+    assert.deepEqual(listed.map(entryKey), ["account:6", "engine:claude"]);
+    if (listed[1].kind === "group") assert.deepEqual(listed[1].rows.map((a) => a.id), [1, 2]);
+  });
+
+  it("keeps the expanded engines in one URL value", () => {
+    assert.equal(toggleOpen("", "claude"), "claude");
+    assert.equal(toggleOpen("claude", "codex"), "codex,claude");
+    assert.equal(toggleOpen("codex,claude", "claude"), "codex");
+    assert.deepEqual([...parseOpen(" claude, ,kimi")], ["claude", "kimi"]);
+    assert.equal(parseOpen(null).size, 0);
+  });
+
+  it("never shows a default label that reads like the provider", () => {
+    assert.equal(displayName({ id: 1, label: "Claude", email: null }), "Claude account #1");
+    assert.equal(displayName({ id: 3, label: "Claude account" }), "Claude account #3");
+    assert.equal(displayName({ id: 4, label: "Kimi Code 2" }), "Kimi Code account #4");
+    assert.equal(displayName({ id: 1, label: "Claude", email: "ops@example.test" }), "ops@example.test");
+    assert.equal(displayName({ id: 8, label: "ops@example.test", email: "ops@example.test" }), "ops@example.test");
+    assert.equal(displayName({ id: 9, label: "ChatGPT Team" }), "ChatGPT Team");
   });
 });
 

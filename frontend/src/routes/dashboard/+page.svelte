@@ -17,7 +17,6 @@
   import OnboardingNotice from "$lib/components/dashboard/OnboardingNotice.svelte";
   import NeedsYou from "$lib/components/dashboard/NeedsYou.svelte";
   import UsageTable from "$lib/components/dashboard/UsageTable.svelte";
-  import PoolSummary from "$lib/components/dashboard/PoolSummary.svelte";
   import EngineTable from "$lib/components/dashboard/EngineTable.svelte";
   import RunnerStatus from "$lib/components/dashboard/RunnerStatus.svelte";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
@@ -37,7 +36,12 @@
   const TABS = ["provider", "engines", "runner"];
   const tab = $derived(TABS.find((id) => id === page.url.searchParams.get("tab")) ?? "provider");
   function selectTab(id: string) {
-    void goto(id === "provider" ? page.url.pathname : `?tab=${id}`, { replaceState: true, noScroll: true, keepFocus: true });
+    // Other view state in the address (the expanded account groups) survives a tab switch.
+    const params = new URLSearchParams(page.url.searchParams);
+    if (id === "provider") params.delete("tab");
+    else params.set("tab", id);
+    const query = params.toString();
+    void goto(query ? `?${query}` : page.url.pathname, { replaceState: true, noScroll: true, keepFocus: true });
   }
 
   const fetching = $derived($overview.isFetching || $accounts.isFetching || $engineState.isFetching);
@@ -113,9 +117,8 @@
       </Tabs.List>
 
       <Tabs.Content value="provider">
-    <Section id="usage" title="Provider usage" description="Quota windows for enabled engines. An engine with several usable accounts is judged as a pool. Retained accounts remain available in Accounts.">
+    <Section id="usage" title="Provider usage" description="Quota windows for enabled engines. An engine with several accounts is one group, judged as a pool; expand it for each account. Retained accounts remain available in Accounts.">
       {#snippet actions()}<Button size="sm" variant="outline" href={`${base}/accounts`}>Manage accounts</Button>{/snippet}
-      <PoolSummary accounts={accountRows} />
       <UsageTable
         accounts={accountRows}
         loading={$accounts.isPending}

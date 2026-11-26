@@ -66,6 +66,24 @@ export interface EnginePool {
   best: ProviderAccount | null;
   /** Near quota as an engine: for a pool only when no usable account has headroom. */
   nearQuota: boolean;
+  /** Accounts whose login or verification is broken. */
+  attention: ProviderAccount[];
+  /** Mean short / weekly window over the usable accounts reporting it, rounded; null when none does. */
+  avgShort: number | null;
+  avgWeekly: number | null;
+  /** Usable accounts with any current reading (the averages' coverage). */
+  reporting: number;
+}
+
+/** One window as the pool scores it: the server's value, else the raw reading. */
+function windowValue(account: ProviderAccount, window: "short" | "weekly"): number | null {
+  const value = account.pool && window in account.pool ? account.pool[window] : window === "short" ? account.usage.short_used_percent : account.usage.weekly_used_percent;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function average(values: (number | null)[]): number | null {
+  const present = values.filter((value): value is number => value !== null);
+  return present.length ? Math.round(present.reduce((sum, value) => sum + value, 0) / present.length) : null;
 }
 
 export function enginePools(accounts: readonly ProviderAccount[]): EnginePool[] {
@@ -77,8 +95,93 @@ export function enginePools(accounts: readonly ProviderAccount[]): EnginePool[] 
     const high = mine.filter((account) => isNearQuota(account) || (isUsable(account) && !hasHeadroom(account)));
     const pooled = usable.length > 1;
     const best = [...usable].sort((a, b) => (poolScore(a) ?? 0) - (poolScore(b) ?? 0) || a.id - b.id)[0] ?? null;
-    return { engine, accounts: mine, usable, pooled, headroom, high, best, nearQuota: pooled ? headroom.length === 0 : high.length > 0 };
+    return {
+      engine, accounts: mine, usable, pooled, headroom, high, best,
+      nearQuota: pooled ? headroom.length === 0 : high.length > 0,
+      attention: mine.filter(needsAttention),
+      avgShort: average(usable.map((account) => windowValue(account, "short"))),
+      avgWeekly: average(usable.map((account) => windowValue(account, "weekly"))),
+      reporting: usable.filter((account) => poolScore(account) !== null).length,
+    };
   });
+}
+
+export type PoolState = { tone: "danger" | "warning" | "success"; label: string };
+
+/** The group header's state: problems first, then the pool rule (never near quota while a usable account has headroom). */
+export function poolState(pool: EnginePool): PoolState {
+  if (pool.attention.length) return { tone: "danger", label: `${pool.attention.length} ${pool.attention.length === 1 ? "needs" : "need"} attention` };
+  if (!pool.usable.length) return { tone: "warning", label: "No usable account" };
+  if (pool.nearQuota) return { tone: "warning", label: pool.pooled ? "Pool near quota" : "Near quota" };
+  return { tone: "success", label: "OK" };
+}
+
+/**
+ * The group header's usage line: the least-used account first, then the window averages with
+ * their coverage, because an unmeasured account is not zero and one busy account is not the pool.
+ */
+export function poolUsageText(pool: EnginePool): string {
+  if (!pool.usable.length) return "";
+  // Grok and Kimi Code report other windows (period, monthly); their rows show them, the pool score does not.
+  if (!pool.reporting && pool.usable.some((account) => peakUsage(account) !== null)) return "";
+  const parts = [pool.best ? `Least used: ${displayName(pool.best)} (${scoreText(pool.best)})` : "Least used: no reading yet"];
+  const windows = [pool.avgShort !== null && `short ${pool.avgShort}%`, pool.avgWeekly !== null && `weekly ${pool.avgWeekly}%`].filter(Boolean);
+  parts.push(windows.length ? `average ${windows.join(", ")} (${pool.reporting} of ${pool.usable.length} reporting)` : "no usage reported yet");
+  return parts.join(" · ");
+}
+
+/** A table entry: a single-account engine stays one row; an engine with several accounts becomes a group. */
+export type AccountEntry =
+  | { kind: "account"; account: ProviderAccount }
+  | { kind: "group"; pool: EnginePool; rows: ProviderAccount[] };
+
+/**
+ * One entry per engine. `problems` (Accounts) leads with what needs attention, then engine order,
+ * and sorts group rows the same way (`sortAccounts`); `listed` (Overview) keeps the server order.
+ */
+export function accountEntries(accounts: readonly ProviderAccount[], order: "problems" | "listed" = "problems"): AccountEntry[] {
+  const entries = enginePools(accounts).map((pool): AccountEntry =>
+    pool.accounts.length > 1 ? { kind: "group", pool, rows: order === "problems" ? sortAccounts(pool.accounts) : pool.accounts } : { kind: "account", account: pool.accounts[0]! },
+  );
+  if (order === "listed") {
+    const first = (entry: AccountEntry) => accounts.findIndex((account) => account.engine === entryEngine(entry));
+    return entries.sort((a, b) => first(a) - first(b));
+  }
+  return entries.sort((a, b) => entryRank(a) - entryRank(b) || ENGINE_ORDER.indexOf(entryEngine(a)) - ENGINE_ORDER.indexOf(entryEngine(b)));
+}
+
+export const entryEngine = (entry: AccountEntry): ProviderAccount["engine"] => (entry.kind === "group" ? entry.pool.engine : entry.account.engine);
+
+/** Problems first, as in `sortAccounts`: attention 0, near quota or paused 1, the rest 2. */
+export function entryRank(entry: AccountEntry): number {
+  if (entry.kind === "account") return needsAttention(entry.account) ? 0 : entry.account.state === "paused" || isNearQuota(entry.account) ? 1 : 2;
+  return entry.pool.attention.length ? 0 : entry.pool.nearQuota || !entry.pool.usable.length ? 1 : 2;
+}
+
+export const entryKey = (entry: AccountEntry): string => (entry.kind === "group" ? `engine:${entry.pool.engine}` : `account:${entry.account.id}`);
+
+/** Expanded groups as stored in the `open` URL parameter: a comma-separated engine list. */
+export function parseOpen(value: string | null | undefined): Set<string> {
+  return new Set((value ?? "").split(",").map((part) => part.trim()).filter(Boolean));
+}
+
+export function toggleOpen(value: string | null | undefined, engine: string): string {
+  const open = parseOpen(value);
+  if (open.has(engine)) open.delete(engine);
+  else open.add(engine);
+  return [...open].sort((a, b) => ENGINE_ORDER.indexOf(a) - ENGINE_ORDER.indexOf(b)).join(",");
+}
+
+/** The server's untouched default label ("Claude", "Claude account", "Claude 1"), which reads like the provider. */
+export const isDefaultLabel = (label: string): boolean => /^(Claude|ChatGPT|Grok|Kimi Code)( account| \d+)?$/.test(label.trim());
+
+/**
+ * The name shown for an account. A default label would read like the provider itself, so it
+ * shows the login e-mail when known, else "Claude account #1". Rename and search keep the stored label.
+ */
+export function displayName(account: Pick<ProviderAccount, "id" | "label" | "email">): string {
+  if (!isDefaultLabel(account.label)) return account.label;
+  return account.email || `${account.label.trim().replace(/( account| \d+)$/, "")} account #${account.id}`;
 }
 
 /**

@@ -33,7 +33,8 @@ async function fixtures(page: Page, canManage = true, extra: ReturnType<typeof a
   return writes;
 }
 
-const rowOf = (page: Page, name: string | RegExp) => page.getByRole("row", { name });
+// Account rows only: an engine group's header names its least-used account too.
+const rowOf = (page: Page, name: string | RegExp) => page.getByRole("row", { name }).and(page.locator(":not([data-testid=account-group])"));
 async function choose(page: Page, row: ReturnType<typeof rowOf>, label: string, item: string) {
   await row.getByRole("button", { name: `Actions for ${label}` }).click();
   await page.getByRole("menuitem", { name: item, exact: true }).click();
@@ -42,6 +43,15 @@ async function choose(page: Page, row: ReturnType<typeof rowOf>, label: string, 
 test("manages a Claude-only pool and shows each quota separately", async ({ page }) => {
   const writes = await fixtures(page);
   await page.goto("/admin/accounts");
+  // Three Claude accounts form one group: collapsed by default, the header judges the pool.
+  const group = page.getByTestId("account-group");
+  await expect(group).toContainText("Claude 3 accounts");
+  await expect(group).toContainText("OK");
+  await expect(group).toContainText("Least used: Claude Alpha (20%) · average short 40%, weekly 40% (3 of 3 reporting)");
+  await expect(rowOf(page, /Claude Alpha/)).toHaveCount(0);
+  await group.getByRole("button", { name: /^Claude 3 accounts/ }).click();
+  await expect(group.getByRole("button", { name: /^Claude 3 accounts/ })).toHaveAttribute("aria-expanded", "true");
+  await expect(page).toHaveURL(/[?&]open=claude/);
   await expect(rowOf(page, /Claude Alpha/)).toBeVisible();
   await expect(rowOf(page, /Claude Beta/)).toBeVisible();
   await expect(rowOf(page, /Claude Gamma/)).toBeVisible();
@@ -72,7 +82,7 @@ test("manages a Claude-only pool and shows each quota separately", async ({ page
 
 test("read-only operators can inspect quotas without management actions", async ({ page }) => {
   const writes = await fixtures(page, false);
-  await page.goto("/admin/accounts");
+  await page.goto("/admin/accounts?open=claude");
   await expect(rowOf(page, /Claude Alpha/)).toBeVisible();
   await expect(page.getByText("80%", { exact: true })).toHaveCount(2);
   await expect(page.getByRole("button", { name: "Add account" })).toHaveCount(0);
@@ -82,7 +92,7 @@ test("read-only operators can inspect quotas without management actions", async 
 
 test("the engine filter is always visible, scopes the list and keeps engine-specific empty states", async ({ page }) => {
   await fixtures(page, false, [account(7, "grok", "Grok Primary", null)]);
-  await page.goto("/admin/accounts");
+  await page.goto("/admin/accounts?open=claude");
   await expect(rowOf(page, /Claude Alpha/)).toBeVisible();
   await expect(rowOf(page, /Grok Primary/)).toBeVisible();
   await page.getByRole("button", { name: "Codex", exact: true }).click();
@@ -145,7 +155,7 @@ for (const mobile of [false, true]) {
       }
       await route.fulfill({ json: { status: "ok", data: { defaults, override, effective: override ?? defaults } } });
     });
-    await page.goto("/admin/accounts");
+    await page.goto("/admin/accounts?open=claude");
     await choose(page, rowOf(page, /Claude Alpha/), "Claude Alpha", "Quota policy");
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("switch", { name: "Use engine defaults" })).toBeChecked();

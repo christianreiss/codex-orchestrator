@@ -8,7 +8,7 @@
   import Timestamp from "$lib/components/page/Timestamp.svelte";
   import { cn } from "$lib/utils/cn";
   import AccountUsage from "./AccountUsage.svelte";
-  import { accountStatus, sessionHosts } from "./account-state";
+  import { accountStatus, displayName, sessionHosts } from "./account-state";
 
   type Props = {
     account: ProviderAccount;
@@ -19,6 +19,8 @@
     busy: boolean;
     /** High, but another usable account of the same engine has headroom. */
     poolCovered?: boolean;
+    /** Listed under its engine's group header: indented, so the grouping reads without lines. */
+    nested?: boolean;
     onQuota: () => void;
     onRename: () => void;
     onReplace: () => void;
@@ -26,9 +28,10 @@
     onToggle: () => void;
     onRemove: () => void;
   };
-  let { account, engineOn, canManage, hostNames, busy, poolCovered = false, onQuota, onRename, onReplace, onVerify, onToggle, onRemove }: Props = $props();
+  let { account, engineOn, canManage, hostNames, busy, poolCovered = false, nested = false, onQuota, onRename, onReplace, onVerify, onToggle, onRemove }: Props = $props();
 
   const meta = $derived(ENGINE_META[account.engine]);
+  const name = $derived(displayName(account));
   const status = $derived(accountStatus(account, engineOn, meta.command, poolCovered));
   const hosts = $derived(sessionHosts(account));
   const runnerTask = $derived(account.sessions.some((session) => session.host_id === 0));
@@ -47,11 +50,11 @@
 
 <Table.Row>
   <Table.Cell class="min-w-56 max-sm:pr-12">
-    <div class="flex items-start gap-2">
+    <div class={cn("flex items-start gap-2", nested && "pl-6")}>
       <span class={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", dot[status.tone])} aria-hidden="true"></span>
       <div class="min-w-0">
-        <div class="truncate font-medium" title={account.label}>{account.label}</div>
-        {#if account.email && account.email !== account.label}<div class="truncate text-caption text-muted-foreground" title={account.email}>{account.email}</div>{/if}
+        <div class="truncate font-medium" title={name === account.label ? account.label : `Stored name: ${account.label}`}>{name}</div>
+        {#if account.email && account.email !== name}<div class="truncate text-caption text-muted-foreground" title={account.email}>{account.email}</div>{/if}
         <div class={cn("text-caption", textTone[status.tone])}>
           <span class={status.tone === "danger" ? "font-medium" : ""}>{status.label}</span>{#if status.detail}<span class="text-muted-foreground">{" · "}{status.detail}</span>{/if}
         </div>
@@ -76,6 +79,6 @@
   </Table.Cell>
   <Table.Cell class="whitespace-nowrap text-body-sm text-muted-foreground"><span class="sm:hidden">Verified:&nbsp;</span><Timestamp value={account.verification_checked_at} fallback="Never" /></Table.Cell>
   <Table.Cell class="w-10 text-right max-sm:absolute max-sm:right-1 max-sm:top-1 max-sm:w-auto">
-    {#if canManage && account.state !== "removing"}<RowActions {actions} label={`Actions for ${account.label}`} />{/if}
+    {#if canManage && account.state !== "removing"}<RowActions {actions} label={`Actions for ${name}`} />{/if}
   </Table.Cell>
 </Table.Row>
