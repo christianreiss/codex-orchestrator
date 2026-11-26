@@ -136,23 +136,27 @@ owning components when moving a setting; update this table in the same change.
 
 ```
 +-----------+-------------------------------------------------------+
-| Sidebar   | Top bar min 48 px: breadcrumb | search (Cmd-K) | live,    |
-| rail      | temporary-access and report indicators | appearance   |
-| 56 px md, +-------------------------------------------------------+
-| 256 px lg | main#main-content: inset 16 / 24 px, max 1600 px      |
-|           |   PageShell: h1 + one primary action                  |
-| hubs; the |   at most one local tab row or view switch            |
-| active    |   Toolbar: search, filters, count, Clear filters      |
-| hub lists |   DataTable / Sections / workspace                    |
+| brand row | Top bar min 48 px: breadcrumb | status chips | search   |
+| 48 px     | (chips only while live updates are degraded,          |
++-----------+  temporary access is open or reports are unhandled)   |
+| Sidebar   +-------------------------------------------------------+
+| rail      | main#main-content: inset 16 / 24 px, max 1600 px      |
+| 56 px md, |   PageShell: h1 + one primary action                  |
+| 256 px lg |   at most one local tab row or view switch            |
+| hubs; the |   Toolbar: search, filters, count, Clear filters      |
+| active    |   DataTable / Sections / workspace                    |
+| hub lists |                                                       |
 | its pages |                                                       |
-|           |                                                       |
-| account,  |                                                       |
-| utilities |                                                       |
++-----------+                                                       |
+| account   |                                                       |
+| row: menu |                                                       |
 +-----------+-------------------------------------------------------+
 Below 768 px: no rail; MobileNav (64 px) holds the Chatty launcher at
 its right end, main keeps 1rem of scroll padding above it, and the
 Menu sheet lists every hub with that hub's pages beneath it.
 ```
+
+**Shell controls.** Every top-bar control is 36 px high (the shared `Button` icon size) with a 16 px glyph and 4 px corners; status chips differ only by tone, and the search trigger stays rightmost so a chip appearing never moves it. A connected live transport takes no space; a polite status region announces its changes, and a connecting or disconnected chip waits 1.5 s so a load or a quick reconnect does not flash one. The brand row is 48 px like the top bar, so both rules form one line. Rail rows, hubs and pages alike, are at least 32 px with a 16 px glyph and 8 px gaps. The current page is the one filled row; a hub that lists its pages is marked in signal blue without fill, and its pages align with the hub label beside a guide line through the hub icon (in the 56 px rail they sit in a muted well). The account row is a single menu trigger (initials and name). Its menu holds Account, Password & passkeys and Companion devices, the Light/Dark/System appearance switch, Manual and Keyboard shortcuts (`?`), and Sign out. Below 768 px the Menu sheet lists Manual, Account, Keyboard shortcuts, the account sections and Sign out; Appearance there links to the account page instead of switching in place.
 
 Alignment is left; only empty states and single-task authentication center.
 
@@ -196,7 +200,7 @@ Values are rem-based; pixel equivalents assume the default 16 px root. Browser t
 | Touch targets | At least 44 × 44 CSS px for standalone controls on coarse pointers | Expand hit areas without overlapping adjacent targets; applies on hybrid devices too |
 | Table rows | 40 px minimum normal; 36 px compact; 48 px or more for multiline/touch rows | One density per table, no density switch (EX-2); never clip wrapping content to force a height |
 | Corners | 4 px controls; 6 px containers/overlays | Existing `--radius-sm` and `--radius`: `rounded`/`rounded-md` on controls and menu items, `rounded-lg` on cards, dialogs, popovers, menus, tooltips and toasts. No arbitrary `rounded-[…]`; circles only for genuine circular affordances/avatars |
-| Icons | 16 px inline; 20 px navigation/touch control glyph | One Lucide family; accessible hit area independent of glyph |
+| Icons | 16 px inline and in desktop shell controls (top bar, rail rows, menus); 20 px mobile tab bar and other touch-first glyphs | One Lucide family; one size per surface; accessible hit area independent of glyph |
 | Borders / elevation | 1 px semantic border; ordinary surfaces no shadow; overlay uses `--shadow-pop` | Group primarily through alignment, headings and spacing; `shadow-pop` is the only overlay shadow (no raw `shadow-md`/`shadow-lg`) |
 | Dialog widths | `DialogContent size`: `sm` 28rem, `md` 32rem (default), `lg` 36rem, `xl` 42rem, `wide` 64rem | `sm` confirmations and short input; `md` ordinary forms; `lg` multi-field forms; `xl` rich editors and pickers; `wide` previews and side-by-side content. No ad-hoc `max-w-[…px]` on a dialog |
 | Motion | 120 ms color/focus feedback via `--dur`; at most 200 ms functional opening/closing | No entry choreography; reduced motion removes travel and decorative animation |
@@ -325,7 +329,7 @@ This is a source audit, not a live visual acceptance report. All 43 `+page.svelt
 | --- | --- | --- |
 | Initial auth / setup probe | Layout loading/redirecting state or `AuthShell` “API unreachable” | No setup/login redirect loop on transient failure; retry keeps intended location |
 | Unknown route / unexpected page error | Catch-all throws 404; current `+error.svelte` uses `PageShell` and `StateBlock` with retry and Overview recovery | Check title, recovery and keyboard path in the surrounding frame |
-| Sidebar, top bar (incl. live-updates, temporary-access and unhandled-reports indicators), mobile menu, hub/project navigation | App shell, registry (hub pages as `Sidebar` and `MobileNav` children), `ProjectTabsNav`, page-label store for detail breadcrumbs | All destinations reachable at touch widths; no contradictory active locations; indicators hidden at zero and without the read capability, and the temporary-access count read from the fleet-wide summary on every page |
+| Sidebar (brand row, hubs and pages, account menu with appearance, manual, shortcuts and sign-out), top bar (breadcrumb, degraded live-updates, temporary-access and unhandled-reports chips, search), mobile menu, hub/project navigation | App shell, registry (hub pages as `Sidebar` and `MobileNav` children, utility pages in the account menu), `ProjectTabsNav`, page-label store for detail breadcrumbs, `appearance.svelte.ts` shared by the account menu and the top-bar failure alert | All destinations reachable at touch widths; no contradictory active locations; indicators hidden at zero and without the read capability, a connected live transport shows no chip, and the temporary-access count read from the fleet-wide summary on every page; a failed appearance save stays in the header after the menu closes |
 | Cmd/Ctrl-K, global search, shortcuts help | Command palette, search modal, shortcuts components | Focus entry/exit, no results, accessible selection; shortcuts do not intercept typing; a switched-off engine's views are not offered, Recent included; old page names and Settings row aliases still find their page |
 | Chatty assistant | Shared shell assistant and chatty components (English panel; Chatty answers in the language it is asked in) | Availability/role gates, drafts, errors and confirmation of concrete changes; server-verified answer links (navigate in place, phone panel minimizes), latest-answer suggestion chips and action buttons (safe navigation, or the shared `ConfirmDialog` with typed name for danger, then the existing admin endpoint) |
 | Client/session detail and attachments | Portal components inside Agents | Directory, retained chats, attention, timeline, composer, uploads, remote sessions, close/reconnect states |
@@ -785,3 +789,7 @@ Accounts gains a per-engine distribution policy form and, for Claude, a list of 
 Overview, Accounts and Engines judge an engine with more than one usable (enabled and verified) account as a pool, matching what agents are advised (`poolRecommendation`): "near quota" totals and the Needs you row count an engine's high accounts only when none of its usable accounts has headroom. The score comes from the server (`GET /admin/accounts` `pool`, shared with live switching); single-account engines keep the per-account rule. Account rows keep "Near quota" and add "Other accounts have headroom" when the pool covers them.
 
 Accounts and the Overview's Provider usage table show an engine with several accounts as one group: `AccountGroupRow`, a tinted header row spanning the table (sibling rows, never a nested table; VIS-5, no card), followed by the engine's account rows, indented. Single-account engines stay one row. The header's toggle is a labelled `button` with `aria-expanded`, separate from any link (INT-1, ACC-1). It leads with the state as a `Badge` whose words carry the meaning (VIS-4): attention first, then "No usable account", "Pool near quota" only for a whole pool, otherwise "OK". Then the least-used account and the average short/weekly window with its coverage ("1 of 2 reporting"; INT-6, an unmeasured account is not zero; the average is never warning-toned, because one busy account is not the pool), and for Claude the policy mode and strategy. Groups start collapsed; the expanded engines live in the URL (`?open=`; on Accounts in the page's `UrlFilters`, excluded from "Clear filters" and the count; on the Overview the tab switch keeps it). On Accounts a search or engine filter holds every group open (the toggle is inert and says why), header aggregates always describe the whole engine, and a group without a matching row is left out so "No matches" still appears (NAV-4). An account still carrying the server's default name is shown by its e-mail, else "Claude account #1", so a row never reads like a provider heading; Rename keeps the stored name. Rules checked: NAV-1/4, VIS-1/4/5, INT-1/6/7, ACC-1/4 (reflow: the header becomes a block like any row). No new exception. Not run: browser sweep (`admin-design.spec.ts`), contrast, 320 px and screen-reader checks.
+
+### App shell consistency (2026-11-26)
+
+Operator feedback: the top bar mixed four control shapes and heights (a 20 px live pill beside 36 px tinted chips, a bordered search field and a borderless appearance icon), and the healthy live state and the appearance switch were permanently visible. The sidebar brand row (about 53 px) missed the 48 px header rule. The active hub carried an edge bar beside a second filled row, and the account box stacked a bordered name button over three unlabeled icons (Manual, Account, Shortcuts). Now every top-bar control is 36 px with a 16 px glyph, and status chips (degraded live updates, open temporary access, unhandled reports) share one recipe and differ only in tone. The search trigger stays rightmost, and a connected live transport is announced through a polite status region instead of a chip. A connecting or disconnected chip appears only after 1.5 s, so a page load or a quick reconnect does not flash one; disabled updates show at once. The appearance radio group moved into the account menu; its save failure stays in the full-width header (INT-5). Rail rows share one geometry, the current page is the one filled row and the brand row is 48 px. The three utility icons became labeled account-menu items, and `?`, Cmd/Ctrl-K and the palette commands are unchanged. The rail now carries the dark-theme status pairs in both themes, so the temporary-access request row is no longer a pale light-theme box on navy (`tokens.contrast.test.ts` checks the rail pairs in both modes). The per-host access chip reads "1 temporary access window open". Applicable rules: NAV-1/2/3/4, VIS-1/2/3/4/5, INT-5/6/7, ACC-1/2/3/4. No exception. Checked: `npm run check` and the full Playwright suite in Chromium. Its 20 failures also fail at the base commit: the `/accounts` effect loop, which also breaks the deep-link sweep, and the route inventory, which misses the project changelog pages. Not run: other browsers, a screen reader and 400 % zoom.

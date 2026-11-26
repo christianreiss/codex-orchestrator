@@ -1,5 +1,5 @@
 <script lang="ts">
-  /** The only place with every theme option; the top bar keeps a quick light/dark/system toggle. */
+  /** The only place with every theme option; the desktop account menu keeps a quick light/dark/system switch. */
   import { toast } from "svelte-sonner";
   import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { mode } from "mode-watcher";

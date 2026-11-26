@@ -96,5 +96,21 @@ describe("neutral theme contrast", () => {
   it("keeps navigation labels readable on its dark rail in every mode", () => {
     assert.ok(contrast(sidebar["muted-foreground"]!, sidebar["sidebar-bg"]!) >= 4.5, "sidebar muted label contrast");
     assert.ok(contrast(sidebar["sidebar-fg"]!, sidebar.card!) >= 4.5, "sidebar account contrast");
+    // The rail stays dark on a light page: its own tokens must not inherit the
+    // light theme's pale status surfaces.
+    const railBlock = block(".sidebar-surface {");
+    for (const [mode, tokens] of Object.entries({ light, dark })) {
+      const rail = { ...tokens, ...railBlock };
+      const bg = rail["sidebar-bg"]!;
+      for (const label of ["muted-foreground", "foreground"]) {
+        assert.ok(contrast(rail[label]!, bg) >= 4.5, `${mode} rail: ${label}`);
+        assert.ok(contrast(rail[label]!, rail.muted!) >= 4.5, `${mode} rail: ${label} on a hovered row`);
+      }
+      assert.ok(contrast(rail.primary!, rail.primary!, .15, bg) >= 4.5, `${mode} rail: current page on its tint`);
+      for (const status of ["info", "warning", "destructive"]) {
+        assert.ok(contrast(rail[`${status}-muted-foreground`]!, rail[`${status}-muted`]!) >= 4.5, `${mode} rail: ${status} row text`);
+        assert.ok(contrast(rail[`${status}-foreground`]!, rail[status]!) >= 4.5, `${mode} rail: ${status} count badge`);
+      }
+    }
   });
 });

@@ -181,7 +181,7 @@ test('an idle connected host view makes no periodic HTTP reads for ten minutes',
   });
   await page.goto('/admin/hosts/1');
   await expect(page.getByRole('heading', { name: 'workstation.example.test', level: 1 })).toBeVisible();
-  await expect(page.getByText('Live', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Live updates connected' })).toHaveCount(1);
   // Drain the initial hello's snapshot reconciliation before measuring idle.
   for (let settle = 0; settle < 3; settle++) {
     await page.waitForLoadState("networkidle");
@@ -191,7 +191,7 @@ test('an idle connected host view makes no periodic HTTP reads for ten minutes',
   const before = reads.length;
   await page.clock.runFor(600_000);
   expect(reads.slice(before)).toEqual([]);
-  await expect(page.getByText('Live', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Live updates connected' })).toHaveCount(1);
 });
 
 

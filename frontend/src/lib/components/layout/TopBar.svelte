@@ -1,70 +1,30 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { get } from "svelte/store";
-  import { createMutation, createQuery, useQueryClient } from "@tanstack/svelte-query";
-  import { toast } from "svelte-sonner";
-  import * as DropdownMenu from "$lib/components/ui/dropdown-menu";
+  import { createQuery } from "@tanstack/svelte-query";
   import * as Tooltip from "$lib/components/ui/tooltip";
+  import { Button } from "$lib/components/ui/button";
   import AlertTriangle from "@lucide/svelte/icons/triangle-alert";
   import Inbox from "@lucide/svelte/icons/inbox";
-  import Moon from "@lucide/svelte/icons/moon";
-  import Monitor from "@lucide/svelte/icons/monitor";
-  import Palette from "@lucide/svelte/icons/palette";
   import Search from "@lucide/svelte/icons/search";
-  import Sun from "@lucide/svelte/icons/sun";
   import Pause from "@lucide/svelte/icons/pause";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import WifiOff from "@lucide/svelte/icons/wifi-off";
   import { page } from "$app/state";
   import { base } from "$app/paths";
-  import { goto } from "$app/navigation";
   import { getBreadcrumbs } from "$lib/nav";
   import { pageLabel } from "$lib/stores/page-label";
   import { commandPalette } from "$lib/stores/command-palette";
   import { insecureSummaryQuery } from "$lib/api/insecure";
   import { isInsecureWindowActive } from "$lib/api/hosts";
   import { wsStatus } from "$lib/stores/ws-status";
-  import { setTheme, themeStore, type ThemeChoice } from "$lib/stores/theme";
-  import { accountKeys, setTheme as persistTheme } from "$lib/api/account";
   import { feedbackApi, feedbackKeys } from "$lib/api/feedback";
   import { authStore } from "$lib/stores/auth";
+  import { cn } from "$lib/utils/cn";
   import { reactiveOptions } from "$lib/components/projects/reactive-options.svelte";
-  import StatusPill from "$lib/components/hosts/StatusPill.svelte";
   import InsecureCountdown from "$lib/components/hosts/InsecureCountdown.svelte";
+  import type { AppearanceControl } from "./appearance.svelte";
 
-  const qc = useQueryClient();
-  let attemptedTheme = $state<ThemeChoice>("system");
-  const themeMutation = createMutation({
-    mutationFn: (value: ThemeChoice) => persistTheme(value === "system" ? "auto" : value),
-    onMutate: async (value: ThemeChoice) => {
-      attemptedTheme = value;
-      const previous = get(themeStore);
-      await qc.cancelQueries({ queryKey: accountKeys.theme });
-      setTheme(value);
-      qc.setQueryData(accountKeys.theme, { theme: value === "system" ? "auto" : value });
-      return { previous };
-    },
-    onSuccess: (data) => qc.setQueryData(accountKeys.theme, data),
-    onError: (error, _value, context) => {
-      if (context) {
-        setTheme(context.previous);
-        qc.setQueryData(accountKeys.theme, { theme: context.previous === "system" ? "auto" : context.previous });
-      }
-      toast.error("Could not save appearance", { description: error.message });
-    },
-  });
-
-  let appearanceContent = $state<HTMLDivElement | null>(null);
-  function focusAppearanceMenu(event: Event) {
-    event.preventDefault();
-    const content = appearanceContent;
-    // Bits UI can remount its focus scope while opening, queuing autofocus
-    // twice. A later callback must preserve an item reached with ArrowDown.
-    requestAnimationFrame(() => {
-      if (!content?.isConnected || content !== appearanceContent || content.dataset.state !== "open") return;
-      if (!content.contains(document.activeElement)) content.focus({ preventScroll: true });
-    });
-  }
+  let { appearance }: { appearance: AppearanceControl } = $props();
 
   let modifierKey = $state("Ctrl");
   onMount(() => {
@@ -100,16 +60,43 @@
   const path = $derived(page.url.pathname.replace(base, "") || "/");
   // A detail page names its object (a host's FQDN) once it has loaded.
   const breadcrumbs = $derived(getBreadcrumbs(path, $pageLabel?.path === page.url.pathname ? $pageLabel.label : undefined));
-  const wsIndicator = $derived.by(() => {
-    if ($wsStatus === "open") return { tone: "online" as const, label: "Live", tooltip: "Live updates connected" };
+  // Connected is the normal state and takes no room; only a connection that
+  // may leave the page stale claims a chip ("Live state transport").
+  const wsState = $derived.by(() => {
+    if ($wsStatus === "open") return null;
     if ($wsStatus === "idle") return { tone: "warning" as const, label: "Connecting", tooltip: "Waiting for live updates" };
     if ($wsStatus === "connecting") return { tone: "warning" as const, label: "Connecting", tooltip: "Connecting to live updates" };
-    if ($wsStatus === "closed") return { tone: "offline" as const, label: "Disconnected", tooltip: "Live updates disconnected; displayed information may be stale" };
+    if ($wsStatus === "closed") return { tone: "danger" as const, label: "Disconnected", tooltip: "Live updates disconnected; displayed information may be stale" };
     return { tone: "warning" as const, label: "Updates paused", tooltip: "Live updates are disabled; reload to refresh displayed information" };
   });
+  // A connection that settles within the grace period never shows a chip, so
+  // a page load or a quick reconnect does not flash one and shift the others.
+  // Disabled live updates are a configured state and show at once. The status
+  // region below always reports the actual state.
+  const WS_CHIP_GRACE_MS = 1500;
+  const wsDegraded = $derived($wsStatus !== "open" && $wsStatus !== "disabled");
+  let wsGraceOver = $state(false);
+  $effect(() => {
+    if (!wsDegraded) {
+      wsGraceOver = false;
+      return;
+    }
+    const timer = setTimeout(() => (wsGraceOver = true), WS_CHIP_GRACE_MS);
+    return () => clearTimeout(timer);
+  });
+  const wsIndicator = $derived($wsStatus === "disabled" || wsGraceOver ? wsState : null);
+
+  // Every top-bar control shares one geometry: 36 px high, 16 px glyph, 4 px
+  // corners. Status chips differ only by tone (DESIGN.md §4, shell layout).
+  const chip = "inline-flex h-9 shrink-0 items-center gap-1.5 rounded border px-2 text-body-sm font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring";
+  const tones = {
+    info: "border-info/30 bg-info-muted text-info-muted-foreground hover:border-info/60",
+    warning: "border-warning/30 bg-warning-muted text-warning-muted-foreground hover:border-warning/60",
+    danger: "border-destructive/40 bg-destructive-muted text-destructive-muted-foreground hover:border-destructive/70",
+  } as const;
 </script>
 
-<header class="sticky top-0 z-30 flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-card px-4 py-1.5 sm:gap-x-4 md:px-6">
+<header class="sticky top-0 z-30 flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b bg-card px-4 py-1 md:px-6">
   <nav class={breadcrumbs.length > 1 ? "min-w-0 flex-1 basis-full sm:basis-40" : "min-w-0 flex-1 basis-24 sm:basis-40"} aria-label="Breadcrumb">
     <ol class="min-w-0 break-words text-body leading-relaxed">
       {#each breadcrumbs as crumb, index (crumb.label + index)}
@@ -126,63 +113,49 @@
       {/each}
     </ol>
   </nav>
-  <div class="flex min-w-0 max-w-full flex-wrap items-center gap-1 sm:gap-2">
-    <button type="button" class="hidden h-9 w-72 shrink-0 items-center gap-2 whitespace-nowrap rounded-md border border-input bg-background px-3 text-body-sm text-muted-foreground outline-none transition-colors hover:border-input hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring xl:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4 shrink-0" /><span class="min-w-0 flex-1 truncate text-left">Search fleet &amp; commands</span><kbd class="keyboard-key shrink-0">{modifierKey} K</kbd></button>
-    <button type="button" class="shell-icon-button xl:hidden" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4" /></button>
+  <div class="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">
+    <!-- Announces connection changes; the chip below is the visible cue. -->
+    <p class="sr-only" role="status">{wsState?.tooltip ?? "Live updates connected"}</p>
     {#if wsIndicator}
       <Tooltip.Provider>
         <Tooltip.Root>
-          <Tooltip.Trigger class={["h-9 items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring", wsIndicator.tone === "online" ? "hidden sm:inline-flex" : "inline-flex min-w-9 justify-center"]} aria-label={wsIndicator.tooltip}>
-            <span class={["sm:hidden", wsIndicator.tone === "offline" ? "text-destructive" : "text-warning"]} aria-hidden="true">
-              {#if $wsStatus === "closed"}<WifiOff class="h-4 w-4" />
-              {:else if $wsStatus === "disabled"}<Pause class="h-4 w-4" />
-              {:else}<RefreshCw class="h-4 w-4" />{/if}
-            </span>
-            <StatusPill class="hidden sm:inline-flex" tone={wsIndicator.tone} label={wsIndicator.label} />
+          <Tooltip.Trigger class={cn(chip, tones[wsIndicator.tone], "cursor-default")} aria-label={wsIndicator.tooltip}>
+            {#if $wsStatus === "closed"}<WifiOff class="h-4 w-4 shrink-0" aria-hidden="true" />
+            {:else if $wsStatus === "disabled"}<Pause class="h-4 w-4 shrink-0" aria-hidden="true" />
+            {:else}<RefreshCw class="h-4 w-4 shrink-0" aria-hidden="true" />{/if}
+            <span class="hidden sm:inline">{wsIndicator.label}</span>
           </Tooltip.Trigger>
           <Tooltip.Content>{wsIndicator.tooltip}</Tooltip.Content>
         </Tooltip.Root>
       </Tooltip.Provider>
     {/if}
+    {#if fleetWindowUntil}
+      <a href={`${base}/hosts?insecure=1`} class={cn(chip, tones.danger)} aria-label="Fleet temporary access open">
+        <AlertTriangle class="h-4 w-4 shrink-0" aria-hidden="true" /><span class="hidden sm:inline">Fleet open</span><span class="sm:hidden">Open</span><InsecureCountdown until={fleetWindowUntil} class="hidden border-0 bg-transparent p-0 font-sans tabular-nums text-current sm:inline" />
+      </a>
+    {:else if activeWindows > 0}
+      <a href={`${base}/hosts?insecure=1`} class={cn(chip, tones.warning)} aria-label={`${activeWindows} temporary access ${activeWindows === 1 ? "window" : "windows"} open`}>
+        <AlertTriangle class="h-4 w-4 shrink-0" aria-hidden="true" /><span class="tabular-nums">{activeWindows}</span><span class="hidden sm:inline">access {activeWindows === 1 ? "window" : "windows"}</span>
+      </a>
+    {/if}
     {#if openReports > 0}
       <a
         href={`${base}/reports`}
-        class="inline-flex h-9 items-center gap-1.5 rounded-md border border-info/30 bg-info-muted px-2 text-body-sm font-medium text-info-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        class={cn(chip, tones.info)}
         aria-label={`${openReports} unhandled ${openReports === 1 ? "report" : "reports"}`}
         title={`${openReports} open ${openReports === 1 ? "report" : "reports"} nobody has claimed`}
       >
-        <Inbox class="h-4 w-4 shrink-0" /><span class="tabular-nums">{openReports}</span><span class="hidden sm:inline">open</span>
+        <Inbox class="h-4 w-4 shrink-0" aria-hidden="true" /><span class="tabular-nums">{openReports}</span><span class="hidden sm:inline">open</span>
       </a>
     {/if}
-    {#if fleetWindowUntil}
-      <a href={`${base}/hosts?insecure=1`} class="inline-flex h-9 items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive-muted px-2 text-body-sm font-medium text-destructive-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Fleet temporary access open">
-        <AlertTriangle class="h-4 w-4 shrink-0" /><span class="hidden sm:inline">Fleet open</span><span class="sm:hidden">Open</span><InsecureCountdown until={fleetWindowUntil} class="hidden sm:inline" />
-      </a>
-    {:else if activeWindows > 0}
-      <a href={`${base}/hosts?insecure=1`} class="inline-flex h-9 items-center gap-1.5 rounded-md border border-warning/30 bg-warning-muted px-2 text-body-sm font-medium text-warning-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`${activeWindows} temporary access windows open`}><AlertTriangle class="h-4 w-4" />{activeWindows}</a>
-    {/if}
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger class="shell-icon-button" aria-label="Appearance"><Sun class="h-4 w-4 dark:hidden" /><Moon class="hidden h-4 w-4 dark:block" /></DropdownMenu.Trigger>
-      <DropdownMenu.Content align="end" class="w-44" bind:ref={appearanceContent} onOpenAutoFocus={focusAppearanceMenu}>
-        <DropdownMenu.Group>
-          <DropdownMenu.Label>Appearance</DropdownMenu.Label>
-          <DropdownMenu.RadioGroup value={$themeStore} onValueChange={value => {
-            if (["light", "dark", "system"].includes(value)) $themeMutation.mutate(value as ThemeChoice);
-          }} aria-label="Appearance">
-            <DropdownMenu.RadioItem value="light" disabled={$themeMutation.isPending}><Sun class="h-4 w-4" />Light</DropdownMenu.RadioItem>
-            <DropdownMenu.RadioItem value="dark" disabled={$themeMutation.isPending}><Moon class="h-4 w-4" />Dark</DropdownMenu.RadioItem>
-            <DropdownMenu.RadioItem value="system" disabled={$themeMutation.isPending}><Monitor class="h-4 w-4" />System</DropdownMenu.RadioItem>
-          </DropdownMenu.RadioGroup>
-        </DropdownMenu.Group>
-        <DropdownMenu.Separator />
-        <DropdownMenu.Item onSelect={() => goto(`${base}/account#appearance`)}><Palette class="h-4 w-4" />Appearance settings</DropdownMenu.Item>
-      </DropdownMenu.Content>
-    </DropdownMenu.Root>
+    <!-- Rightmost and always present, so it never moves when a chip appears. -->
+    <button type="button" class="hidden h-9 w-72 shrink-0 items-center gap-2 whitespace-nowrap rounded border border-input bg-background px-3 text-body-sm text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring xl:flex" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4 shrink-0" aria-hidden="true" /><span class="min-w-0 flex-1 truncate text-left">Search fleet &amp; commands</span><kbd class="keyboard-key shrink-0">{modifierKey} K</kbd></button>
+    <Button variant="outline" size="icon" class="shrink-0 text-muted-foreground xl:hidden" onclick={() => commandPalette.open()} aria-label="Open command palette"><Search class="h-4 w-4" aria-hidden="true" /></Button>
   </div>
-  {#if $themeMutation.isError}
+  {#if appearance.failed}
     <p role="alert" class="flex basis-full flex-wrap items-center gap-2 text-caption text-destructive">
       Could not save appearance. Previous appearance restored.
-      <button type="button" class="min-h-8 underline pointer-coarse:min-h-11" onclick={() => $themeMutation.mutate(attemptedTheme)}>Retry appearance</button>
+      <button type="button" class="min-h-8 underline pointer-coarse:min-h-11" onclick={() => appearance.retry()}>Retry appearance</button>
     </p>
   {/if}
 </header>
