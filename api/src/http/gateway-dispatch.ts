@@ -91,8 +91,15 @@ export function makeGatewayDispatch(deps: GatewayDispatchDeps, options: { catchA
   };
 }
 
+/**
+ * A blank header is no credential: an edge proxy that copies the client's
+ * `Authorization` (Caddy `header_up Authorization {http.request.header.Authorization}`)
+ * sends an empty one when the client sent none.
+ */
 function hasCredential(req: FastifyRequest): boolean {
-  return req.headers.authorization !== undefined || req.headers['x-api-key'] !== undefined;
+  const present = (value: string | string[] | undefined) =>
+    Array.isArray(value) ? value.some((entry) => entry.trim() !== '') : typeof value === 'string' && value.trim() !== '';
+  return present(req.headers.authorization) || present(req.headers['x-api-key']);
 }
 
 /**

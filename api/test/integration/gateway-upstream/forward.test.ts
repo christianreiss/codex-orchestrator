@@ -483,6 +483,11 @@ describe('gateway upstream source', () => {
     const anonymous = await h.app.inject({ method: 'GET', url: '/v1/files' });
     expect(anonymous.statusCode).toBe(404);
     expect(JSON.parse(anonymous.payload).error.code).toBe('not_found');
+    // An edge proxy that copies a missing Authorization sends it empty.
+    for (const headers of [{ authorization: '' }, { authorization: '  ', 'x-api-key': '' }]) {
+      const blank = await h.app.inject({ method: 'GET', url: '/v1/files', headers });
+      expect(blank.statusCode).toBe(404);
+    }
     const badKey = await h.app.inject({ method: 'GET', url: '/v1/files', headers: { authorization: 'Bearer sk-nope' } });
     expect(badKey.statusCode).toBe(401);
     const emulatedKey = await h.app.inject({ method: 'GET', url: '/v1/files', headers: { authorization: `Bearer ${GW}` } });
