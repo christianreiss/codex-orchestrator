@@ -852,8 +852,8 @@ Checked:
 
 - `npm run check`: 0 errors, plus the one known warning in `CommunicatorApiSection.svelte`; 1077 node tests pass.
 - `e2e/admin-provider-keys.spec.ts` (17 tests: states, read-only, engine off, 320 px, the dialog, reorder, delete and pause confirmations, the verify verdict, Axe).
-- Six new tests in `e2e/admin-api-access.spec.ts` (the Source column and "Answered by").
-- The full Playwright suite in Chromium: 590 of 591 pass. The one failure is the known pre-existing route inventory gap (the two project changelog pages). The Providers hub expectation in `admin-console.spec.ts` was updated for the new page and that file rerun.
+- Seven new tests in `e2e/admin-api-access.spec.ts` (the Source column including 320 px reflow, and "Answered by").
+- The full Playwright suite in Chromium: 591 of 592 pass. The one failure is the known pre-existing route inventory gap (the two project changelog pages). The Providers hub expectation in `admin-console.spec.ts` now includes the new page.
 - Screenshots at 1440 px and 320 px.
 
 Not run: other browsers, dark-theme screenshots, contrast tooling, a screen reader and 400 % zoom.

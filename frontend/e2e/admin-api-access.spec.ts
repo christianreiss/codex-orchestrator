@@ -307,6 +307,18 @@ test('Source column: no usable key blocks the switch and a server refusal stays 
   expect(writes).toEqual([{ path: '/admin/api/surfaces/openai/source', body: { source: 'upstream' } }]);
 });
 
+test('Exposed APIs reflow at 320 px with the Source column reachable', async ({ page }) => {
+  await fixture(page, { sources: { anthropic: 'upstream', grok: 'upstream' }, usable: { anthropic: 1 } });
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto('/admin/api-keys#exposed-apis');
+  const select = page.getByRole('button', { name: 'Source for /grok/v1', exact: true });
+  await select.scrollIntoViewIfNeeded();
+  await expect(select).toBeInViewport();
+  await expect(page.locator('#exposed-apis').getByRole('link', { name: 'No usable xAI key' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(await page.locator('#exposed-apis').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
 test('Source column is read-only without keys.manage', async ({ page }) => {
   await fixture(page, { sources: {}, capabilities: CAPABILITIES.filter(c => c !== 'keys.manage') });
   await page.goto('/admin/api-keys#exposed-apis');
