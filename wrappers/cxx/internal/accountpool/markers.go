@@ -23,11 +23,19 @@ type sessionMarker struct {
 	// "busy", "idle", or empty when it has none (a launch without the
 	// receiver hooks, or a wrapper that does not publish it).
 	Turn string `json:"turn,omitempty"`
+	// TurnAt is the last hook that confirmed Turn.
+	TurnAt time.Time `json:"turn_at,omitempty"`
 }
 
 const (
 	turnBusy = "busy"
 	turnIdle = "idle"
+	// A running turn fires hooks; each one confirms the marker, at most
+	// every turnConfirmEvery. A turn the user interrupted fires no Stop, so
+	// a busy marker nothing confirmed for busyTurnFresh is no evidence any
+	// more and the sibling is unknown again.
+	turnConfirmEvery = 30 * time.Second
+	busyTurnFresh    = 15 * time.Minute
 )
 
 func (c *Context) markerDir() string {
@@ -90,10 +98,11 @@ func (c *Context) SetSessionTurn(idle, known bool) {
 			turn = turnIdle
 		}
 	}
-	if m.Turn == turn {
+	now := time.Now().UTC()
+	if m.Turn == turn && now.Sub(m.TurnAt) < turnConfirmEvery {
 		return
 	}
-	m.Turn = turn
+	m.Turn, m.TurnAt = turn, now
 	next, _ := json.Marshal(m)
 	tmp := path + ".tmp"
 	if os.WriteFile(tmp, next, 0o600) != nil {
@@ -119,10 +128,10 @@ func (c *Context) SiblingTurns() (busy, unknown bool) {
 		if m.SessionID == own {
 			continue
 		}
-		switch m.Turn {
-		case turnBusy:
+		switch {
+		case m.Turn == turnBusy && time.Since(m.TurnAt) <= busyTurnFresh:
 			busy = true
-		case turnIdle:
+		case m.Turn == turnIdle:
 		default:
 			unknown = true
 		}

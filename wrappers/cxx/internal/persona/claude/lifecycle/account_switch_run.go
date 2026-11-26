@@ -188,10 +188,13 @@ var confirmedAuthGeneration = func(ctx context.Context) (claude.AuthGeneration, 
 // account's head. An upload is filed by the login's own identity and its
 // answer cannot tell, so one more exchange follows it.
 //
-// relaxed (the account being left is paused, removed or unverified) also
-// accepts a file the server knows, accepted or definitively refused although
-// it confirms no head for that account. A conflict, an unavailable server or
-// a network error still fail: the upload may yet succeed.
+// relaxed (the account being left is paused, being removed or unverified)
+// also accepts a file the server knows, accepted or refused for good although
+// it confirms no head for that account. An account being removed takes no
+// login from a host that no longer holds a lease on it, which is the case
+// once the commit moved the scope: that refusal is final too. Any other
+// conflict, an unavailable server or a network error still fail: the upload
+// may yet succeed.
 func flushAccountAuth(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, relaxed bool) (flushResult, error) {
 	result, err := sessionAuthSync(ctx, client, logger)
 	if err == nil && result.Uploaded {
@@ -205,7 +208,9 @@ func flushAccountAuth(ctx context.Context, client *orchestrator.Client, logger *
 		}}, nil
 	}
 	if err != nil {
-		nothingLeft := orchestrator.IsDefinitiveAuthCandidateRejection(err) ||
+		var refused *orchestrator.HTTPError
+		retired := errors.As(err, &refused) && refused.StatusCode == http.StatusConflict && refused.Code == "account_removed"
+		nothingLeft := retired || orchestrator.IsDefinitiveAuthCandidateRejection(err) ||
 			(errors.Is(err, ErrSessionAuthUnverified) && (result.ServerKnown || result.Uploaded || result.Rejected))
 		if relaxed && nothingLeft && !result.Deferred && result.Generation.Exists {
 			return flushResult{Generation: result.Generation}, nil

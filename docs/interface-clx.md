@@ -2070,7 +2070,9 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   marker (`turn`: `busy` or `idle`, written inside the hook, so a starting turn is published before its
   first request). A switch waits while any live sibling says `busy` and looks again with its own turn gate
   held, immediately before the write. A sibling that publishes nothing (no receiver hooks, or a wrapper
-  before 0.9.211) is unknown, never idle; for it the transcript check above is all there is.
+  before 0.9.211) is unknown, never idle; for it the transcript check above is all there is. Every hook of
+  a running turn confirms the marker (at most every 30 s). A `busy` no hook confirmed for 15 minutes is
+  unknown again: an interrupted turn fires no `Stop`, and one such session must not hold the scope for good.
 - **Commit and write are two steps (cxx 0.9.211).** A repair flag `.cxx-account-<server-hash>.repair` beside
   the binding file is set before the commit and cleared by the write, so it outlives the process and is
   seen by every wrapper of the scope. Whatever goes wrong in between ends the same way: a supervisor of the
@@ -2095,10 +2097,12 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   - A scope without a binding is not judged this way: the answer then is for the server's default
     account, and the previous `last_refresh` rule applies to it.
 - **Leaving an unusable account (cxx 0.9.211).** When the directive says `bound_account_usable: false` the
-  account being left is paused, removed or no longer verified, and its head can confirm nothing. The flush
-  then also passes when the server already knows the local file, accepted its upload, or refused it for
-  good (422, or 400 `validation_failed`). A conflict (409, including `account_removed`), 503 (including
-  `account_identity_unavailable`) or a network error still fails and is retried: the upload may yet succeed.
+  account being left is paused, being removed or no longer verified, and its head can confirm nothing. The
+  flush then also passes when the server already knows the local file, accepted its upload, or refused it
+  for good: 422, 400 `validation_failed`, or 409 `account_removed` (an account being removed takes no login
+  from a host without a lease on it, which is every host once the commit moved the scope). Any other
+  conflict, 503 (including `account_identity_unavailable`) or a network error still fails and is retried:
+  the upload may yet succeed.
   Against a server that does not send the field the flush stays strict.
 - `clx accounts use <id|auto>`, the agent tools `account_status` / `account_switch` (fleet Skill
   `#account-switch`) and the Accounts page request switches; Codex, Grok and Kimi report

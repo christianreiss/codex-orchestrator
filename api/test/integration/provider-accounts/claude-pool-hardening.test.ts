@@ -459,6 +459,10 @@ describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
       const answer = await post(runs.key, '/auth', { command: 'retrieve', session_id: session, account_id: b, digest: local.sha256, last_refresh: local.lastRefresh });
       expect(answer).toMatchObject({ status: 200, body: { status: 'outdated', account_id: b, presented_account_id: a } });
       expect(answer.body.auth.claudeAiOauth.accessToken).toContain('bob-1');
+      // What cxx 0.9.211 reads to recognise the answer and to write the head.
+      expect(answer.body.verification_state).toBe('verified');
+      expect(answer.body.canonical_digest).toMatch(/^[0-9a-f]{64}$/);
+      expect(answer.body.canonical_digest).not.toBe(local.sha256);
       // A login the server does not know is still asked for, as before.
       const unknown = await post(runs.key, '/auth', { command: 'retrieve', session_id: session, account_id: b, digest: 'f'.repeat(64), last_refresh: '2026-11-25T09:59:00Z' });
       expect(unknown.body).toMatchObject({ status: 'upload_required' });

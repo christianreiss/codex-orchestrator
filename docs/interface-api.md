@@ -2621,9 +2621,10 @@ binding file and ignores every answer below it).
 - Acquire, heartbeat and `/auth` responses carry `binding_generation` and `account_switch`
   `{account_id, account_label, binding_generation, reason, requested_at, bound_account_usable}` or null; a
   connected communicator additionally receives `{type: "account_switch", engine, scope_id}`.
-  `bound_account_usable: false` says the account being left is paused or not verified: the server no
+  `bound_account_usable: false` says the account being left is paused, being removed or not verified: the server no
   longer confirms its credentials, so the wrapper (cxx 0.9.211) switches without that confirmation as
-  long as the local login is one the server already holds, accepted on upload, or refused for good.
+  long as the local login is one the server already holds, accepted on upload, or refused for good
+  (including 409 `account_removed` for an account being removed).
   Older wrappers ignore the field and keep waiting for the confirmation.
 - A launch that joins a live scope takes that scope's account, also a paused or unverified one: the
   sessions share one credentials file. It is not bound elsewhere on its own; the policy moves the scope.

@@ -77,8 +77,8 @@ type accountSwitchDeps struct {
 	idle func() bool
 	// flush uploads any pending native rotation and returns the exact local
 	// generation the server has confirmed. relaxed: the account being left
-	// cannot confirm anything (paused, removed, unverified); it is enough
-	// that the server knows, accepted or definitively refused the local file.
+	// cannot confirm anything (paused, being removed, unverified); it is
+	// enough that the server knows, accepted or refused the local file for good.
 	flush  func(ctx context.Context, relaxed bool) (flushResult, error)
 	commit func(context.Context, accountpool.SwitchDirective) (*accountpool.LeaseResponse, error)
 	// report tells the server that a committed switch could not be written.

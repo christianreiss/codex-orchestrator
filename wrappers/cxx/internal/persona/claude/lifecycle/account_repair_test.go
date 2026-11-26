@@ -20,9 +20,9 @@ func boundHead(account int64) flushResult {
 	return flushResult{Bound: &accountpool.LeaseResponse{AccountID: account, Auth: json.RawMessage(`{}`), VerificationState: "verified"}}
 }
 
-// runSwitcherUntil runs the supervisor on one wake and stops it when stop
-// reports true or the deadline passes.
-func runSwitcherUntil(t *testing.T, r *switchRecorder, pool *fakeSwitchPool, stop func() bool) {
+// runSwitcherUntilRepaired runs the supervisor on one wake and stops it once
+// the repair flag was cleared or the deadline passes.
+func runSwitcherUntilRepaired(t *testing.T, r *switchRecorder, pool *fakeSwitchPool) {
 	t.Helper()
 	pool.wake = make(chan struct{}, 1)
 	pool.wake <- struct{}{}
@@ -30,22 +30,27 @@ func runSwitcherUntil(t *testing.T, r *switchRecorder, pool *fakeSwitchPool, sto
 	defer cancel()
 	finished := make(chan struct{})
 	deps := r.deps(pool)
-	go func() { runAccountSwitcher(ctx, deps); close(finished) }()
-	deadline := time.After(5 * time.Second)
-	for {
+	// The recorder belongs to the supervisor goroutine while it runs. Clearing
+	// the flag is the last thing a repair decides; whatever follows it in the
+	// same pass (resume, notice) is done when the goroutine has returned.
+	cleared := make(chan struct{}, 1)
+	clearRepair := deps.clearRepair
+	deps.clearRepair = func() {
+		clearRepair()
 		select {
-		case <-deadline:
-			cancel()
-			<-finished
-			t.Fatalf("supervisor did not get there: %v", r.steps)
-		case <-time.After(5 * time.Millisecond):
+		case cleared <- struct{}{}:
+		default:
 		}
-		pool.wake <- struct{}{}
-		if stop() {
-			cancel()
-			<-finished
-			return
-		}
+	}
+	go func() { runAccountSwitcher(ctx, deps); close(finished) }()
+	select {
+	case <-cleared:
+	case <-time.After(5 * time.Second):
+	}
+	cancel()
+	<-finished
+	if r.flag {
+		t.Fatalf("supervisor did not get there: %v", r.steps)
 	}
 }
 
@@ -82,7 +87,7 @@ func TestLostCommitAnswerIsRepeatedUntilTheCredentialsAreWritten(t *testing.T) {
 // write. Nothing is pending anywhere; only the flag and the server know.
 func TestKilledBetweenCommitAndWriteIsFinishedByTheNextSupervisor(t *testing.T) {
 	r := &switchRecorder{flag: true, flushSeq: []flushResult{boundHead(7)}}
-	runSwitcherUntil(t, r, &fakeSwitchPool{}, func() bool { return !r.flag })
+	runSwitcherUntilRepaired(t, r, &fakeSwitchPool{})
 	got := filterSteps(r.steps)
 	if !strings.HasPrefix(got, "heartbeat,flush,pause,write:ok,apply,resume,done") || strings.Contains(got, "commit") {
 		t.Fatalf("repair order: %s", got)
@@ -93,7 +98,7 @@ func TestKilledBetweenCommitAndWriteIsFinishedByTheNextSupervisor(t *testing.T) 
 // the credentials; then the check finds nothing to do and never pauses sync.
 func TestAdoptedSwitchIsCheckedAndLeftAloneWhenTheSiblingWrote(t *testing.T) {
 	r := &switchRecorder{flag: true}
-	runSwitcherUntil(t, r, &fakeSwitchPool{}, func() bool { return !r.flag })
+	runSwitcherUntilRepaired(t, r, &fakeSwitchPool{})
 	if got := filterSteps(r.steps); strings.Contains(got, "write") || strings.Contains(got, "pause") || strings.Contains(got, "done") || !strings.Contains(got, "flush") {
 		t.Fatalf("check order: %s", got)
 	}
@@ -105,7 +110,7 @@ func TestAdoptedSwitchIsWrittenWhenNoSiblingDid(t *testing.T) {
 	r := &switchRecorder{flag: true, flushSeq: []flushResult{boundHead(7)}, writeSeq: []string{"busy", "cas"}}
 	// After the CAS miss the server still reports the mismatch: write again.
 	r.flushSeq = append(r.flushSeq, boundHead(7))
-	runSwitcherUntil(t, r, &fakeSwitchPool{}, func() bool { return !r.flag })
+	runSwitcherUntilRepaired(t, r, &fakeSwitchPool{})
 	got := filterSteps(r.steps)
 	if !strings.Contains(got, "flush,pause,write:busy,write:cas,matches,flush,write:ok,apply,resume,done") {
 		t.Fatalf("order: %s", got)
@@ -263,7 +268,8 @@ func TestRelaxedFlushAcceptsOnlyWhatLeavesNothingToUpload(t *testing.T) {
 		{"rejected for good in the answer", SessionAuthSyncResult{Generation: local, Rejected: true}, ErrSessionAuthUnverified, true},
 		{"rejected for good by status", SessionAuthSyncResult{Generation: local}, rejected, true},
 		{"offered but not accepted", SessionAuthSyncResult{Generation: local}, ErrSessionAuthUnverified, false},
-		{"account removed", SessionAuthSyncResult{Generation: local}, &orchestrator.HTTPError{StatusCode: http.StatusConflict, Code: "account_removed"}, false},
+		{"account being removed takes no more logins", SessionAuthSyncResult{Generation: local}, &orchestrator.HTTPError{StatusCode: http.StatusConflict, Code: "account_removed"}, true},
+		{"another conflict", SessionAuthSyncResult{Generation: local}, &orchestrator.HTTPError{StatusCode: http.StatusConflict, Code: "account_assignment_required"}, false},
 		{"identity unavailable", SessionAuthSyncResult{Generation: local}, &orchestrator.HTTPError{StatusCode: http.StatusServiceUnavailable, Code: "account_identity_unavailable"}, false},
 		{"offline", SessionAuthSyncResult{Generation: local}, errors.New("dial tcp: timeout"), false},
 		{"native change in flight", SessionAuthSyncResult{Generation: local, ServerKnown: true, Deferred: true}, ErrSessionAuthUnverified, false},

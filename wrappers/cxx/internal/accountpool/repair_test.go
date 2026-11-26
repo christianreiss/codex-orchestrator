@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 type reserveClient struct {
@@ -161,6 +162,28 @@ func TestSessionMarkersPublishTheTurnOfEachLaunch(t *testing.T) {
 	sibling.SetSessionTurn(true, true)
 	if got := turns(); got != [2]bool{false, false} {
 		t.Fatalf("idle sibling: %v", got)
+	}
+	// A busy turn no hook confirmed for a long time (interrupted: no Stop
+	// ever came) is no evidence any more.
+	sibling.SetSessionTurn(false, true)
+	path := filepath.Join(sibling.markerDir(), sibling.SessionID+".json")
+	var stale sessionMarker
+	raw, _ := os.ReadFile(path)
+	if err := json.Unmarshal(raw, &stale); err != nil || stale.Turn != turnBusy || stale.TurnAt.IsZero() {
+		t.Fatalf("busy marker: %s %v", raw, err)
+	}
+	stale.TurnAt = stale.TurnAt.Add(-busyTurnFresh - time.Minute)
+	raw, _ = json.Marshal(stale)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := turns(); got != [2]bool{false, true} {
+		t.Fatalf("stale busy sibling: %v", got)
+	}
+	// The next hook of a turn that is in fact running confirms it again.
+	sibling.SetSessionTurn(false, true)
+	if got := turns(); got != [2]bool{true, false} {
+		t.Fatalf("confirmed busy sibling: %v", got)
 	}
 	// Evidence lost (the native session changed): back to unknown.
 	sibling.SetSessionTurn(false, false)

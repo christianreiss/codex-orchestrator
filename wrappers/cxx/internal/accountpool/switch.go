@@ -23,7 +23,7 @@ type SwitchDirective struct {
 	Reason            string `json:"reason"`
 	RequestedAt       string `json:"requested_at"`
 	// BoundAccountUsable is false when the account the scope leaves is paused,
-	// removed or no longer verified, so its head cannot confirm a flush. Nil
+	// being removed or no longer verified, so its head cannot confirm a flush. Nil
 	// (a server that does not say) means usable: the flush stays strict.
 	BoundAccountUsable *bool `json:"bound_account_usable,omitempty"`
 }
