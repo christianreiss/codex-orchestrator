@@ -601,7 +601,7 @@ pre-existing changes. When free, work in place. Read-only tasks create no worktr
 ${delivery}
 
 **Register, then join.** Report absolute checkout and common dir, branch, HEAD, origin and engine
-to \`git_register\`. Keep the parent binding for a linked child and claim its exact path and task branch.
+to \`git_register\`. Keep the parent binding for a linked child and claim its exact path (kind path) and task branch (kind git).
 Pass task, target branch and paths to \`git_join\`. Keep registration live with \`git_list(worktree_path: ...)\`.
 On \`git_director_worktree_ambiguous\`, re-register with correct clone facts. Respect peer paths and live leases.
 

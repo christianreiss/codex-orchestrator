@@ -622,6 +622,31 @@ describe('Git Director feedback sweep (registration state, remotes, nesting, lis
     },
   );
 
+  it('names the separate path claim when only a git claim carries the linked worktree path (caae5bf8)', async () => {
+    const h = setup();
+    await withWorkspace(h);
+    await as(h, () => h.git.register(base, h.host));
+    const child = { ...base, worktree_path: '/repo-task', repo_root: '/repo-task', branch: 'task/x' };
+    const register = () => as(h, () => h.git.register(child, h.host));
+    // The reporter's single claim: git identity plus the redundant path field.
+    await h.service.claims.acquire(h.sessionId, h.token, {
+      client_request_id: randomUUID(),
+      purpose: 'isolated native child',
+      resources: [{ kind: 'git', host_id: 1, common_dir: child.clone_dir, branch: child.branch, path: child.worktree_path }],
+    });
+    // A git resource's path excludes nothing, so it must not stand in for the path claim.
+    const refusal = await register().catch((error: unknown) => error);
+    expect(refusal).toMatchObject({ code: 'git_director_owner_required', extra: { mismatch_fields: ['worktree_path'] } });
+    expect((refusal as Error).message).toContain('{kind:"path", path:<exact worktree path>}');
+    expect((refusal as Error).message).toContain('The optional path of a git resource is not a path claim.');
+    await h.service.claims.acquire(h.sessionId, h.token, {
+      client_request_id: randomUUID(),
+      purpose: 'isolated native child path',
+      resources: [{ kind: 'path', host_id: 1, path: child.worktree_path }],
+    });
+    await expect(register()).resolves.toMatchObject({ registered: true, agent_address_bound: true });
+  });
+
   it('filters git_list by remote_url and clone_dir (ee7397de)', async () => {
     const h = setup();
     await withWorkspace(h);
