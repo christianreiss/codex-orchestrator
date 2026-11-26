@@ -15,6 +15,7 @@ import { emulationBlocks } from './quota-emulation.js';
 import { ProviderAccountsService } from './provider-accounts.js';
 import { SettingsService } from './settings.js';
 import {
+  LIVE_SWITCH_ENGINES,
   poolHeadroomTarget,
   poolRecommendation,
   readAccountPolicy,
@@ -27,8 +28,7 @@ import {
 type Lease = typeof providerAccountSessions.$inferSelect;
 export type SwitchReason = 'policy' | 'admin' | 'host' | 'agent';
 
-/** Engines whose wrapper can adopt another account inside a running session. */
-export const LIVE_SWITCH_ENGINES: ReadonlySet<Engine> = new Set<Engine>(['claude']);
+export { LIVE_SWITCH_ENGINES };
 
 export interface SwitchDirective {
   account_id: number;
@@ -62,6 +62,8 @@ export interface PoolAccount {
   unlimited: boolean;
   active_sessions: number;
   last_selected_at: string | null;
+  /** The provider refused a turn with its usage limit: full until then (absent or null: not marked). */
+  exhausted_until?: string | null;
 }
 
 /**
@@ -84,7 +86,7 @@ export function accountSwitchNoticeContent(engine: Engine, from: PoolAccount | u
 
 /** Where one listed account stands in its engine's pool (`/admin/accounts` `pool`). */
 export interface PoolPosition {
-  /** max(short, weekly) used percent; a passed reset is no reading, unlimited is 0, an emulated block is 100. */
+  /** max(short, weekly) used percent; a passed reset is no reading, unlimited is 0, an emulated block or a provider refusal is 100. */
   score: number | null;
   /** The short and weekly window as scored (null without a current reading), for pool averages. */
   short: number | null;
@@ -92,6 +94,8 @@ export interface PoolPosition {
   /** Enabled and verified: the account can take new work and live switches. */
   usable: boolean;
   emulation_blocked: boolean;
+  /** Until when the provider's own usage-limit refusal holds (null: not marked). */
+  exhausted_until: string | null;
 }
 
 /** The fields of a `ProviderAccountsService.list()` row that decide its pool position. */
@@ -101,6 +105,8 @@ export interface PoolPositionInput {
   usage: object;
   quota_policy?: { unlimited?: boolean } | null;
   quota_snapshot?: { short?: Parameters<typeof emulationBlocks>[0] } | null;
+  /** The account's exhaustion marker (`quota-exhaustion.ts`), when one is on record. */
+  quota_exhausted?: { until: string } | null;
 }
 
 /**
@@ -118,12 +124,17 @@ export function poolPosition(account: PoolPositionInput, now: number): PoolPosit
   const short = quotaWindowScore(num(usage.short_used_percent), str(usage.short_resets_at), now);
   const weekly = quotaWindowScore(num(usage.weekly_used_percent), str(usage.weekly_resets_at), now);
   const scores = [short, weekly].filter((x): x is number => x !== null);
+  // The provider refused a turn on this account with its usage limit. That
+  // outranks every reading, which only repeats the last successful response.
+  const until = account.quota_exhausted?.until;
+  const exhausted = !unlimited && !!until && Date.parse(until) > now;
   return {
-    score: unlimited ? 0 : blocked ? 100 : scores.length ? Math.max(...scores) : null,
+    score: unlimited ? 0 : blocked || exhausted ? 100 : scores.length ? Math.max(...scores) : null,
     short,
     weekly,
     usable: account.state === 'enabled' && account.verification_state === 'verified',
     emulation_blocked: blocked,
+    exhausted_until: exhausted ? until : null,
   };
 }
 
@@ -274,6 +285,7 @@ export class AccountSwitchService {
           unlimited: a.quota_policy?.unlimited === true,
           active_sessions: a.sessions.length,
           last_selected_at: a.last_selected_at,
+          exhausted_until: position.exhausted_until,
         };
       });
   }

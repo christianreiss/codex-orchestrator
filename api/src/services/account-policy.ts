@@ -49,6 +49,9 @@ export const DEFAULT_ACCOUNT_POLICY: StoredAccountPolicy = {
 
 export const accountPolicyKey = (engine: Engine) => `account_policy_${engine}`;
 
+/** Engines whose wrapper can adopt another account inside a running session. */
+export const LIVE_SWITCH_ENGINES: ReadonlySet<Engine> = new Set<Engine>(['claude']);
+
 function withPoints(policy: StoredAccountPolicy): AccountPolicy {
   return { ...policy, spread_points: SPREAD_POINTS[policy.spread] };
 }

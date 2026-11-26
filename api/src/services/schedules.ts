@@ -1,7 +1,7 @@
 import { ownedCredentialDeadline } from '../control-plane/credentials.js';
 import { ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { tickOwnedSchedules, sweepOwnedSchedules, mutateOwnedSchedule, scheduleInputFrom } from './schedules/owner.js';
-import { quotaSnapshot, quotaResumeGate } from './quota-observation.js';
+import { quotaRecoveryGate, type QuotaGate } from './quota-pool.js';
 import { stopWatchdogLocked } from './watchdog-lifecycle.js';
 import { assertNoRebootRecovery } from './reboot-handoffs.js';
 import { recoveryDelaySeconds } from './schedules/recovery.js';
@@ -31,7 +31,7 @@ import { ConflictError, NotFoundError, ForbiddenError, ValidationError } from '.
 import { ENGINE_DISABLED_FLAGS, readFleetEngineState } from './engine-switch.js';
 import { isTruthyFlagValue } from './settings.js';
 import { activeHostEngines } from './host-engine-policy.js';
-import { isEngine } from '../util/engine.js';
+import { isEngine, type Engine } from '../util/engine.js';
 import { messagingHostEligible } from './agent-messaging/eligibility.js';
 import { SERVER_ADDRESS_ID } from './agent-messaging/groups.js';
 import { newQueuedMessage } from './agent-messaging/views.js';
@@ -489,18 +489,19 @@ export class SchedulesService {
         native_session_id: watchdog.nativeSessionId } : run.quotaRecovery;
       if (!q) return true;
       const [target] = await tx.select().from(agentBusAddresses).where(eq(agentBusAddresses.id, run.targetAddressId));
-      const snapshot = target && isEngine(target.engine) ? await quotaSnapshot(tx, q.account_id, target.engine, now.getTime()) : null;
-      const gate = target?.lastUpstreamSessionId === q.native_session_id && target.continuity === 'native'
-        ? quotaResumeGate(snapshot, q.window, q.reset_at, q.attempts, q.attempt_at, now.getTime())
-        : { stop: 'quota_native_session_changed' };
+      const [session] = target?.currentSessionId ? await tx.select().from(agentSessions).where(eq(agentSessions.id, target.currentSessionId)) : [];
+      // Shared with the owner runtime: the pool decides where a recovery may go on.
+      const gate: QuotaGate = target && !isEngine(target.engine)
+        ? { stop: 'quota_policy_disabled' }
+        : await quotaRecoveryGate(this.db, { engine: (target?.engine ?? 'codex') as Engine, quota: q, target, session: session ?? null, now: now.getTime() });
       if ('stop' in gate) {
-        if (watchdog) await stopWatchdogLocked(tx, watchdog, 'blocked', gate.stop!, timestamp);
+        if (watchdog) await stopWatchdogLocked(tx, watchdog, 'blocked', gate.stop, timestamp);
         await set({ status: 'blocked', lastError: gate.stop });
         wsPublisher.publish('watchdogs.changed', { id: watchdog?.id ?? null, reason: gate.stop });
         return false;
       }
       if ('wait_until' in gate) {
-        await set({ status: 'capacity_wait', nextAttemptAt: gate.wait_until, lastError: 'quota_wait' });
+        await set({ status: 'capacity_wait', nextAttemptAt: gate.wait_until, lastError: gate.reason });
         return false;
       }
       if (watchdog) await tx.update(agentWatchdogs).set({ quotaAttempts: q.attempts + 1, quotaAttemptAt: timestamp, updatedAt: timestamp }).where(eq(agentWatchdogs.id, watchdog.id));

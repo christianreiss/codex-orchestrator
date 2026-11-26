@@ -38,7 +38,20 @@ import { isEngine } from '../util/engine.js';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../http/errors.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { createAdminEventsService } from './admin-events.js';
-import { WATCHDOG_LIVE, watchdogRetryTime, stopWatchdogLocked } from './watchdog-lifecycle.js';
+import {
+  WATCHDOG_LIVE,
+  watchdogRetryTime,
+  stopWatchdogLocked,
+  quotaSwitchWatchdog,
+  QUOTA_SWITCH_TASK,
+  QUOTA_SWITCH_CONTINUATION,
+  QUOTA_SWITCH_FIRST_CHECK_MS,
+} from './watchdog-lifecycle.js';
+import { exhaustionInterruption, recordQuotaExhaustion, type QuotaExhaustion } from './quota-exhaustion.js';
+import { poolContinuePossible, poolRecoveryApplies } from './quota-pool.js';
+import { AccountSwitchService } from './account-switch.js';
+import { receiverState } from './agent-receiver-state.js';
+import { daemonResidentFor } from './host-daemon/policy.js';
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
 type Watchdog = typeof agentWatchdogs.$inferSelect;
@@ -375,7 +388,11 @@ export class WatchdogsService {
         stageUpdate(context, 'agentSchedules', old.scheduleId, { promptEnc: encrypt(this.continuation(id, v.task_key, v.continuation), this.keyring), progressTimeoutSeconds: v.progress_timeout_seconds, updatedAt: now });
         adminAudit(context, 'watchdog.enabled', { watchdog_id: id, actor }, now); return null;
       }
-      if (rows.some(row => WATCHDOG_LIVE.includes(row.status))) throw new ConflictError('Agent already has an active watchdog', 'watchdog_already_active');
+      const active = rows.filter(row => WATCHDOG_LIVE.includes(row.status));
+      // An agent that arms its own watchdog has moved on from the failed turn;
+      // a continuation still waiting for it gives way.
+      if (active.some(row => !quotaSwitchWatchdog(row) || v.task_key.startsWith(QUOTA_SWITCH_TASK))) throw new ConflictError('Agent already has an active watchdog', 'watchdog_already_active');
+      for (const row of active) stageStopWatchdog(context, row, 'disabled', 'quota_continue_superseded', now);
       const message = context.draft.table('agentBusMessages').by('targetAddressId', target.id).filter(row => row.deliverySessionId === session.id && row.status === 'accepted').sort((a,b) => (b.acceptedAt ?? '').localeCompare(a.acceptedAt ?? ''))[0];
       id = randomUUID(); const scheduleId = randomUUID();
       const schedule = { id: scheduleId, name: `Watchdog ${v.task_key}`.slice(0,120), targetAddressId: target.id, promptEnc: encrypt(this.continuation(id, v.task_key, v.continuation), this.keyring), kind: 'once', timezone: 'Europe/Berlin', persistent: 1, enabled: 1, progressTimeoutSeconds: v.progress_timeout_seconds, maxRecoveryAttempts: null, nextDueAt: null, atTime: null, cronExpression: null, intervalMinutes: null, pauseReason: null, deletedAt: null, version: 1, createdBy: actor, updatedBy: actor, createdAt: now, updatedAt: now };
@@ -386,6 +403,9 @@ export class WatchdogsService {
     await this.changed(id, 'enabled', actor); return this.get(id);
   }
   private continuation(id: string, task: string, content: string) {
+    // The continuation on another account ends with its own delivery: there is
+    // no watchdog left for the agent to finish.
+    if (task.startsWith(QUOTA_SWITCH_TASK)) return content;
     return `Watchdog recovery for task ${task}. Continue only the existing authorized task. When the task ends, call watchdog_finish with id ${id} and its current version.\n${content}`;
   }
   private async changed(id: string, action: string, actor: string) {
@@ -503,10 +523,30 @@ export class WatchdogsService {
     const session = await this.bridge(sessionId, token),
       now = new Date().toISOString();
     if (v.native_session_id && v.native_session_id !== session.upstreamSessionId) return { ignored: true };
-    if (ownerRuntimeFor(this.db)) return this.activityOwned(sessionId, token, v);
+    // The provider refused the turn with its usage limit: that is the account
+    // being exhausted, whatever the last reading said. Recorded first, so the
+    // pool moves the scope and the recovery below sees the pool as it is now.
+    let exhausted: QuotaExhaustion | null = null;
+    if (v.failure === 'capacity' && v.quota_limit === true && session.providerAccountId) {
+      try {
+        exhausted = await recordQuotaExhaustion(this.db, { engine: session.engine as Engine, accountId: session.providerAccountId,
+          hostId: session.hostId, sessionId, retryNotBefore: v.retry_not_before });
+        if (exhausted) await new AccountSwitchService(this.db, this.keyring).evaluate(session.engine as Engine);
+      } catch {
+        // The failure report itself must still reach the watchdog; the policy
+        // worker evaluates the pool again within a minute.
+      }
+    }
+    if (ownerRuntimeFor(this.db)) return this.activityOwned(sessionId, token, v, exhausted);
     if (v.failure === 'capacity' && session.providerAccountId && session.upstreamSessionId) {
       const snapshot = await quotaSnapshot(this.db, session.providerAccountId, session.engine as Engine);
       const interruption = quotaInterruption(snapshot, v.quota_limit === true, v.retry_not_before);
+      // Where the pool decides the recovery, the reset of this one account is
+      // no time to wait for: the first check comes soon and the gate
+      // (`quotaRecoveryGate`) produces whatever wait the pool needs. Arming a
+      // recovery on the refusal alone is the owner runtime's (`activityOwned`).
+      const pooled = !!(interruption || exhausted) && await poolRecoveryApplies(this.db, session.engine as Engine, session.providerAccountId);
+      if (pooled) v.retry_not_before = undefined;
       if (interruption) {
         let current = await this.forSession(sessionId);
         // A scheduled delivery already owns an exact-session execution lane. Attach
@@ -539,7 +579,7 @@ export class WatchdogsService {
             ...(current.created_by.startsWith('quota:') && interruption.reset_at ? { deadlineAt: new Date(Math.max(Date.now() + 604800000, Date.parse(interruption.reset_at) + 86400000)).toISOString() } : {}),
           }).where(eq(agentWatchdogs.id, current.id));
           // One durable wake, fenced by the existing native-session recovery executor.
-          if (interruption.reset_at) v.retry_not_before = interruption.retry_at;
+          if (interruption.reset_at && !pooled) v.retry_not_before = interruption.retry_at;
         }
       }
     }
@@ -595,10 +635,43 @@ export class WatchdogsService {
     });
     return this.snapshot(sessionId, token);
   }
-  private async activityOwned(sessionId: string, token: string, v: { last_progress_at: string; failure?: 'capacity'|'crash'|'hang'|'user_stop'|'blocked'; retry_not_before?: string; quota_limit?: boolean; termination_unconfirmed?:boolean }) {
+  private async activityOwned(sessionId: string, token: string, v: { last_progress_at: string; failure?: 'capacity'|'crash'|'hang'|'user_stop'|'blocked'; retry_not_before?: string; quota_limit?: boolean; termination_unconfirmed?:boolean }, exhausted: QuotaExhaustion | null = null) {
     const owner = ownerRuntimeFor(this.db)!, session = await this.bridge(sessionId, token);
-    const quota = v.failure === 'capacity' && session.providerAccountId && session.upstreamSessionId ? quotaInterruption(await quotaSnapshot(this.db, session.providerAccountId, session.engine as Engine), v.quota_limit === true, v.retry_not_before) : null;
-    if (quota && session.providerAccountId && session.upstreamSessionId) {
+    const reading = v.failure === 'capacity' && session.providerAccountId && session.upstreamSessionId ? await quotaSnapshot(this.db, session.providerAccountId, session.engine as Engine) : null;
+    // A fresh reading of 100 %, or the provider's own refusal with a known
+    // window. The refusal alone arms a reset recovery only where one can run to
+    // its end: that recovery terminates the session, and only a resident daemon
+    // resumes it. Elsewhere the session stays as it is, as before the refusal
+    // was recorded.
+    const address = session.agentBusAddressId ? owner.state.snapshot().addresses.get(session.agentBusAddressId) : undefined;
+    const daemon = owner.state.snapshot().table('hostDaemons').get(session.hostId);
+    const resident = !!address && !!daemon && daemonResidentFor(daemon.settings, address.username);
+    const quota = reading ? quotaInterruption(reading, v.quota_limit === true, v.retry_not_before) ?? (resident ? exhaustionInterruption(exhausted, reading) : null) : null;
+    // Where the pool decides the recovery, the reset of this one account is no
+    // time to wait for: the first check comes soon and the gate
+    // (`quotaRecoveryGate`) produces whatever wait the pool needs.
+    const pooled = !!(quota || exhausted) && !!session.providerAccountId && await poolRecoveryApplies(this.db, session.engine as Engine, session.providerAccountId);
+    // A turn the provider's quota ended can go on at once where the pool has
+    // room: the session stays, its scope switches at this turn boundary, and one
+    // continuation follows the switch. That is the account policy's decision
+    // (`auto`); only a wait for a reset needs the quota policy's auto-resume.
+    let continues = false;
+    if ((quota || exhausted) && session.providerAccountId && session.upstreamSessionId && session.agentBusAddressId && session.invocationKind !== 'peer_delivery') {
+      const state = owner.state.snapshot(), receiver = receiverState(session.receiver);
+      const live = state.table('agentWatchdogs').by('targetAddressId', session.agentBusAddressId).some(row => WATCHDOG_LIVE.includes(row.status));
+      const pending = state.table('agentScheduleRuns').by('targetAddressId', session.agentBusAddressId).some(row => row.persistent && ['waiting','queued','leased','accepted','recovering','capacity_wait'].includes(row.status));
+      if (!live && !pending && receiver && !receiver.failure && receiver.probes.peer && await poolContinuePossible(this.db, session.engine as Engine, session.providerAccountId)) {
+        try {
+          await this.enable({ target: `agent:${session.agentBusAddressId}`, task_key: `${QUOTA_SWITCH_TASK}${session.upstreamSessionId}:${Date.now()}`, continuation: QUOTA_SWITCH_CONTINUATION, duration_seconds: 7200, progress_timeout_seconds: 600 }, `quota:${sessionId}`, sessionId);
+          continues = true;
+        } catch (error) {
+          // A session that cannot carry a watchdog (an older wrapper, a binding
+          // that just changed) keeps the recovery it had before.
+          if (!(error instanceof ConflictError || error instanceof ForbiddenError || error instanceof ValidationError)) throw error;
+        }
+      }
+    }
+    if (!continues && quota && session.providerAccountId && session.upstreamSessionId) {
       const state = owner.state.snapshot();
       const current = await this.forSession(sessionId);
       const message = !current ? state.table('agentBusMessages').by('deliverySessionId', sessionId).filter(row => row.targetAddressId === session.agentBusAddressId).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0] : undefined;
@@ -612,6 +685,17 @@ export class WatchdogsService {
       const live = await this.bridge(sessionId, token);
       if(v.failure && ['capacity','crash','hang'].includes(v.failure))stageSupervisorArm(context,context.draft.table('agentSessions').get(sessionId)!,this.keyring,now);
       const row = context.draft.table('agentWatchdogs').by('targetAddressId', live.agentBusAddressId!).find(row => row.nativeSessionId === live.upstreamSessionId && WATCHDOG_LIVE.includes(row.status));
+      if (row && quotaSwitchWatchdog(row)) {
+        // Neither terminated nor timed: it looks shortly whether the scope has
+        // moved, and further failure reports of the same turn change nothing.
+        if (row.status === 'watching' && v.failure === 'capacity' && live.providerAccountId) {
+          const at = new Date(Date.parse(now) + QUOTA_SWITCH_FIRST_CHECK_MS).toISOString();
+          stageUpdate(context, 'agentWatchdogs', row.id, { quotaAccountId: live.providerAccountId, quotaWindow: exhausted?.window ?? quota?.kind ?? null,
+            quotaResetAt: exhausted?.until ?? quota?.reset_at ?? null, status: 'capacity_wait', lastError: 'quota_switch', updatedAt: now });
+          stageUpdate(context, 'agentSchedules', row.scheduleId, { atTime: at, nextDueAt: at, updatedAt: now });
+        } else if (v.failure === 'blocked' || v.failure === 'user_stop') stageStopWatchdog(context, row, v.failure === 'blocked' ? 'blocked' : 'disabled', v.failure === 'blocked' ? 'provider_error' : 'user_stop', now);
+        return null;
+      }
       if (quota && live.providerAccountId && live.upstreamSessionId) {
         const message = !row ? context.draft.table('agentBusMessages').by('deliverySessionId', sessionId).filter(item => item.targetAddressId === live.agentBusAddressId).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0] : undefined;
         const run = message ? context.draft.table('agentScheduleRuns').by('messageId', message.id).find(item => item.persistent && ['queued','leased','accepted','recovering','capacity_wait'].includes(item.status)) : undefined;
@@ -631,7 +715,7 @@ export class WatchdogsService {
             stageUpdate(context,'agentWatchdogs',row.id,{deadlineAt});
           }
         }
-        const at = watchdogRetryTime(new Date(now), quota?.reset_at ? quota.retry_at : v.retry_not_before);
+        const at = watchdogRetryTime(new Date(now), pooled ? undefined : quota?.reset_at ? quota.retry_at : v.retry_not_before);
         stageUpdate(context, 'agentWatchdogs', row.id, { status: v.failure === 'capacity' ? 'capacity_wait' : 'recovering', lastError: v.failure, updatedAt: now });
         stageUpdate(context, 'agentSchedules', row.scheduleId, { atTime: at, nextDueAt: at, updatedAt: now });
       }

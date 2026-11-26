@@ -13,6 +13,8 @@ import { recordAuthCall, flushAuthCalls, uninstallOwnedHost } from './owner.js';
 import { readQuotaPolicy } from '../../services/quota-policy.js';
 import { ProviderAccountsService } from '../../services/provider-accounts.js';
 import { AccountSwitchService, LIVE_SWITCH_ENGINES, accountSwitchNoticeContent } from '../../services/account-switch.js';
+import { quotaContinuationPending } from '../../services/watchdog-lifecycle.js';
+import { reconcileQuotaExhaustion } from '../../services/quota-exhaustion.js';
 import { AgentMessagingService } from '../../services/agent-messaging.js';
 import { quotaNoticeId } from '../../ops/quota-worker.js';
 import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
@@ -544,7 +546,11 @@ if (engine === ENGINE_KIMI) {
       await switches
         .reportUnfinishedWrite(host.id, engine, scopeId, committed.account_id, committed.binding_generation)
         .catch((err) => req.log.warn({ err }, 'unfinished account switch write not recorded'));
-    if (committed.moved_addresses.length) {
+    // A session that waits to continue a quota-failed turn learns of its new
+    // account from that continuation; every other moved session gets the notice.
+    const continuing = await quotaContinuationPending(ctx.db, committed.moved_addresses).catch(() => new Set<string>());
+    const noticed = committed.moved_addresses.filter((address) => !continuing.has(address));
+    if (noticed.length) {
       // Best effort: the switch is committed; a failed notice must not undo it.
       try {
         const pool = await switches.pool(engine);
@@ -555,7 +561,7 @@ if (engine === ENGINE_KIMI) {
           committed.reason,
         );
         const noticeId = quotaNoticeId(`account-switch:${host.id}:${engine}:${opaqueId(payload.scope_id, 'scope_id')}:${committed.binding_generation}`);
-        await new AgentMessagingService(ctx.db, ctx.env, ctx.keyring).noticeAddresses(committed.moved_addresses, content, noticeId);
+        await new AgentMessagingService(ctx.db, ctx.env, ctx.keyring).noticeAddresses(noticed, content, noticeId);
       } catch (err) {
         req.log.warn({ err }, 'account switch notice failed');
       }
@@ -773,6 +779,19 @@ if (engine === ENGINE_KIMI) {
       sevenDayUsedPercent: sevenDay?.usedPercent ?? null,
       sevenDayResetsAt: sevenDay?.resetsAt ?? null,
     });
+    // A reading of a new window ends the account's exhaustion marker; the same
+    // or a lower figure of the old one never does.
+    const renewed =
+      row && accountId !== undefined
+        ? await reconcileQuotaExhaustion(ctx.db, ENGINE_CLAUDE, accountId, {
+            short_resets_at: row.fiveHourResetsAt ?? null,
+            long_resets_at: row.sevenDayResetsAt ?? null,
+          }).catch((err) => {
+            app.log.warn({ err }, 'quota exhaustion marker not reconciled');
+            return false;
+          })
+        : false;
+    if (renewed) void switches.evaluate(ENGINE_CLAUDE).catch((err) => app.log.warn({ err }, 'account policy evaluation failed'));
     if (row && row.id !== previous?.id) {
       wsPublisher.publish('claude.usage.updated', { fetched_at: row.fetchedAt });
       // A fresh reading may move a scope under the automatic policy.

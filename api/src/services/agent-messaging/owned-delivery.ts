@@ -25,6 +25,7 @@ import { stageQueuedMessage } from '../../control-plane/state/messages.js';
 import { ownedAddress, requireOwnedMessaging } from '../../control-plane/state/messaging.js';
 import { assertOwnedHousekeeping } from '../../control-plane/state/session-lifecycle.js';
 import { quotaRecoveryAllowed } from '../quota-observation.js';
+import { quotaSwitchWatchdog } from '../watchdog-lifecycle.js';
 import { daemonAccepting } from '../host-daemon/policy.js';
 import { receiverState } from '../agent-receiver-state.js';
 import { ownedReceiverReady } from '../../control-plane/streams/receiver.js';
@@ -390,6 +391,7 @@ export async function assertOwnedScheduleAcceptance(
     : run?.quotaRecovery;
   if (
     quota &&
+    !(watchdog && quotaSwitchWatchdog(watchdog)) &&
     target &&
     isEngine(target.engine) &&
     !(await quotaRecoveryAllowed(db, target.engine, quota.account_id, quota.window))

@@ -16,6 +16,7 @@ import { ConflictError, NotFoundError, ServiceUnavailableError } from '../../htt
 import { quotaWindowScore } from '../../services/account-selection.js';
 import { accountPolicyKey, parseStoredPolicy, selectForLaunch } from '../../services/account-policy.js';
 import { DEFAULT_QUOTA_POLICY, quotaPolicySchema } from '../../services/quota-policy.js';
+import { ownedQuotaExhaustion } from '../../services/quota-exhaustion.js';
 import type { Engine } from '../../util/engine.js';
 import type { Json } from '../commands.js';
 
@@ -168,6 +169,9 @@ function position(s: OwnerStateSnapshot, engine: Engine, id: number): { score: n
   if (unlimited(s, engine, id)) return { score: 0, weeklyResetsAt: null };
   const now = Date.now();
   if (engine === 'grok') return { score: null, weeklyResetsAt: null }; // Grok usage is display-only, as in existing selection.
+  // The provider refused a turn on this account with its usage limit: a new
+  // launch goes elsewhere while any other account has room.
+  const exhausted = !!ownedQuotaExhaustion(s, id, now);
   let values: Array<number | null>;
   let weeklyResetsAt: string | null;
   if (engine === 'kimi') {
@@ -198,7 +202,7 @@ function position(s: OwnerStateSnapshot, engine: Engine, id: number): { score: n
     weeklyResetsAt = weekly?.reset ?? null;
   }
   const present = values.filter((x): x is number => x !== null);
-  return { score: present.length ? Math.max(...present) : null, weeklyResetsAt };
+  return { score: exhausted ? 100 : present.length ? Math.max(...present) : null, weeklyResetsAt };
 }
 export async function acquireOwnedProvider(
   owner: OwnerRuntime,

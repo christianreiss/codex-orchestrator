@@ -4,6 +4,7 @@ import { stageStopWatchdog } from '../../control-plane/state/session-lifecycle.j
 import type { OwnerStateSnapshot } from '../../control-plane/state/store.js';
 import type { StateRow } from '../../control-plane/state/catalog.js';
 import { quotaRecoveryAllowed } from '../quota-observation.js';
+import { quotaSwitchWatchdog } from '../watchdog-lifecycle.js';
 import { messagingHostEligible } from '../agent-messaging/eligibility.js';
 import { activeHostEngines } from '../host-engine-policy.js';
 import { readFleetEngineState } from '../engine-switch.js';
@@ -35,8 +36,11 @@ export async function tickOwnedWatchdogs(db: Database, now = new Date()) {
       state.table('versions').get('agent_messaging_enabled')?.version !== '1'
     )
       return { status: 'blocked', reason: 'target_unavailable' };
+    // A continuation on another account is the account policy's decision; the
+    // quota policy's auto-resume switches apply once it has to wait for a reset.
     if (
       row.quotaAccountId &&
+      !quotaSwitchWatchdog(row) &&
       !(await quotaRecoveryAllowed(db, target.engine, row.quotaAccountId, row.quotaWindow))
     )
       return { status: 'blocked', reason: 'quota_policy_disabled' };

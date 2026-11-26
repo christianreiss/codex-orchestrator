@@ -4,6 +4,7 @@ import {persistAuditLog} from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
 import { ownedAccount, ownedProviderSession, acquireOwnedProvider, releaseOwnedProvider, drainOwnedProviders, freshBindingGeneration, noteProviderRenewal } from '../control-plane/streams/provider-leases.js';
 import { readQuotaPolicy } from './quota-policy.js';
+import { readQuotaExhaustion } from './quota-exhaustion.js';
 import { createHash } from 'node:crypto';
 import { and, asc, count, desc, eq, gt, inArray, isNotNull, lte } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
@@ -539,6 +540,7 @@ export class ProviderAccountsService {
             usage,
             quota_snapshot: await quotaSnapshot(this.db, a.id, a.engine as Engine),
             quota_policy: (await readQuotaPolicy(this.db, a.engine as Engine, a.id)).effective,
+            quota_exhausted: await readQuotaExhaustion(this.db, a.id),
             plan,
             sessions: sessions
               .filter((s) => s.accountId === a.id)
@@ -675,13 +677,15 @@ export class ProviderAccountsService {
           if (row?.verificationState !== 'verified') continue;
           const usage = await this.usage(a.id, engine, tx);
           const unlimited = (await readQuotaPolicy(tx, engine, a.id)).effective.unlimited;
+          // The provider's own refusal outranks the readings: nothing new lands there.
+          const exhausted = !unlimited && !!(await readQuotaExhaustion(tx, a.id));
           const scores = [
             quotaWindowScore(usage.short_used_percent, usage.short_resets_at, Date.now()),
             quotaWindowScore(usage.weekly_used_percent, usage.weekly_resets_at, Date.now()),
           ].filter((x): x is number => x !== null);
           candidates.push({
             id: a.id,
-            score: unlimited ? 0 : scores.length ? Math.max(...scores) : null,
+            score: unlimited ? 0 : exhausted ? 100 : scores.length ? Math.max(...scores) : null,
             active: sessions.filter((s) => s.accountId === a.id).length,
             lastSelectedAt: a.lastSelectedAt,
             // Unlimited quota never expires, so it has no reset to race.

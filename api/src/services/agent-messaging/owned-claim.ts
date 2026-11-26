@@ -2,6 +2,8 @@ import { connectorMessageAllowed } from '../connectors/work.js';
 import { ownedEmulation, assertEmulationAdmission } from '../quota-emulation.js';
 import { isEngine } from '../../util/engine.js';
 import { ownedClaudeTurnBusy } from '../../control-plane/state/receiver-turn-proof.js';
+import { stageStopWatchdog } from '../../control-plane/state/session-lifecycle.js';
+import { quotaContinueFence, quotaSwitchWatchdog } from '../watchdog-lifecycle.js';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { agentBusMessages } from '../../db/schema.js';
@@ -394,6 +396,16 @@ export async function claimOwnedDelivery(
             } catch (error) {
               if (error instanceof ConflictError) continue;
               throw error;
+            }
+            if (watchdog && quotaSwitchWatchdog(watchdog) && !options.skipReceiveCapable) {
+              // The continuation was queued while the failed turn was the
+              // newest activity. A turn that began since ends it unsent.
+              const fence = quotaContinueFence(snapshot.sessions.get(options.leaseOwner.slice(8)), watchdog.createdAt);
+              if (fence === 'superseded') {
+                stageStopWatchdog(ctx, watchdog, 'disabled', 'quota_continue_superseded', now);
+                continue;
+              }
+              if (fence === 'busy') continue;
             }
           }
           const remote = snapshot.table('hostDaemonSessions').by('addressId', target.id)[0];
