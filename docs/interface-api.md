@@ -2536,7 +2536,8 @@ Selection runs once per native CLI launch. It prefers verified enabled accounts 
 
 Since cxx 0.9.207, Claude accounts carry a provider identity. On every Claude
 credential store the server asks Anthropic who the token belongs to (`GET https://api.anthropic.com/api/oauth/profile`,
-bearer = the uploaded OAuth access token, 5 s timeout, cached per access token for 6 h, failures for 60 s).
+bearer = the uploaded OAuth access token, 5 s timeout; cached per access token: an identity for 6 h, a
+refusal (401/403) or a rate limit (429) for 60 s, any other failure for 10 s).
 This is the only call the server makes to Anthropic with a subscription token; it never refreshes and
 never runs inference with one. The identity is `claude:<account_uuid>:<organization_uuid>` (stored as a
 hash in `identity_key`); a default label becomes the account e-mail.
@@ -2550,7 +2551,25 @@ hash in `identity_key`); a default label becomes the account e-mail.
   `enroll: true` (no `session_id`/`account_id`) for an explicit enrollment from `clx accounts add`.
 - An operator replacement (`POST /admin/accounts/:id/credentials`) with another subscription returns
   409 `account_identity_mismatch`.
-- When Anthropic cannot identify a token (offline, non-OAuth credential) the previous lineage rules apply.
+- A non-OAuth credential (API key) is never looked up; the lineage rules above apply to it.
+- An OAuth token Anthropic does not name is **unresolved**: the lookup was refused (401/403: expired or
+  revoked access token) or failed (timeout, network, 429, 5xx, unexpected profile shape). The uploading
+  session's lease and the host's saved account are never taken as proof of ownership:
+  - The exact access or refresh token is already stored under an account: a host upload is filed there
+    (also when the session is bound to another account); an operator replacement naming another account
+    stays 409 `account_identity_mismatch`.
+  - Otherwise, with more than one non-removed account, for `enroll: true` / `POST /admin/accounts`, and for
+    `POST /admin/accounts/:id/credentials` on an account with a known identity, the store is refused with
+    **503 `account_identity_unavailable`** (`Retry-After: 30`). Nothing is stored and no account is created.
+    `/sync/bootstrap` answers the same 503 instead of falling back to a retrieve. Wrappers of every version
+    treat it as a transient store failure: the local credentials stay untouched and the upload is retried.
+  - With at most one account the login is filed under it as before (a sole account keeps receiving its
+    rotations during an Anthropic outage).
+  - A known login is also refused with that 503 when it matches no recorded identity while the identity of
+    an account enrolled before identity detection could not be looked up (failed, not refused).
+  Each refusal and each sole-account fallback writes one audit row `provider_account.identity_unresolved`
+  per credential and ten minutes (`lookup`, `reason`, `outcome: refused|legacy_rules`, `account_id`,
+  `session_bound`, `enroll`, `accounts`; no token material).
 
 **Distribution policy** (`versions` key `account_policy_<engine>`):
 `{mode: auto|manual, strategy: balanced|exhaust|reset_aware, spread: eng|normal|locker, soft_ceiling, hard_ceiling, min_dwell_minutes}`,

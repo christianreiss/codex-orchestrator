@@ -1470,6 +1470,10 @@ async function handleBootstrapAuth(
     // pre-refresh candidate is no longer safe to launch and an ordinary
     // retrieve fallback would hide that fact from concurrent wrappers.
     if (err instanceof ApiError && err.code === 'runner_updated_auth_invalid') throw err;
+    // Nobody could say which account the candidate belongs to. The retrieve
+    // fallback below is scoped to the caller's saved account and would hand
+    // out that account's blob for an older-stamped candidate of another one.
+    if (err instanceof ApiError && err.code === 'account_identity_unavailable') throw err;
     // Deterministic candidate rejection (422): malformed/unusable credentials
     // or a definitive live-provider rejection. Do NOT carry their freshness
     // into the fallback. That lets retrieve serve a verified canonical and

@@ -14,14 +14,31 @@ export interface ClaudeIdentity {
   organizationName: string | null;
 }
 
+/**
+ * Outcome of one identity lookup. Callers must not treat the two failures
+ * alike: `unidentifiable` is Anthropic's own answer (the access token is
+ * expired or revoked, HTTP 401/403), while `unavailable` says nothing about
+ * the token (timeout, network error, 429, 5xx, an unexpected profile shape).
+ * `skipped` is a credential the endpoint is never asked about (API keys, and
+ * fabricated tokens in test runs without an injected transport).
+ */
+export type ClaudeIdentityLookup =
+  | { status: 'resolved'; identity: ClaudeIdentity }
+  | { status: 'unidentifiable' }
+  | { status: 'unavailable'; reason: string }
+  | { status: 'skipped' };
+
 export const CLAUDE_PROFILE_URL = 'https://api.anthropic.com/api/oauth/profile';
 const TTL_MS = 6 * 60 * 60 * 1000;
+/** Anthropic's own refusals (401/403) and rate limits (429) are not asked again for a minute. */
 const NEGATIVE_TTL_MS = 60 * 1000;
+/** Any other failure only collapses concurrent retries; the next store asks again. */
+const TRANSIENT_TTL_MS = 10 * 1000;
 const MAX_ENTRIES = 512;
 
 type FetchLike = typeof fetch;
 let fetchImpl: FetchLike | null = null;
-const cache = new Map<string, { at: number; identity: ClaudeIdentity | null }>();
+const cache = new Map<string, { at: number; ttl: number; lookup: ClaudeIdentityLookup }>();
 
 /** Tests inject a fake transport; `null` restores the global fetch. */
 export function setClaudeIdentityFetch(impl: FetchLike | null): void {
@@ -56,18 +73,19 @@ function parseProfile(body: unknown): ClaudeIdentity | null {
 }
 
 /**
- * Resolve the identity behind a Claude OAuth access token. Returns null when the
- * token is expired/revoked or Anthropic is unreachable; callers then keep the
- * lineage-based behaviour. Results are cached per token digest.
+ * Ask Anthropic who a Claude OAuth access token belongs to. Results are cached
+ * per token digest: an identity for six hours, a refusal or a rate limit for a
+ * minute, any other failure for ten seconds.
  */
-export async function resolveClaudeIdentity(accessToken: string | null | undefined): Promise<ClaudeIdentity | null> {
-  if (typeof accessToken !== 'string' || !accessToken.startsWith('sk-ant-oat')) return null;
+export async function lookupClaudeIdentity(accessToken: string | null | undefined): Promise<ClaudeIdentityLookup> {
+  if (typeof accessToken !== 'string' || !accessToken.startsWith('sk-ant-oat')) return { status: 'skipped' };
   // Test suites use fabricated tokens; they opt in by injecting a transport.
-  if (!fetchImpl && process.env.VITEST) return null;
+  if (!fetchImpl && process.env.VITEST) return { status: 'skipped' };
   const key = tokenKey(accessToken);
   const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < (hit.identity ? TTL_MS : NEGATIVE_TTL_MS)) return hit.identity;
-  let identity: ClaudeIdentity | null = null;
+  if (hit && Date.now() - hit.at < hit.ttl) return hit.lookup;
+  let lookup: ClaudeIdentityLookup;
+  let ttl = TRANSIENT_TTL_MS;
   try {
     const response = await (fetchImpl ?? fetch)(CLAUDE_PROFILE_URL, {
       method: 'GET',
@@ -80,20 +98,39 @@ export async function resolveClaudeIdentity(accessToken: string | null | undefin
       signal: AbortSignal.timeout(5_000),
     });
     if (response.ok) {
-      identity = parseProfile(await response.json());
-      // A 2xx without the expected fields means the profile shape changed:
-      // stores silently fall back to lineage, which merges subscriptions.
-      if (!identity) console.warn('claude identity: profile response lacks account/organization uuid');
-    } else if (response.status !== 401 && response.status !== 403) {
+      const identity = parseProfile(await response.json());
+      if (identity) {
+        lookup = { status: 'resolved', identity };
+        ttl = TTL_MS;
+      } else {
+        // A 2xx without the expected fields means the profile shape changed.
+        console.warn('claude identity: profile response lacks account/organization uuid');
+        lookup = { status: 'unavailable', reason: 'profile_shape' };
+      }
+    } else if (response.status === 401 || response.status === 403) {
+      lookup = { status: 'unidentifiable' };
+      ttl = NEGATIVE_TTL_MS;
+    } else {
       console.warn(`claude identity: profile lookup returned HTTP ${response.status}`);
+      lookup = { status: 'unavailable', reason: `http_${response.status}` };
+      if (response.status === 429) ttl = NEGATIVE_TTL_MS;
     }
   } catch (error) {
     console.warn('claude identity: profile lookup failed', error instanceof Error ? error.message : String(error));
-    identity = null;
+    lookup = {
+      status: 'unavailable',
+      reason: error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'network',
+    };
   }
   if (cache.size >= MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
-  cache.set(key, { at: Date.now(), identity });
-  return identity;
+  cache.set(key, { at: Date.now(), ttl, lookup });
+  return lookup;
+}
+
+/** The identity behind a token, or null for every other lookup outcome. */
+export async function resolveClaudeIdentity(accessToken: string | null | undefined): Promise<ClaudeIdentity | null> {
+  const lookup = await lookupClaudeIdentity(accessToken);
+  return lookup.status === 'resolved' ? lookup.identity : null;
 }
 
 /** Access token of a Claude canonical/native payload, if present. */
