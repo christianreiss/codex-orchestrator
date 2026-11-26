@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -91,7 +92,18 @@ func TestClaudeTurnIdleGuardsWrites(t *testing.T) {
 			t.Fatalf("%+v: idle=%v known=%v", c.hook, idle, known)
 		}
 	}
+	var seen []string
+	r.SetClaudeTurnObserver(func(idle, known bool) {
+		seen = append(seen, map[bool]string{true: "idle", false: "busy"}[idle]+map[bool]string{true: "", false: "?"}[known])
+	})
 	b.rootTurnIdle = false
+	b.observeClaudeTurnLocked()
+	b.nativeID = "other"
+	b.observeClaudeTurnLocked()
+	b.nativeID = "native"
+	if got := strings.Join(seen, ","); got != "idle,busy,busy?" {
+		t.Fatalf("observer heard %q", got)
+	}
 	if did, known, _ := r.WhileClaudeTurnIdle(write); did || !known || ran != 1 {
 		t.Fatal("write ran during a turn")
 	}

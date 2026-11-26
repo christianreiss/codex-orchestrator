@@ -2032,11 +2032,11 @@ preview.
 
 ## Multiple provider accounts (cxx 0.9.7)
 
-A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Launch-time account changes use strict generation CAS and require an idle native child lease (live switching below is the only exception); overlapping invocations with the same host/engine/auth-directory scope share their live account. Legacy timed leases heartbeat every 90 seconds (cxx 0.9.121) and expire after five minutes if a wrapper disappears; connection-owned leases follow the communicator connection; normal exit releases the reservation. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
+A launch reserves one verified account from this engine's pool before starting the native child. The wrapper persists identifiers only in `.cxx-account-<server-hash>.json` beside the native credential file (0600), and scopes subsequent auth/bootstrap requests to that account. Credentials stay in the normal native file and retain its CAS/logout/security protections. Launch-time account changes use strict generation CAS and require an idle native child lease (live switching below is the only exception); overlapping invocations with the same host/engine/auth-directory scope share their live account. Legacy timed leases heartbeat every 90 seconds (cxx 0.9.121) and expire after five minutes if a wrapper disappears; connection-owned leases follow the communicator connection; normal exit releases the reservation. The server removes one that has had neither its provider attachment nor a heartbeat for five minutes, but only when its holder has sent a heartbeat before: that is the switch supervisor (cxx 0.9.207), which also re-reserves a lease it finds missing. The lease of an older wrapper, which only redials its attachment, stays until release. From cxx 0.9.211 the re-reservation asks for a connection-owned lease again (0.9.207 to 0.9.210 get a timed one, renewed by the supervisor's heartbeat, and their attachment stays refused), a launch whose attachment keeps being refused heartbeats every 30 refusals so that it re-reserves without a supervisor too, and a re-reserved lease takes the generation the server answers with, also a lower one. Content-only sync and maintenance never rebalance accounts. Older servers omit `account_pool` and retain the existing single-account path. Existing secure-host offline fallback and insecure purge/logout behavior remain in force.
 
 Quota gating reads the selected account; with more than one account, advice and the quota warnings also weigh the rest of the pool (see *Pools on the card, `status`, `doctor` and the statusline* below). The startup account label identifies the selection. A missing compatible account fails with an engine-specific error; Claude accounts do not supply Codex and ChatGPT accounts do not supply Claude. Manage pools through **Fleet → Accounts**; assignments are automatic. OAuth login sessions are not separate provider accounts. Fresh opaque Claude OAuth tokens reuse the sole account or their session/host assignment; known access/refresh lineage also identifies previous credentials. With multiple accounts and no assignment, use Replace credentials on the intended account. Use Add account or an untargeted seed command to explicitly enroll another opaque account.
 
-Claude statusline reports inherit `CXX_PROVIDER_ACCOUNT_ID` and `CXX_PROVIDER_SESSION_ID` from their native child. Both usage snapshots and the report throttle are account-scoped, preventing an older session from reporting under a newly selected account.
+Claude statusline reports inherit `CXX_PROVIDER_ACCOUNT_ID` and `CXX_PROVIDER_SESSION_ID` from their native child, and take the account from the scope's binding file when one exists. Usage snapshots and the report throttle are account-scoped. The server files a report by the reporting host's live lease, not by the number it carries (`docs/interface-api.md` → `POST /claude/usage/report`): a report for an account the session no longer holds, or from a host without a lease on that account, is answered `200 {status:"ignored"}` and stored nowhere.
 
 
 ### Several Claude subscriptions and live switching (cxx 0.9.207)
@@ -2059,28 +2059,107 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   `~/.claude/.credentials.json` moves together. A pending switch arrives in acquire/heartbeat/`/auth`
   responses; a communicator `account_switch` frame triggers an immediate heartbeat. The wrapper waits for a
   turn boundary: the receiver hooks report no running turn (a `UserPromptSubmit` waits while the switch is
-  written) and every transcript of the scope written in the last 15 minutes has ended its turn and been
-  quiet for 20 s, so sibling sessions and launches without a receiver are covered. It then flushes a pending rotation of the old account, commits with `POST /auth/sessions/switch`
+  written), no sibling launch reports one, and every transcript of the scope written in the last 15 minutes
+  has ended its turn and been quiet for 20 s, so launches without a receiver are covered. It then flushes a pending rotation of the old account, commits with `POST /auth/sessions/switch`
   (generation-fenced), writes the new account's credentials through `WriteSwitchedAccountIfCurrent`
-  (strict CAS, active child allowed, logout intent respected). `oauthAccount` in `~/.claude.json` is left to
-  Claude Code, which refetches the profile itself. Claude Code reloads credentials when the file's mtime changes, so the next prompt runs on the new account
+  (strict CAS, active child allowed, logout intent respected). The wrapper does not write `oauthAccount`
+  in `~/.claude.json`; Claude Code refetches the profile itself. Claude Code reloads credentials when the file's mtime changes, so the next prompt runs on the new account
   without a restart; the transcript is kept, the organization-scoped prompt cache is rebuilt once. The
   agent receives an auth notice naming the new account.
-- When the commit succeeded but the credential write did not (CAS miss, logout intent), the wrapper keeps the
-  committed binding and retries the write with sync paused, up to 20 times every 15 s; afterwards normal sync
-  delivers the new account's credentials at the next idle sync or launch.
+- **Sibling turns (cxx 0.9.211).** Every launch with receiver hooks publishes its own turn in its session
+  marker (`turn`: `busy` or `idle`, written inside the hook, so a starting turn is published before its
+  first request). A switch waits while any live sibling says `busy` and looks again with its own turn gate
+  held, immediately before the write. A sibling that publishes nothing (no receiver hooks, or a wrapper
+  before 0.9.211) is unknown, never idle; for it the transcript check above is all there is. Every hook of
+  a running turn confirms the marker (at most every 30 s). A `busy` no hook confirmed for 15 minutes is
+  unknown again: an interrupted turn fires no `Stop`, and one such session must not hold the scope for good.
+- **Commit and write are two steps (cxx 0.9.211).** A repair flag `.cxx-account-<server-hash>.repair` beside
+  the binding file is set before the commit and cleared by the write, so it outlives the process and is
+  seen by every wrapper of the scope. Whatever goes wrong in between ends the same way: a supervisor of the
+  scope writes the bound account's credentials at a turn boundary.
+  - The answer to the commit was lost: the directive is still pending, the wrapper repeats the commit and
+    the server answers with the same credentials (`replayed`).
+  - The write did not happen (CAS miss, logout intent, a turn that would not end): the wrapper keeps the
+    committed binding and retries with sync paused, up to 20 times every 15 s. Then it tells the server
+    (`credential_write: "unfinished"`, one audit row), resumes sync and tries again at every 60 s poll for
+    as long as the flag is set.
+  - The process died between commit and write: a sibling adopts the new binding from its heartbeat, sets
+    the flag and, after the 10 s settle, checks instead of assuming that the dead process wrote. Without a
+    sibling, the next launch writes the leased account's head as every launch does and clears the flag.
+  - The check is one session sync. The server answers for the account the scope is bound to; when the
+    local file is a login it holds for another account it says so (`presented_account_id`) and sends the
+    bound account's head. That head is authoritative whatever the two `last_refresh` values are. A
+    background sync (auth watcher, communicator, `clx auth-sync`) that meets this answer never writes next
+    to a running session: it sets the flag and reports the mismatch. With no live session marker and no
+    active native child it writes the head itself, fenced on the exact file the server recognised.
+  - An upload of the old account's rotation is filed under that login's own account and its answer looks
+    like any other, so a flush that uploaded asks once more before it counts as confirmed.
+  - A scope without a binding is not judged this way: the answer then is for the server's default
+    account, and the previous `last_refresh` rule applies to it.
+- **Leaving an unusable account (cxx 0.9.211).** When the directive says `bound_account_usable: false` the
+  account being left is paused, being removed or no longer verified, and its head can confirm nothing. The
+  flush then also passes when the server already knows the local file, accepted its upload, or refused it
+  for good: 422, 400 `validation_failed`, or 409 `account_removed` (an account being removed takes no login
+  from a host without a lease on it, which is every host once the commit moved the scope). Any other
+  conflict, 503 (including `account_identity_unavailable`) or a network error still fails and is retried:
+  the upload may yet succeed.
+  Against a server that does not send the field the flush stays strict.
 - `clx accounts use <id|auto>`, the agent tools `account_status` / `account_switch` (fleet Skill
   `#account-switch`) and the Accounts page request switches; Codex, Grok and Kimi report
   `account_switch_unsupported_engine` and keep the launch-time selection.
 - The statusline reads the account from the binding file, so usage after a switch is reported for the new
-  account; reports for an account the session no longer holds are ignored by the server. The first payload
-  after a switch can still be the previous account's last response; the server ignores such a reading for
-  30 minutes after the switch when its reset time belongs to another account.
+  account; reports for an account the session no longer holds are ignored by the server. The payload
+  after a switch can still be the previous account's last response until the session's next request; the
+  server ignores a reading whose reset time belongs to another account and not to the bound one, without a
+  time limit while the bound account has a running window on record and for 30 minutes after the switch
+  otherwise. Within one window the server keeps the highest percentage any session reported in the last
+  60 minutes, so an idle session's older figure does not lower the account's reading.
 - The binding file belongs to the scope's live sessions (cxx 0.9.209). Every `/auth` and `/sync/bootstrap`
   request carries it, also from clients without a lease such as maintenance. A response to a request
   without a lease never rebinds the file while a session marker of the scope is live; only a committed
   switch or a generation-fenced adoption moves it. Communicator auth watches registered before a switch
   send the current binding, because the server resolves a leased request from its session.
+
+### Continuing a quota-failed turn on another account (cxx 0.9.213)
+
+Claude only: this builds on the live switch, which no other engine has. Codex, Grok and Kimi Code keep
+their recovery unchanged (their servers ignore the marker, and the hook sends them nothing new).
+Wire contract: `docs/interface-api.md` → *Provider usage-limit refusals and continuing on another account*.
+
+A turn that dies on the account's usage limit used to stay where it was: the statusline reading that
+feeds the pool is the last successful response (say 93 %), so the server kept the scope on the
+exhausted account, and the quota recovery waited for that account's reset even when another had room.
+
+1. **The refusal is fed back.** The `StopFailure` hook reports `quota_limit: true` and the printed reset
+   (see *Watchdog*). The server marks the account exhausted until that reset, scores it 100 and requests
+   a switch for its scopes at once. New launches skip it.
+2. **The scope switches.** `StopFailure` is a turn boundary, so the switch supervisor commits the pending
+   switch as described above; nothing in the wrapper's switch changes. Mid-turn credential swaps stay
+   out of scope.
+3. **The turn continues.** After the commit the server delivers one message through the channel
+   receiver into the same native session: "The previous turn failed on a provider quota limit and now
+   continues on account <label> (#<id>). Continue where you left off; check quota_get before heavy
+   work; do not invent new work. …". The session is not terminated and no `ACCOUNT/1 switched` notice
+   precedes it.
+
+Conditions for step 3: account policy `auto`, another usable account with room, a session with an
+attached channel receiver (not a `peer_delivery` worker), no watchdog or persistent wake already
+running for the agent. It is dropped when a new turn began after the failure (you typed, or a message
+arrived), when you stop the session, or after two hours. A session on a host without a resident daemon
+is served as long as its receiver is attached.
+
+When no account has room, a recovery waits for the earliest reset in the pool instead of the reset of
+the account the turn failed on. Which setting decides what:
+
+| Decision | Setting |
+| --- | --- |
+| Continue on another account now | Account policy mode `auto` (Accounts → distribution policy) |
+| Wait for a reset and resume then | Quota policy `short_auto_resume` / `long_auto_resume` |
+
+Older wrappers: without `quota_limit` the server writes no marker. A turn whose account already reads
+100 % still continues elsewhere; one whose reading lags behaves as before 0.9.213. A server without
+this feature accepts both fields, writes no marker and treats `retry_not_before` as it always did: a
+watchdog's next attempt is not before it.
 
 ### Pools on the card, `status`, `doctor` and the statusline (cxx 0.9.209)
 
@@ -2365,6 +2444,27 @@ same records; Portal status is read-only. See `docs/interface-api.md` for the wi
 Claude native observation hooks forward root `StopFailure` and explicit `SessionEnd`
 through the private bridge. Capacity/overload is retriable; permanent provider errors
 block; hooks return no decision and never change permission policy.
+
+From cxx 0.9.213 the `StopFailure` hook tells a usage limit of the account from a
+transient shortage, for Claude only (`CXX_AGENT_PORTAL_ENGINE=claude`; Grok sends
+`StopFailure` through the same command and its reports are unchanged):
+
+- A usage limit is `error: "rate_limit"`, or wording such as "usage limit", "You've hit
+  your limit", "hit your session / 5-hour / weekly / Opus limit", "quota limit", "rate
+  limit". "usage limit" and "hit your … limit" without a telling error kind were
+  classified as `crash` before; they are `capacity` now. "overloaded" and "at capacity"
+  stay a transient shortage, and an organisation's "spend limit" stays a billing matter.
+- A usage limit is reported with `quota_limit: true`. Nothing of the provider's wording
+  leaves the hook.
+- The reset Claude Code prints becomes `retry_not_before` when it can be placed exactly:
+  "resets 3pm (Europe/Berlin)", "resets 3:30pm (…)", "resets at 3pm (…)", "resets Nov 28,
+  3pm (…)", "resets Jan 2, 2027, 9am (…)" and the legacy "usage limit reached|<epoch
+  seconds>". A clock time without a date is its next occurrence. A reset without a named
+  IANA zone, with an unknown zone, in the past, or more than 31 days ahead is left out;
+  nothing is guessed. Of several resets in one message the latest is sent.
+
+What the server does with it is described under *Continuing a quota-failed turn on another
+account* below.
 Hook payload contract: [Claude hooks reference](https://code.claude.com/docs/en/hooks).
 
 ### Host update output (cxx 0.9.40)
@@ -2930,7 +3030,7 @@ notification totals remain client-specific; the bound is on peer continuation de
 
 ## Account quota lifecycle (cxx 0.9.112)
 
-`quota_get` on cxx-agent reports the current lifecycle's bound provider account, short/long usage, reset, freshness and effective quota policy. Check before heavy workloads and large delegations. Start a new managed lifecycle through the updated wrapper to supply the verified provider lease binding; older sessions return unavailable. Engine defaults and complete account overrides configure warnings and short/long auto-resume independently. PayG/unlimited suppresses quota actions, including existing startup blocks. A quota warning only requests a checkpoint. Confirmed quota interruptions use existing Watchdog recovery for the same native transcript on persistent hosts, with bounded retries and no fresh-session fallback. Native subagent restoration depends on the native parent's resume implementation; no independent helpers are spawned. See [API contract](interface-api.md#account-quota-warnings-and-reset-recovery-cxx-09112).
+`quota_get` on cxx-agent reports the current lifecycle's bound provider account, short/long usage, reset, freshness and effective quota policy. Check before heavy workloads and large delegations. Start a new managed lifecycle through the updated wrapper to supply the verified provider lease binding; older sessions return unavailable. Engine defaults and complete account overrides configure warnings and short/long auto-resume independently. PayG/unlimited suppresses quota actions, including existing startup blocks. A quota warning only requests a checkpoint. Confirmed quota interruptions use existing Watchdog recovery for the same native transcript on persistent hosts, with bounded retries and no fresh-session fallback. Native subagent restoration depends on the native parent's resume implementation; no independent helpers are spawned. With several Claude accounts under the automatic distribution policy a quota-failed turn continues on another account first (cxx 0.9.213; see *Continuing a quota-failed turn on another account*). See [API contract](interface-api.md#account-quota-warnings-and-reset-recovery-cxx-09112).
 
 ## Workflow clarification (cxx 0.9.114)
 

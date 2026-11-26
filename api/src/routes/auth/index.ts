@@ -12,7 +12,9 @@ import { ownerRuntimeFor } from '../../control-plane/state/runtime.js';
 import { recordAuthCall, flushAuthCalls, uninstallOwnedHost } from './owner.js';
 import { readQuotaPolicy } from '../../services/quota-policy.js';
 import { ProviderAccountsService } from '../../services/provider-accounts.js';
-import { AccountSwitchService, LIVE_SWITCH_ENGINES, accountSwitchNoticeContent, staleSwitchReading } from '../../services/account-switch.js';
+import { AccountSwitchService, LIVE_SWITCH_ENGINES, accountSwitchNoticeContent } from '../../services/account-switch.js';
+import { quotaContinuationPending } from '../../services/watchdog-lifecycle.js';
+import { reconcileQuotaExhaustion } from '../../services/quota-exhaustion.js';
 import { AgentMessagingService } from '../../services/agent-messaging.js';
 import { quotaNoticeId } from '../../ops/quota-worker.js';
 import { hostWithCallerWrapper } from '../../services/host-wrapper-capabilities.js';
@@ -65,7 +67,7 @@ import {
 import { createWrapperBinRegistry } from '../../services/wrapper-bin-registry.js';
 import { projectWrapperVersionSnapshot } from '../../services/wrapper-version-projection.js';
 import { ChatGptUsageService, normalizeChatGptUsageSnapshot } from '../../services/chatgpt-usage.js';
-import { ClaudeUsageService, normalizeClaudeUsageSnapshot } from '../../services/claude-usage.js';
+import { CLAUDE_SHORT_WINDOW_MS, CLAUDE_WEEKLY_WINDOW_MS, ClaudeUsageService, normalizeClaudeUsageSnapshot, reportedClaudeWindow } from '../../services/claude-usage.js';
 import { grokUsageAuthFields, readGrokUsage } from '../../services/grok-usage.js';
 import { kimiUsageAuthFields, readKimiUsage } from '../../services/kimi-usage.js';
 import {
@@ -345,10 +347,15 @@ if (engine === ENGINE_KIMI) {
     }
     const row = await runnerValidation.resolveCanonicalPayload(engine, lease.account.id);
     const auth = row ? runnerValidation.canonicalAuthFromPayload(row) : null;
-    if (!row || !auth) {
-      await accounts.release(host.id, engine, sessionId);
-      throw new ServiceUnavailableError('Selected account is unavailable', 'account_unavailable');
-    }
+    // A launch that joins a live scope shares its credentials file and with it
+    // the scope's account, also one that was paused or lost its verification
+    // meanwhile. It cannot be bound elsewhere on its own; the policy moves the
+    // whole scope, and this launch then carries the directive like its siblings.
+    const unusable = lease.account.state !== 'enabled' || row?.verificationState !== 'verified';
+    if (!row || !auth) await accounts.release(host.id, engine, sessionId);
+    if (unusable && LIVE_SWITCH_ENGINES.has(engine))
+      await switches.evaluate(engine).catch((err) => app.log.warn({ err }, 'account policy evaluation failed'));
+    if (!row || !auth) throw new ServiceUnavailableError('Selected account is unavailable', 'account_unavailable');
     return {
       account_id: lease.account.id,
       account_label: lease.account.label,
@@ -431,7 +438,8 @@ if (engine === ENGINE_KIMI) {
     const accountId = typeof result.account_id === 'number' ? result.account_id : null;
     if (accountId !== null) {
       try {
-        const view = await switches.poolView(engine, accountId);
+        const boundAt = typeof sessionId === 'string' ? await switches.boundAt(hostId, engine, sessionId) : null;
+        const view = await switches.poolView(engine, accountId, undefined, boundAt);
         if (view.accounts.length > 1)
           extras.quota_pool = {
             recommendation: view.recommendation,
@@ -471,13 +479,15 @@ if (engine === ENGINE_KIMI) {
     // Labels are usually e-mail addresses: same window as credential retrieval.
     await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, unattendedRequest(req));
     let boundAccountId: number | null = null;
+    let boundAt: string | null = null;
     let binding: Record<string, unknown> = { binding_generation: null, account_switch: null };
     if (query.session_id !== undefined) {
       const session = await accounts.session(host.id, engine, opaqueId(query.session_id, 'session_id'));
       boundAccountId = session.accountId;
+      boundAt = session.boundAt ?? session.createdAt;
       binding = await switches.sessionBinding(host.id, engine, session.id);
     }
-    const view = await switches.poolView(engine, boundAccountId);
+    const view = await switches.poolView(engine, boundAccountId, undefined, boundAt);
     return {
       engine,
       policy: view.policy,
@@ -518,15 +528,29 @@ if (engine === ENGINE_KIMI) {
     if (target === undefined) throw new ValidationError('account_id is required', { param: 'account_id' });
     if (typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1)
       throw new ValidationError('binding_generation must be a positive integer', { param: 'binding_generation' });
+    const scopeId = opaqueId(payload.scope_id, 'scope_id');
+    // The target's credentials are read before the binding moves: a commit
+    // that then cannot serve them would leave the scope bound to an account
+    // it has no login for.
+    const ready = await runnerValidation.resolveCanonicalPayload(engine, await accounts.canonicalId(target, engine));
     const committed = await switches.commitSwitch({
       hostId: host.id,
       engine,
       sessionId,
-      scopeId: opaqueId(payload.scope_id, 'scope_id'),
+      scopeId,
       accountId: target,
       generation,
+      credentialsReady: !!ready && !!runnerValidation.canonicalAuthFromPayload(ready),
     });
-    if (committed.moved_addresses.length) {
+    if (payload.credential_write === 'unfinished')
+      await switches
+        .reportUnfinishedWrite(host.id, engine, scopeId, committed.account_id, committed.binding_generation)
+        .catch((err) => req.log.warn({ err }, 'unfinished account switch write not recorded'));
+    // A session that waits to continue a quota-failed turn learns of its new
+    // account from that continuation; every other moved session gets the notice.
+    const continuing = await quotaContinuationPending(ctx.db, committed.moved_addresses).catch(() => new Set<string>());
+    const noticed = committed.moved_addresses.filter((address) => !continuing.has(address));
+    if (noticed.length) {
       // Best effort: the switch is committed; a failed notice must not undo it.
       try {
         const pool = await switches.pool(engine);
@@ -537,7 +561,7 @@ if (engine === ENGINE_KIMI) {
           committed.reason,
         );
         const noticeId = quotaNoticeId(`account-switch:${host.id}:${engine}:${opaqueId(payload.scope_id, 'scope_id')}:${committed.binding_generation}`);
-        await new AgentMessagingService(ctx.db, ctx.env, ctx.keyring).noticeAddresses(committed.moved_addresses, content, noticeId);
+        await new AgentMessagingService(ctx.db, ctx.env, ctx.keyring).noticeAddresses(noticed, content, noticeId);
       } catch (err) {
         req.log.warn({ err }, 'account switch notice failed');
       }
@@ -552,6 +576,7 @@ if (engine === ENGINE_KIMI) {
       session_id: sessionId,
       binding_generation: committed.binding_generation,
       previous_account_id: committed.previous_account_id,
+      replayed: committed.replayed,
       auth,
       canonical_digest: row.sha256,
       canonical_last_refresh: row.lastRefresh,
@@ -720,47 +745,53 @@ if (engine === ENGINE_KIMI) {
     await assertApiNotDisabled(versions);
     const host = await hostAuth.authenticate(req);
     assertHostEngineEnabled(host, ENGINE_CLAUDE, await readFleetEngineState(ctx.db));
+    // A reading steers the account pool, so it is held to the same window as
+    // the credentials it describes. Unattended: a closed window refuses the
+    // report and never opens an approval request for a statusline render.
+    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, true);
     const payload = readPayload(req.body);
-    const fiveHour = asPlainRecord(payload.five_hour);
-    const sevenDay = asPlainRecord(payload.seven_day);
-    let accountId = accountIdFrom(payload.account_id);
-    if (accountId !== undefined) accountId = await accounts.canonicalId(accountId, ENGINE_CLAUDE);
-    if (payload.session_id !== undefined) {
-      const session = await accounts.session(
-        host.id,
-        ENGINE_CLAUDE,
-        opaqueId(payload.session_id, 'session_id'),
-      );
-      // After a live switch the statusline may still carry the previous
-      // account; its reading must not be filed under the new one.
-      if (accountId !== undefined && accountId !== session.accountId) return { status: 'ignored', reason: 'stale_account' };
-      accountId = session.accountId;
-      // The reporter files by binding, but right after a switch the payload can
-      // still be the previous account's last response (same reset times).
-      if ('boundAt' in session && session.boundAt) {
-        const pool = await switches.pool(ENGINE_CLAUDE);
-        const report = {
-          short_resets_at: typeof fiveHour.resets_at === 'string' ? fiveHour.resets_at : null,
-          weekly_resets_at: typeof sevenDay.resets_at === 'string' ? sevenDay.resets_at : null,
-        };
-        const bound = pool.find((a) => a.id === accountId);
-        if (staleSwitchReading(report, session.boundAt, bound, pool.filter((a) => a.id !== accountId), Date.now()))
-          return { status: 'ignored', reason: 'stale_account' };
-      }
-    } else if (accountId !== undefined) {
-      await accounts.get(accountId, ENGINE_CLAUDE);
+    const sessionId = payload.session_id === undefined ? undefined : opaqueId(payload.session_id, 'session_id');
+    let claimed = accountIdFrom(payload.account_id);
+    const now = Date.now();
+    const fiveHour = reportedClaudeWindow(payload.five_hour, CLAUDE_SHORT_WINDOW_MS, now);
+    const sevenDay = reportedClaudeWindow(payload.seven_day, CLAUDE_WEEKLY_WINDOW_MS, now);
+    if (!fiveHour && !sevenDay) {
+      const sent = payload.five_hour !== undefined || payload.seven_day !== undefined;
+      return sent ? { status: 'ignored', reason: 'no_current_window' } : { status: 'ignored' };
     }
+    if (claimed !== undefined) claimed = await accounts.canonicalId(claimed, ENGINE_CLAUDE);
+    const target = await switches.usageReportAccount(
+      host.id,
+      ENGINE_CLAUDE,
+      { sessionId, accountId: claimed, short_resets_at: fiveHour?.resetsAt ?? null, weekly_resets_at: sevenDay?.resetsAt ?? null },
+      now,
+    );
+    if ('ignored' in target) return { status: 'ignored', reason: target.ignored };
+    const accountId = target.accountId;
     const svc = new ClaudeUsageService(ctx.db, accountId);
     const previous = ownerRuntimeFor(ctx.db) ? await svc.latest() : null;
     const row = await svc.store({
       accountId,
       hostId: host.id,
       source: typeof payload.source === 'string' ? payload.source : null,
-      fiveHourUsedPercent: toFiniteNumber(fiveHour.used_percent),
-      fiveHourResetsAt: typeof fiveHour.resets_at === 'string' ? fiveHour.resets_at : null,
-      sevenDayUsedPercent: toFiniteNumber(sevenDay.used_percent),
-      sevenDayResetsAt: typeof sevenDay.resets_at === 'string' ? sevenDay.resets_at : null,
+      fiveHourUsedPercent: fiveHour?.usedPercent ?? null,
+      fiveHourResetsAt: fiveHour?.resetsAt ?? null,
+      sevenDayUsedPercent: sevenDay?.usedPercent ?? null,
+      sevenDayResetsAt: sevenDay?.resetsAt ?? null,
     });
+    // A reading of a new window ends the account's exhaustion marker; the same
+    // or a lower figure of the old one never does.
+    const renewed =
+      row && accountId !== undefined
+        ? await reconcileQuotaExhaustion(ctx.db, ENGINE_CLAUDE, accountId, {
+            short_resets_at: row.fiveHourResetsAt ?? null,
+            long_resets_at: row.sevenDayResetsAt ?? null,
+          }).catch((err) => {
+            app.log.warn({ err }, 'quota exhaustion marker not reconciled');
+            return false;
+          })
+        : false;
+    if (renewed) void switches.evaluate(ENGINE_CLAUDE).catch((err) => app.log.warn({ err }, 'account policy evaluation failed'));
     if (row && row.id !== previous?.id) {
       wsPublisher.publish('claude.usage.updated', { fetched_at: row.fetchedAt });
       // A fresh reading may move a scope under the automatic policy.
@@ -1203,6 +1234,19 @@ if (engine === ENGINE_KIMI) {
     await touchHostAuthFields(ctx.db, host.id, servedLast, servedDigest, engine);
     return { ...baseResponse, status: 'valid' };
   }
+  // The presented login is one the server already holds for another account:
+  // the scope was moved and its credentials file was not (a switch whose write
+  // never happened). There is nothing to upload, and refresh times of two
+  // different accounts say nothing about each other, so the bound account's
+  // head is served whatever the local timestamp is.
+  const boundAccountId = accountId ?? canonicalRow.accountId ?? undefined;
+  const presentedAccountId =
+    providedDigest && boundAccountId !== undefined
+      ? await new ProviderAccountsService(ctx.db, ctx.keyring).accountOfDigest(engine, providedDigest)
+      : undefined;
+  if (presentedAccountId !== undefined && presentedAccountId !== boundAccountId) {
+    return { ...baseResponse, status: 'outdated', auth: servedAuth, presented_account_id: presentedAccountId };
+  }
   if (compareOptionalAuthStamps(incomingLast, servedLast) >= 0) {
     // No canonical blob was served: this host explicitly reported a distinct
     // same/newer local generation that still needs to pass the store gate.
@@ -1470,6 +1514,10 @@ async function handleBootstrapAuth(
     // pre-refresh candidate is no longer safe to launch and an ordinary
     // retrieve fallback would hide that fact from concurrent wrappers.
     if (err instanceof ApiError && err.code === 'runner_updated_auth_invalid') throw err;
+    // Nobody could say which account the candidate belongs to. The retrieve
+    // fallback below is scoped to the caller's saved account and would hand
+    // out that account's blob for an older-stamped candidate of another one.
+    if (err instanceof ApiError && err.code === 'account_identity_unavailable') throw err;
     // Deterministic candidate rejection (422): malformed/unusable credentials
     // or a definitive live-provider rejection. Do NOT carry their freshness
     // into the fallback. That lets retrieve serve a verified canonical and
@@ -1660,16 +1708,6 @@ function headerString(value: string | string[] | undefined): string | undefined 
 function readPayload(body: unknown): Record<string, unknown> {
   if (body && typeof body === 'object' && !Array.isArray(body)) return body as Record<string, unknown>;
   return {};
-}
-
-function asPlainRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
-  return {};
-}
-
-function toFiniteNumber(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
-  return value;
 }
 
 function normalizeCommand(value: unknown): 'retrieve' | 'store' {

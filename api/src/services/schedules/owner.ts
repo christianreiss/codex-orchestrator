@@ -26,7 +26,9 @@ import { nextOccurrence, scheduleInput, type ScheduleInput } from './timing.js';
 import { SCHEDULE_TARGET_GRACE_SECONDS } from './staleness.js';
 import { recoveryBudget } from '../agent-supervisor/policy.js';
 import { recoveryDelaySeconds } from './recovery.js';
-import { quotaSnapshot, quotaResumeGate } from '../quota-observation.js';
+import { quotaRecoveryGate, QUOTA_SWITCH_POLL_MS, type QuotaGate } from '../quota-pool.js';
+import { quotaContinueFence, quotaSwitchContinuation, quotaSwitchWatchdog } from '../watchdog-lifecycle.js';
+import type { Engine } from '../../util/engine.js';
 import { readFleetEngineState } from '../engine-switch.js';
 import { activeHostEngines } from '../host-engine-policy.js';
 import { messagingHostEligible } from '../agent-messaging/eligibility.js';
@@ -120,6 +122,8 @@ async function advance(
     if (message?.status !== 'accepted') set({status:'blocked',lastError:'supervisor_budget'});
     return;
   }
+  const quotaSwitch = !!watchdog && quotaSwitchWatchdog(watchdog);
+  let continuesOn: { id: number | null; label: string | null } = { id: null, label: null };
   const quotaGate = async () => {
     const q = watchdog?.quotaAccountId
       ? {
@@ -132,23 +136,37 @@ async function advance(
         }
       : run.quotaRecovery;
     if (!q) return true;
-    const snapshot =
-      target && isEngine(target.engine)
-        ? await quotaSnapshot(db, q.account_id, target.engine, now.getTime())
-        : null;
-    const gate =
-      target?.lastUpstreamSessionId === q.native_session_id && target.continuity === 'native'
-        ? quotaResumeGate(snapshot, q.window, q.reset_at, q.attempts, q.attempt_at, now.getTime())
-        : { stop: 'quota_native_session_changed' };
+    // The account the turn failed on is where the interruption was seen, not
+    // where the recovery has to happen: see `quotaRecoveryGate`.
+    const gate: QuotaGate =
+      target && !isEngine(target.engine)
+        ? { stop: 'quota_policy_disabled' }
+        : await quotaRecoveryGate(db, {
+            engine: (target?.engine ?? 'codex') as Engine,
+            quota: q,
+            target,
+            session: target?.currentSessionId ? draft.table('agentSessions').get(target.currentSessionId) : null,
+            switchSince: quotaSwitch ? watchdog!.createdAt : null,
+            now: now.getTime(),
+          });
     if ('stop' in gate) {
-      if (watchdog) stageStopWatchdog(context, watchdog, 'blocked', gate.stop!, timestamp);
+      if (watchdog) stageStopWatchdog(context, watchdog, 'blocked', gate.stop, timestamp);
       set({ status: 'blocked', lastError: gate.stop });
       return false;
     }
     if ('wait_until' in gate) {
-      set({ status: 'capacity_wait', nextAttemptAt: gate.wait_until, lastError: 'quota_wait' });
+      // A wait for a reset can outlast the two hours a continuation on another
+      // account is given; the recovery then lives until a day after it.
+      const reset = Date.parse(gate.reset_at ?? gate.wait_until);
+      if (quotaSwitch && gate.reason === 'quota_wait' && reset + 86_400_000 > Date.parse(watchdog!.deadlineAt))
+        stageUpdate(context, 'agentWatchdogs', watchdog!.id, {
+          deadlineAt: new Date(reset + 86_400_000).toISOString(),
+          updatedAt: timestamp,
+        });
+      set({ status: 'capacity_wait', nextAttemptAt: gate.wait_until, lastError: gate.reason });
       return false;
     }
+    continuesOn = { id: gate.account_id, label: gate.account_label };
     if (watchdog)
       stageUpdate(context, 'agentWatchdogs', watchdog.id, {
         quotaAttempts: q.attempts + 1,
@@ -255,29 +273,49 @@ async function advance(
     set({ status: 'blocked', lastError: 'native_session_missing' });
     return;
   }
-  if (run.persistent) {
-    const daemon = draft.table('hostDaemons').get(target.hostId);
-    if (!daemon || !daemonResidentFor(daemon.settings, target.username)) {
-      set({ status: 'blocked', lastError: 'schedule_host_not_persistent' });
-      return;
-    }
-  } else {
+  const liveReceiver = () => {
     const session = target.currentSessionId
       ? draft.table('agentSessions').get(target.currentSessionId)
       : undefined;
     const receiver = receiverState(session?.receiver);
-    if (
-      !session ||
-      !receiver ||
-      receiver.failure ||
-      !receiver.probes.peer ||
-      !ownerPresence(requireOwnerRuntime(db)).hasReceiver(
-        session.id,
-        session.bindingGeneration,
-        receiver.generation,
-      )
-    )
+    return !!(
+      session &&
+      receiver &&
+      !receiver.failure &&
+      receiver.probes.peer &&
+      ownerPresence(requireOwnerRuntime(db)).hasReceiver(session.id, session.bindingGeneration, receiver.generation)
+    );
+  };
+  if (run.persistent) {
+    const daemon = draft.table('hostDaemons').get(target.hostId);
+    if (!daemon || !daemonResidentFor(daemon.settings, target.username)) {
+      // A continuation on another account goes into the session that is
+      // running: its own receiver takes it, no resident daemon has to resume
+      // anything. Without that receiver it waits for one, up to its deadline.
+      if (!quotaSwitch) {
+        set({ status: 'blocked', lastError: 'schedule_host_not_persistent' });
+        return;
+      }
+      if (!liveReceiver()) return;
+    }
+  } else if (!liveReceiver()) return;
+  if (quotaSwitch) {
+    const session = target.currentSessionId ? draft.table('agentSessions').get(target.currentSessionId) : undefined;
+    const fence = quotaContinueFence(session, watchdog!.createdAt, now.getTime());
+    if (fence === 'superseded') {
+      // Somebody typed, or a message started a turn: the failed turn is no
+      // longer what the session is about.
+      stageStopWatchdog(context, watchdog!, 'disabled', 'quota_continue_superseded', timestamp);
       return;
+    }
+    if (fence === 'busy') {
+      set({
+        status: 'capacity_wait',
+        nextAttemptAt: new Date(now.getTime() + QUOTA_SWITCH_POLL_MS).toISOString(),
+        lastError: 'quota_switch_wait',
+      });
+      return;
+    }
   }
   if (!(await quotaGate())) return;
   const sender = stageServerAddress(context, timestamp),
@@ -310,6 +348,8 @@ async function advance(
         .where(eq(agentScheduleRuns.id, run.id))
     )[0]?.encrypted;
   if (!prompt) throw new Error('Schedule run prompt is missing');
+  // Only now is it known which account the session continues on.
+  const content = quotaSwitch ? quotaSwitchContinuation(decrypt(prompt, keyring), continuesOn) : decrypt(prompt, keyring);
   stageQueuedMessage(
     context,
     newQueuedMessage({
@@ -320,8 +360,8 @@ async function advance(
       senderSessionId: null,
       target,
       kind: 'schedule',
-      content: decrypt(prompt, keyring),
-      contentEnc: prompt,
+      content,
+      contentEnc: quotaSwitch ? encrypt(content, keyring) : prompt,
       clientMessageId: run.id,
       expiresAt: '9999-12-31T00:00:00.000Z',
       now: timestamp,

@@ -2,10 +2,11 @@ import { quotaSnapshot } from './quota-observation.js';
 import { emulationBlocks, emulationLimitError } from './quota-emulation.js';
 import {persistAuditLog} from './audit-log.js';
 import { ownerRuntimeFor, mutateOwnerState } from '../control-plane/state/runtime.js';
-import { ownedAccount, ownedProviderSession, acquireOwnedProvider, releaseOwnedProvider, drainOwnedProviders } from '../control-plane/streams/provider-leases.js';
+import { ownedAccount, ownedProviderSession, acquireOwnedProvider, releaseOwnedProvider, drainOwnedProviders, freshBindingGeneration, noteProviderRenewal } from '../control-plane/streams/provider-leases.js';
 import { readQuotaPolicy } from './quota-policy.js';
+import { readQuotaExhaustion } from './quota-exhaustion.js';
 import { createHash } from 'node:crypto';
-import { and, asc, count, desc, eq, gt, inArray, lte } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, lte } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import {
   authCanonicalHeads,
@@ -35,9 +36,14 @@ import { withKimiAccountLock } from './kimi-auth-lock.js';
 import { readGrokUsage } from './grok-usage.js';
 import { readKimiUsage } from './kimi-usage.js';
 import { chatGptPlanName, claudePlanName, providerPlan } from './provider-plan.js';
-import { claudeAccessToken, claudeIdentityValue, resolveClaudeIdentity, type ClaudeIdentity } from './claude-identity.js';
+import { claudeAccessToken, claudeIdentityValue, lookupClaudeIdentity, type ClaudeIdentity, type ClaudeIdentityLookup } from './claude-identity.js';
+import { ApiError } from '../http/errors.js';
+import { appendAuditLog } from './audit-log.js';
 
 type Account = typeof providerAccounts.$inferSelect;
+/** One audit row per unresolved credential and outcome, not one per retry of the uploading host. */
+const UNRESOLVED_AUDIT_EVERY_MS = 10 * 60_000;
+const unresolvedAudits = new Map<string, number>();
 const isDefaultLabel = (label: string) => /^(Claude|ChatGPT|Grok|Kimi Code)( account| \d+)?$/.test(label.trim());
 const PROVIDER_LABELS: Record<Engine, string> = { codex: 'ChatGPT', claude: 'Claude', grok: 'Grok', kimi: 'Kimi Code' };
 export function providerIdentity(auth: Record<string, unknown>, engine: Engine, resolved?: string | null): string | null {
@@ -67,6 +73,30 @@ export class ProviderAccountsService {
     return (owner ? (owner.assertOwner(), ownedAccount(owner.state.snapshot(), id, engine)) : await resolveProviderAccount(this.db, id, engine))?.id ?? id;
   }
 
+  /** The live account whose credential history contains this canonical digest. */
+  async accountOfDigest(engine: Engine, digest: string): Promise<number | undefined> {
+    const owner = ownerRuntimeFor(this.db);
+    let accountId: number | null | undefined;
+    if (owner) {
+      owner.assertOwner();
+      accountId = owner.state
+        .snapshot()
+        .table('authPayloads')
+        .all()
+        .find((row) => row.engine === engine && row.sha256 === digest && row.accountId != null)?.accountId;
+    } else {
+      accountId = (
+        await this.db
+          .select({ accountId: authPayloads.accountId })
+          .from(authPayloads)
+          .where(and(eq(authPayloads.engine, engine), eq(authPayloads.sha256, digest), isNotNull(authPayloads.accountId)))
+          .orderBy(desc(authPayloads.id))
+          .limit(1)
+      )[0]?.accountId;
+    }
+    return accountId == null ? undefined : await this.canonicalId(accountId, engine);
+  }
+
   async resolveCandidate(
     auth: Record<string, unknown>,
     engine: Engine,
@@ -83,7 +113,12 @@ export class ProviderAccountsService {
    * resolves the provider identity through Anthropic's OAuth profile: a known
    * identity always routes to its own account (never rejected, so a late
    * rotation of a previous account still reaches it), and an unknown identity
-   * enrolls a new account when `autoEnroll` permits it.
+   * enrolls a new account when `autoEnroll` permits it. A login Anthropic did
+   * not name is filed only where that cannot merge two subscriptions: under
+   * the account that already holds the exact token, or under the sole account.
+   * In a pool, for an enrollment and for an operator replacement it is refused
+   * with a retryable 503 `account_identity_unavailable`; the caller's lease or
+   * saved account is never taken as proof.
    */
   async resolveCandidateDetailed(
     auth: Record<string, unknown>,
@@ -97,8 +132,11 @@ export class ProviderAccountsService {
     const owner=ownerRuntimeFor(this.db);owner?.assertOwner();
     const identity = inspectCredential(auth, engine);
     if (!identity) throw new ValidationError('payload contains no usable auth tokens');
-    const claude: ClaudeIdentity | null = engine === 'claude' ? await resolveClaudeIdentity(claudeAccessToken(auth)) : null;
+    const lookup: ClaudeIdentityLookup = engine === 'claude' ? await lookupClaudeIdentity(claudeAccessToken(auth)) : { status: 'skipped' };
+    const claude: ClaudeIdentity | null = lookup.status === 'resolved' ? lookup.identity : null;
     const identityKey = providerIdentity(auth, engine, claude ? claudeIdentityValue(claude) : null);
+    // A Claude OAuth login whose owner Anthropic did not name (refused or unreachable).
+    const unresolved = !identityKey && (lookup.status === 'unidentifiable' || lookup.status === 'unavailable');
     let accounts = (
       owner ? owner.state.snapshot().accounts.by('engine',engine) : await this.db.select().from(providerAccounts).where(eq(providerAccounts.engine, engine))
     ).filter((a) => !a.mergedIntoAccountId);
@@ -155,6 +193,10 @@ export class ProviderAccountsService {
       }
     };
     // Accounts enrolled before identity detection: ask who their head belongs to.
+    // Only Anthropic's refusal proves a head has no identity to compare; a
+    // lookup that failed leaves the account unproven, and nothing is filed
+    // under an unproven account on the strength of a binding.
+    const unprovenHeads = new Set<number>();
     if (engine === 'claude' && identityKey) {
       for (const a of accounts) {
         if (a.state === 'removed' || (a.identityKey && !a.identityKey.startsWith('credential:'))) continue;
@@ -162,8 +204,9 @@ export class ProviderAccountsService {
         let resolved: string | null = null;
         try {
           const headAuth = head?.body ? (JSON.parse(decrypt(head.body, this.keyring)) as Record<string, unknown>) : null;
-          const headIdentity = headAuth ? await resolveClaudeIdentity(claudeAccessToken(headAuth)) : null;
-          resolved = headIdentity ? providerIdentity({}, engine, claudeIdentityValue(headIdentity)) : null;
+          const headLookup: ClaudeIdentityLookup = headAuth ? await lookupClaudeIdentity(claudeAccessToken(headAuth)) : { status: 'skipped' };
+          if (headLookup.status === 'resolved') resolved = providerIdentity({}, engine, claudeIdentityValue(headLookup.identity));
+          else if (headLookup.status === 'unavailable') unprovenHeads.add(a.id);
         } catch {
           resolved = null;
         }
@@ -202,17 +245,46 @@ export class ProviderAccountsService {
     // identifies the same subscription across a completely new login.
     const live = (a: Account) => a.state !== 'removed';
     let account = identityKey ? accounts.filter(live).find((a) => accountIdentity(a) === identityKey) : undefined;
+    const refusal = { engine, sourceHostId: sourceHostId ?? null, target: target ?? null, strict: target !== undefined && !targetIsHint, enroll: enrollAccount, pool: accounts.filter(live).length };
+    if (unresolved) {
+      // The exact access or refresh token is already filed under this account:
+      // that is proof, whatever the uploading session is bound to.
+      const lineage = accounts.find((a) => a.id === matched?.accountId || a.payloadId === matched?.id);
+      if (lineage && sourceHostId != null)
+        return { account: await this.claimIdentity(lineage, null, null, sourceHostId), created: false };
+      if (!lineage) {
+        const requested = target !== undefined && !targetIsHint && sourceHostId == null ? await this.get(target, engine) : undefined;
+        if (enrollAccount || refusal.pool > 1 || (requested && accountIdentity(requested)))
+          throw await this.identityUnavailable(identity, lookup, refusal);
+        // A sole account keeps taking its rotations while Anthropic is unreachable.
+        await this.auditUnresolved(identity, lookup, refusal, 'legacy_rules');
+      }
+    }
     if (engine === 'claude' && identityKey) {
+      // A removed account stays removed until somebody enrolls it again on
+      // purpose (`enroll: true`, the admin console or a seed command). A host
+      // that still holds its login must not bring it back by syncing.
+      const retired = !account && accounts.some((a) => a.state === 'removed' && a.identityKey === identityKey);
+      if (retired && !enrollAccount && sourceHostId != null) throw new ConflictError('Account is retired', 'account_removed');
       // An operator replacing one account's credentials gets a refusal, not a
       // silent move to another account, when the login belongs elsewhere.
       if (target !== undefined && sourceHostId == null && !targetIsHint) {
-        const requestedIdentity = accountIdentity(await this.get(target, engine));
+        const requested = await this.get(target, engine);
+        const requestedIdentity = accountIdentity(requested);
         if (requestedIdentity && requestedIdentity !== identityKey)
           throw new ConflictError('Credentials belong to a different account', 'account_identity_mismatch');
+        if (!requestedIdentity && unprovenHeads.has(requested.id))
+          throw await this.identityUnavailable(identity, { status: 'unavailable', reason: 'account_head' }, refusal);
       }
+      // Explicit enrollment: the tombstone gives its identity back before it is claimed again.
+      if (retired) await this.releaseRetiredIdentity(engine, identityKey, accounts);
       // Same login family whose identity was never recorded.
       const lineage = accounts.find((a) => a.id === matched?.accountId || a.payloadId === matched?.id);
       if (!account && lineage && !accountIdentity(lineage)) account = lineage;
+      // The login matches no known identity, but an account whose own identity
+      // could not be established just now may be its owner.
+      if (!account && unprovenHeads.size)
+        throw await this.identityUnavailable(identity, { status: 'unavailable', reason: 'account_head' }, refusal);
       if (!account && target !== undefined) {
         const requested = await this.get(target, engine);
         // Without a provable identity for the target, keep the previous behaviour.
@@ -273,6 +345,56 @@ export class ProviderAccountsService {
     if (account) return { account: await this.claimIdentity(account, identityKey, null, sourceHostId), created: false };
     if(owner)return { account: await this.createOwnedAccount(engine,key,null,null,`${PROVIDER_LABELS[engine]} account`), created: true };
     return { account: await this.insertAccount(engine, key, `${PROVIDER_LABELS[engine]} account`), created: true };
+  }
+
+  /**
+   * Records that a login could not be attributed. Metadata only: no token
+   * material and no fingerprint leaves this process.
+   */
+  private async auditUnresolved(
+    credential: NonNullable<ReturnType<typeof inspectCredential>>,
+    lookup: ClaudeIdentityLookup,
+    context: { engine: Engine; sourceHostId: number | null; target: number | null; strict: boolean; enroll: boolean; pool: number },
+    outcome: 'refused' | 'legacy_rules',
+  ): Promise<void> {
+    const now = Date.now();
+    const key = `${outcome}:${credentialMetadata(credential, this.keyring.active()).pairFingerprint}`;
+    const last = unresolvedAudits.get(key);
+    if (last !== undefined && now - last < UNRESOLVED_AUDIT_EVERY_MS) return;
+    for (const [seen, at] of unresolvedAudits) if (now - at >= UNRESOLVED_AUDIT_EVERY_MS) unresolvedAudits.delete(seen);
+    unresolvedAudits.set(key, now);
+    try {
+      await appendAuditLog(this.db, {
+        hostId: context.sourceHostId,
+        action: 'provider_account.identity_unresolved',
+        details: JSON.stringify({
+          engine: context.engine,
+          lookup: lookup.status,
+          reason: lookup.status === 'unavailable' ? lookup.reason : null,
+          outcome,
+          account_id: context.target,
+          session_bound: context.strict && context.sourceHostId != null,
+          enroll: context.enroll,
+          accounts: context.pool,
+        }),
+        createdAt: nowIso(),
+      });
+    } catch (error) {
+      console.warn('provider account: identity audit failed', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** The fail-closed answer for a login nobody could attribute. Retryable: local credentials stay as they are. */
+  private async identityUnavailable(
+    credential: NonNullable<ReturnType<typeof inspectCredential>>,
+    lookup: ClaudeIdentityLookup,
+    context: { engine: Engine; sourceHostId: number | null; target: number | null; strict: boolean; enroll: boolean; pool: number },
+  ): Promise<ApiError> {
+    await this.auditUnresolved(credential, lookup, context, 'refused');
+    return new ApiError(
+      'The provider could not confirm which account these credentials belong to; nothing was stored. Keep the local credentials and retry.',
+      { status: 503, code: 'account_identity_unavailable', type: 'service_unavailable', headers: { 'retry-after': '30' } },
+    );
   }
 
   /** Retirement checks plus first recording of a provider identity on an account. */
@@ -418,6 +540,7 @@ export class ProviderAccountsService {
             usage,
             quota_snapshot: await quotaSnapshot(this.db, a.id, a.engine as Engine),
             quota_policy: (await readQuotaPolicy(this.db, a.engine as Engine, a.id)).effective,
+            quota_exhausted: await readQuotaExhaustion(this.db, a.id),
             plan,
             sessions: sessions
               .filter((s) => s.accountId === a.id)
@@ -554,13 +677,15 @@ export class ProviderAccountsService {
           if (row?.verificationState !== 'verified') continue;
           const usage = await this.usage(a.id, engine, tx);
           const unlimited = (await readQuotaPolicy(tx, engine, a.id)).effective.unlimited;
+          // The provider's own refusal outranks the readings: nothing new lands there.
+          const exhausted = !unlimited && !!(await readQuotaExhaustion(tx, a.id));
           const scores = [
             quotaWindowScore(usage.short_used_percent, usage.short_resets_at, Date.now()),
             quotaWindowScore(usage.weekly_used_percent, usage.weekly_resets_at, Date.now()),
           ].filter((x): x is number => x !== null);
           candidates.push({
             id: a.id,
-            score: unlimited ? 0 : scores.length ? Math.max(...scores) : null,
+            score: unlimited ? 0 : exhausted ? 100 : scores.length ? Math.max(...scores) : null,
             active: sessions.filter((s) => s.accountId === a.id).length,
             lastSelectedAt: a.lastSelectedAt,
             // Unlimited quota never expires, so it has no reset to race.
@@ -596,7 +721,7 @@ export class ProviderAccountsService {
           accountId: account.id,
           expiresAt,
           createdAt: now,
-          bindingGeneration: pinned?.bindingGeneration ?? 1,
+          bindingGeneration: pinned?.bindingGeneration ?? freshBindingGeneration(),
           desiredAccountId: pinned?.desiredAccountId ?? null,
           desiredReason: pinned?.desiredReason ?? null,
           desiredAt: pinned?.desiredAt ?? null,
@@ -634,7 +759,7 @@ export class ProviderAccountsService {
     const account = await this.get(session.accountId, engine);
     if (account.state === 'removed') throw new ConflictError('Account removed');
     const owner = ownerRuntimeFor(this.db);
-    if(owner && session.ownershipMode==='connection')return {account_id:session.accountId,expires_at:session.expiresAt};
+    if(owner && session.ownershipMode==='connection'){noteProviderRenewal(owner,id);return {account_id:session.accountId,expires_at:session.expiresAt};}
     const expiresAt = new Date(Date.now() + 300_000).toISOString();
     if(owner){
       await mutateOwnerState(owner,{kind:'provider.session.renew',payload:{hostId,engine,id},prepare({snapshot,draft,write}){

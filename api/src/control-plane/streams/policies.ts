@@ -3,6 +3,7 @@ import type { StateRow } from '../state/catalog.js';
 import { DEFAULT_QUOTA_POLICY, quotaPolicySchema } from '../../services/quota-policy.js';
 
 import { supervisorCanMonitor } from '../../services/agent-supervisor/policy.js';
+import { quotaSwitchWatchdog } from '../../services/watchdog-lifecycle.js';
 
 const live = ['watching', 'recovering', 'capacity_wait'];
 const active = ['waiting', 'queued', 'leased', 'accepted', 'recovering', 'capacity_wait'];
@@ -85,9 +86,13 @@ export function watchdogPolicy(s: OwnerStateSnapshot, session: StateRow<'agentSe
     .table('agentPrompts')
     .by('sessionId', session.id)
     .some((p) => p.status === 'open');
+  // A continuation on another account waits in a session that is alive and
+  // idle: nothing to terminate, no progress to time. Whether it may wait for a
+  // reset instead is decided where it becomes due, not here.
+  const quotaSwitch = !!row && quotaSwitchWatchdog(row);
   const allowed =
     !!row &&
-    quotaAllowed(s, session.engine, row.quotaAccountId, row.quotaWindow) &&
+    (quotaSwitch || quotaAllowed(s, session.engine, row.quotaAccountId, row.quotaWindow)) &&
     Date.parse(row.deadlineAt) > now &&
     !prompt &&
     (row?.createdBy !== 'supervisor' || supervisorCanMonitor(s, session));
@@ -130,9 +135,10 @@ export function watchdogPolicy(s: OwnerStateSnapshot, session: StateRow<'agentSe
           created_by: row.createdBy,
         }
       : null,
-    progress_timeout_seconds: allowed ? row!.progressTimeoutSeconds : null,
+    progress_timeout_seconds: allowed && !quotaSwitch ? row!.progressTimeoutSeconds : null,
     terminate_requested:
       allowed &&
+      !quotaSwitch &&
       row!.sessionId === session.id &&
       !session.closeRequestedAt &&
       ['capacity', 'hang', 'crash'].includes(row!.lastError ?? ''),

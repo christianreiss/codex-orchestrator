@@ -100,6 +100,11 @@ export function quotaResumeGate(snapshot: QuotaSnapshot, kind: string | null, re
   const resets = [resetAt, ...blockers.map(w => w.resets_at)].map(v => Date.parse(v ?? '')).filter(Number.isFinite);
   const due = resets.length ? Math.max(...resets) + 60000 : 0;
   if (due > now) return { wait_until: new Date(due).toISOString() };
+  return quotaAttemptGate(attempts, attemptAt, now);
+}
+
+/** The attempt budget of one quota recovery: four resumes, spaced 5, 15 and 30 minutes apart. */
+export function quotaAttemptGate(attempts: number, attemptAt: string | null, now: number) {
   if (attempts >= 4) return { stop: 'quota_resume_attempts_exhausted' };
   if (attemptAt) {
     const retry = Date.parse(attemptAt) + [300, 900, 1800][Math.max(0, Math.min(attempts - 1, 2))]! * 1000;

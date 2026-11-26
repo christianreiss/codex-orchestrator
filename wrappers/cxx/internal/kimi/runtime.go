@@ -87,6 +87,11 @@ var runtimeCopiedAssets = []string{"AGENTS.md", "SYSTEM.md", "config.toml", "tui
 
 var deviceIDPattern = regexp.MustCompile(`(?i)^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$`)
 
+// ValidDeviceID reports whether value is a Kimi Code device id: 32 hex digits
+// or a dashed UUID, the form kimi-code mints when no device_id file exists.
+// The server (kimi-auth.ts) and the runner accept the same two forms.
+func ValidDeviceID(value string) bool { return deviceIDPattern.MatchString(value) }
+
 func nativeProjection(raw json.RawMessage) (AuthEnvelope, Credential, error) {
 	var envelope AuthEnvelope
 	if json.Unmarshal(raw, &envelope) != nil {

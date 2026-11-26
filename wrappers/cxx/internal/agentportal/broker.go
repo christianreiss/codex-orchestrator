@@ -64,7 +64,10 @@ type Broker struct {
 	sessionIdle int
 	// rootTurnIdle is the last root hook's turn state (claudeRootTurnIdle),
 	// read by the live account switch. Guarded by nativeMu.
-	rootTurnIdle   bool
+	rootTurnIdle bool
+	// turnObserver hears every change of that evidence. Guarded by nativeMu
+	// and called with it held, so it must stay short and local.
+	turnObserver   func(idle, known bool)
 	accountMu      sync.Mutex
 	accountHandler AccountHandler
 }
@@ -248,6 +251,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		b.nativeMu.Lock()
 		if input.NativeID != "" {
 			b.nativeID = input.NativeID
+			b.observeClaudeTurnLocked()
 		}
 		id := b.nativeID
 		if b.pendingNativeID != "" {

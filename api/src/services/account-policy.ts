@@ -3,6 +3,8 @@ import type { Database } from '../db/client.js';
 import { ValidationError } from '../http/errors.js';
 import type { Engine } from '../util/engine.js';
 import { SettingsService } from './settings.js';
+import { appendAuditLog } from './audit-log.js';
+import { nowIso } from '../util/timestamp.js';
 import { selectAccount, selectionOrder, trialDue, weeklyDeadline, type AccountChoice } from './account-selection.js';
 
 /**
@@ -47,6 +49,9 @@ export const DEFAULT_ACCOUNT_POLICY: StoredAccountPolicy = {
 
 export const accountPolicyKey = (engine: Engine) => `account_policy_${engine}`;
 
+/** Engines whose wrapper can adopt another account inside a running session. */
+export const LIVE_SWITCH_ENGINES: ReadonlySet<Engine> = new Set<Engine>(['claude']);
+
 function withPoints(policy: StoredAccountPolicy): AccountPolicy {
   return { ...policy, spread_points: SPREAD_POINTS[policy.spread] };
 }
@@ -66,7 +71,12 @@ export async function readAccountPolicy(db: Database, engine: Engine): Promise<A
   return parseStoredPolicy(await new SettingsService(db).getString(accountPolicyKey(engine)));
 }
 
-export async function writeAccountPolicy(db: Database, engine: Engine, patch: unknown): Promise<AccountPolicy> {
+export async function writeAccountPolicy(
+  db: Database,
+  engine: Engine,
+  patch: unknown,
+  actor: string | null = null,
+): Promise<AccountPolicy> {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch))
     throw new ValidationError('policy must be an object');
   const current = await readAccountPolicy(db, engine);
@@ -74,6 +84,14 @@ export async function writeAccountPolicy(db: Database, engine: Engine, patch: un
   const parsed = policySchema.safeParse({ ...stored, ...(patch as Record<string, unknown>) });
   if (!parsed.success) throw new ValidationError(parsed.error.issues[0]?.message ?? 'Invalid account policy');
   await new SettingsService(db).set(accountPolicyKey(engine), JSON.stringify(parsed.data));
+  // The policy moves running sessions between subscriptions: who changed it,
+  // and from what, belongs in the audit log like a quota policy change.
+  if (JSON.stringify(stored) !== JSON.stringify(parsed.data))
+    await appendAuditLog(db, {
+      action: 'account.policy.updated',
+      details: JSON.stringify({ engine, actor, before: stored, after: parsed.data }),
+      createdAt: nowIso(),
+    });
   return withPoints(parsed.data);
 }
 

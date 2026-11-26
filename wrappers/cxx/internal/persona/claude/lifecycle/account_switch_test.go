@@ -35,10 +35,17 @@ func (e codedErr) Error() string     { return string(e) }
 func (e codedErr) ErrorCode() string { return string(e) }
 
 type switchRecorder struct {
-	steps      []string
-	idle       []bool
-	flushErr   error
-	commitErr  error
+	steps     []string
+	idle      []bool
+	flushErr  error
+	commitErr error
+	// commitErrs fail the first commits only (an answer lost on the way).
+	commitErrs []error
+	// flushSeq answers the first flushes; later ones confirm the local file.
+	flushSeq []flushResult
+	relaxed  []bool
+	// flag is the scope's repair flag.
+	flag       bool
 	writeSeq   []string // "ok", "cas", "busy"
 	matchAfter int
 	doneReason string
@@ -58,13 +65,24 @@ func (r *switchRecorder) deps(pool *fakeSwitchPool) *accountSwitchDeps {
 			r.idle = r.idle[1:]
 			return v
 		},
-		flush: func(context.Context) (claude.AuthGeneration, error) {
+		flush: func(_ context.Context, relaxed bool) (flushResult, error) {
 			r.steps = append(r.steps, "flush")
+			r.relaxed = append(r.relaxed, relaxed)
 			gen++
-			return claude.AuthGeneration{Exists: true, Digest: strings.Repeat("a", 63) + string(rune('0'+gen))}, r.flushErr
+			out := flushResult{}
+			if len(r.flushSeq) > 0 {
+				out, r.flushSeq = r.flushSeq[0], r.flushSeq[1:]
+			}
+			out.Generation = claude.AuthGeneration{Exists: true, Digest: strings.Repeat("a", 63) + string(rune('0'+gen))}
+			return out, r.flushErr
 		},
 		commit: func(_ context.Context, d accountpool.SwitchDirective) (*accountpool.LeaseResponse, error) {
 			r.steps = append(r.steps, "commit")
+			if len(r.commitErrs) > 0 {
+				err := r.commitErrs[0]
+				r.commitErrs = r.commitErrs[1:]
+				return nil, err
+			}
 			if r.commitErr != nil {
 				return nil, r.commitErr
 			}
@@ -92,8 +110,15 @@ func (r *switchRecorder) deps(pool *fakeSwitchPool) *accountSwitchDeps {
 			r.steps = append(r.steps, "matches")
 			return claude.AuthGeneration{}, false
 		},
-		pauseSync:  func() { r.steps = append(r.steps, "pause") },
-		resumeSync: func() { r.steps = append(r.steps, "resume") },
+		report: func(context.Context, accountpool.SwitchDirective) error {
+			r.steps = append(r.steps, "report")
+			return nil
+		},
+		markRepair:    func() { r.flag = true },
+		clearRepair:   func() { r.flag = false },
+		repairPending: func() bool { return r.flag },
+		pauseSync:     func() { r.steps = append(r.steps, "pause") },
+		resumeSync:    func() { r.steps = append(r.steps, "resume") },
 		done: func(_ int64, _ string, _ *accountpool.LeaseResponse, _ claude.AuthGeneration, reason string) {
 			r.steps = append(r.steps, "done")
 			r.doneReason = reason
@@ -216,9 +241,11 @@ func TestCommittedSwitchKeepsSyncPausedUntilWritten(t *testing.T) {
 		return claude.AuthGeneration{}, false, nil
 	}
 	c := &committedSwitch{res: &accountpool.LeaseResponse{AccountID: 7}, directive: directive, applied: true, attempts: accountSwitchFinishTries - 1}
+	r.flag = true
 	outcome, committed, _ = finishAccountSwitch(context.Background(), deps, c)
-	if outcome != switchIncomplete || committed != nil || !strings.HasSuffix(filterSteps(r.steps), "resume") || strings.Contains(filterSteps(r.steps), "done") {
-		t.Fatalf("give up: %v %v %v", outcome, committed, r.steps)
+	// The server hears about it and the flag stays, so a later poll tries again.
+	if outcome != switchIncomplete || committed != nil || !strings.HasSuffix(filterSteps(r.steps), "resume,report") || strings.Contains(filterSteps(r.steps), "done") || !r.flag {
+		t.Fatalf("give up: %v %v %v flag=%v", outcome, committed, r.steps, r.flag)
 	}
 }
 

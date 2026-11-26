@@ -74,3 +74,23 @@ printf '%s' '{"access_token":"seed-access","refresh_token":"seed-refresh","expir
 		t.Fatal("seed home retained")
 	}
 }
+
+// kimi-code mints a dashed UUID when the fresh login home has no device_id
+// file; the login must accept the same forms as the runtime and the server.
+func TestValidDeviceIDAcceptsHexAndDashedUUID(t *testing.T) {
+	for value, want := range map[string]bool{
+		strings.Repeat("a", 32):                  true,
+		"0F1E2D3C4B5A69788796A5B4C3D2E1F0":       true,
+		"3f9c5d7e-2a4b-4c6d-8e0f-1a2b3c4d5e6f":   true,
+		"3F9C5D7E-2A4B-4C6D-8E0F-1A2B3C4D5E6F":   true,
+		"":                                       false,
+		strings.Repeat("a", 31):                  false,
+		strings.Repeat("g", 32):                  false,
+		"3f9c5d7e2a4b-4c6d-8e0f-1a2b3c4d5e6f":    false,
+		"3f9c5d7e-2a4b-4c6d-8e0f-1a2b3c4d5e6f\n": false,
+	} {
+		if got := validDeviceID(value); got != want {
+			t.Errorf("validDeviceID(%q) = %v, want %v", value, got, want)
+		}
+	}
+}

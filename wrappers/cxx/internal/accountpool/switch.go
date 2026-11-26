@@ -6,7 +6,11 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"os"
+	"strings"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 )
 
 // SwitchDirective is the server's pending account change for this scope
@@ -18,6 +22,16 @@ type SwitchDirective struct {
 	BindingGeneration int64  `json:"binding_generation"`
 	Reason            string `json:"reason"`
 	RequestedAt       string `json:"requested_at"`
+	// BoundAccountUsable is false when the account the scope leaves is paused,
+	// being removed or no longer verified, so its head cannot confirm a flush. Nil
+	// (a server that does not say) means usable: the flush stays strict.
+	BoundAccountUsable *bool `json:"bound_account_usable,omitempty"`
+}
+
+// LeavesUnusableAccount reports that the server declared the bound account
+// unusable for this directive.
+func (d SwitchDirective) LeavesUnusableAccount() bool {
+	return d.BoundAccountUsable != nil && !*d.BoundAccountUsable
 }
 
 // Adoption reports that a sibling process in the same scope committed a switch.
@@ -206,6 +220,11 @@ func (c *Context) Heartbeat(ctx context.Context, client Client) error {
 	defer stop()
 	var lease LeaseResponse
 	body := map[string]any{"engine": c.Engine, "scope_id": c.ScopeID, "session_id": id, "account_id": account}
+	if communicator.StateRequired(c.baseURL) {
+		// The lease was connection-owned; a timed one could not carry the
+		// provider attachment this launch keeps redialing.
+		body["ownership_mode"] = "connection"
+	}
 	if err := client.JSON(callCtx, http.MethodPost, "/auth/sessions", body, &lease, 0); err != nil {
 		return err
 	}
@@ -214,6 +233,15 @@ func (c *Context) Heartbeat(ctx context.Context, client Client) error {
 		return errors.New("lease re-reservation returned another account")
 	}
 	c.mu.Lock()
+	// The server had no lease of this session left, so the generation it
+	// answers with is the scope's current one, also when it is lower than
+	// the one remembered here (a scope whose rows were all gone used to
+	// start again at 1). Keeping the higher number would fence off every
+	// later directive. A directive issued under the old count is void.
+	if lease.BindingGeneration != nil && *lease.BindingGeneration < c.BindingGeneration {
+		c.BindingGeneration = *lease.BindingGeneration
+		c.PendingSwitch = nil
+	}
 	c.observeBindingLocked(lease.binding(), false)
 	c.mu.Unlock()
 	return nil
@@ -234,10 +262,25 @@ func SwitchErrorCode(err error) string {
 // CommitSwitch performs the server half of a pending directive. Callers flush
 // the old account first and write the returned credentials afterwards.
 func (c *Context) CommitSwitch(ctx context.Context, client Client, d SwitchDirective) (*LeaseResponse, error) {
+	return c.commitSwitch(ctx, client, d, false)
+}
+
+// ReportUnfinishedSwitch repeats a commit the server already performed (it
+// answers the repeat with the same credentials) and tells it that this host
+// has not been able to write them, so the gap shows in the audit log.
+func (c *Context) ReportUnfinishedSwitch(ctx context.Context, client Client, d SwitchDirective) error {
+	_, err := c.commitSwitch(ctx, client, d, true)
+	return err
+}
+
+func (c *Context) commitSwitch(ctx context.Context, client Client, d SwitchDirective, unfinished bool) (*LeaseResponse, error) {
 	c.mu.Lock()
 	id := c.SessionID
 	c.mu.Unlock()
 	body := map[string]any{"engine": c.Engine, "session_id": id, "scope_id": c.ScopeID, "account_id": d.AccountID, "binding_generation": d.BindingGeneration}
+	if unfinished {
+		body["credential_write"] = "unfinished"
+	}
 	var out LeaseResponse
 	if err := client.JSON(ctx, http.MethodPost, "/auth/sessions/switch", body, &out, 0); err != nil {
 		return nil, err
@@ -312,6 +355,44 @@ func ListAccounts(ctx context.Context, client Client, engine, sessionID string) 
 		return nil, err
 	}
 	return raw, nil
+}
+
+// The repair flag marks a scope whose credentials file may not belong to the
+// account the scope is bound to: a switch was committed and its write is
+// outstanding, a sibling's switch was adopted unverified, or a sync found the
+// file to be another account's login. It is a file next to the binding so it
+// survives the process and reaches every wrapper of the scope. Only a write
+// of the bound account's credentials, or a sync that finds them in place,
+// clears it.
+func (c *Context) repairPath() string {
+	return strings.TrimSuffix(c.path, ".json") + ".repair"
+}
+
+// MarkRepair sets the repair flag. Best effort: without it the next sync
+// still detects the mismatch.
+func (c *Context) MarkRepair() {
+	if c == nil || c.path == "" {
+		return
+	}
+	if _, err := os.Stat(c.repairPath()); err == nil {
+		return
+	}
+	_ = os.WriteFile(c.repairPath(), []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600)
+}
+
+func (c *Context) RepairPending() bool {
+	if c == nil || c.path == "" {
+		return false
+	}
+	_, err := os.Stat(c.repairPath())
+	return err == nil
+}
+
+func (c *Context) ClearRepair() {
+	if c == nil || c.path == "" {
+		return
+	}
+	_ = os.Remove(c.repairPath())
 }
 
 func (l *LeaseResponse) binding() bindingFields {

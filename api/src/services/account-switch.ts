@@ -1,20 +1,21 @@
 import { and, eq, gt, isNull, or } from 'drizzle-orm';
 import type { Database } from '../db/client.js';
 import { agentSessions, hosts, providerAccounts, providerAccountSessions } from '../db/schema.js';
-import { ConflictError, NotFoundError } from '../http/errors.js';
+import { ConflictError, NotFoundError, ServiceUnavailableError } from '../http/errors.js';
 import type { Keyring } from '../security/keyring.js';
 import { nowIso } from '../util/timestamp.js';
 import type { Engine } from '../util/engine.js';
 import { mutateOwnerState, ownerRuntimeFor } from '../control-plane/state/runtime.js';
 import { ownedAccount } from '../control-plane/streams/provider-leases.js';
 import { stageUpdate } from '../control-plane/state/rows.js';
-import { persistAuditLog } from './audit-log.js';
+import { appendAuditLog, persistAuditLog } from './audit-log.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { quotaWindowScore } from './account-selection.js';
 import { emulationBlocks } from './quota-emulation.js';
 import { ProviderAccountsService } from './provider-accounts.js';
 import { SettingsService } from './settings.js';
 import {
+  LIVE_SWITCH_ENGINES,
   poolHeadroomTarget,
   poolRecommendation,
   readAccountPolicy,
@@ -27,8 +28,7 @@ import {
 type Lease = typeof providerAccountSessions.$inferSelect;
 export type SwitchReason = 'policy' | 'admin' | 'host' | 'agent';
 
-/** Engines whose wrapper can adopt another account inside a running session. */
-export const LIVE_SWITCH_ENGINES: ReadonlySet<Engine> = new Set<Engine>(['claude']);
+export { LIVE_SWITCH_ENGINES };
 
 export interface SwitchDirective {
   account_id: number;
@@ -36,6 +36,12 @@ export interface SwitchDirective {
   binding_generation: number;
   reason: SwitchReason;
   requested_at: string | null;
+  /**
+   * False when the account the scope is leaving is paused or no longer
+   * verified. The server will not confirm that account's credentials any more,
+   * so the wrapper must not wait for that confirmation before it switches.
+   */
+  bound_account_usable: boolean;
 }
 
 export interface PoolAccount {
@@ -56,6 +62,8 @@ export interface PoolAccount {
   unlimited: boolean;
   active_sessions: number;
   last_selected_at: string | null;
+  /** The provider refused a turn with its usage limit: full until then (absent or null: not marked). */
+  exhausted_until?: string | null;
 }
 
 /**
@@ -78,7 +86,7 @@ export function accountSwitchNoticeContent(engine: Engine, from: PoolAccount | u
 
 /** Where one listed account stands in its engine's pool (`/admin/accounts` `pool`). */
 export interface PoolPosition {
-  /** max(short, weekly) used percent; a passed reset is no reading, unlimited is 0, an emulated block is 100. */
+  /** max(short, weekly) used percent; a passed reset is no reading, unlimited is 0, an emulated block or a provider refusal is 100. */
   score: number | null;
   /** The short and weekly window as scored (null without a current reading), for pool averages. */
   short: number | null;
@@ -86,6 +94,8 @@ export interface PoolPosition {
   /** Enabled and verified: the account can take new work and live switches. */
   usable: boolean;
   emulation_blocked: boolean;
+  /** Until when the provider's own usage-limit refusal holds (null: not marked). */
+  exhausted_until: string | null;
 }
 
 /** The fields of a `ProviderAccountsService.list()` row that decide its pool position. */
@@ -95,6 +105,8 @@ export interface PoolPositionInput {
   usage: object;
   quota_policy?: { unlimited?: boolean } | null;
   quota_snapshot?: { short?: Parameters<typeof emulationBlocks>[0] } | null;
+  /** The account's exhaustion marker (`quota-exhaustion.ts`), when one is on record. */
+  quota_exhausted?: { until: string } | null;
 }
 
 /**
@@ -112,24 +124,38 @@ export function poolPosition(account: PoolPositionInput, now: number): PoolPosit
   const short = quotaWindowScore(num(usage.short_used_percent), str(usage.short_resets_at), now);
   const weekly = quotaWindowScore(num(usage.weekly_used_percent), str(usage.weekly_resets_at), now);
   const scores = [short, weekly].filter((x): x is number => x !== null);
+  // The provider refused a turn on this account with its usage limit. That
+  // outranks every reading, which only repeats the last successful response.
+  const until = account.quota_exhausted?.until;
+  const exhausted = !unlimited && !!until && Date.parse(until) > now;
   return {
-    score: unlimited ? 0 : blocked ? 100 : scores.length ? Math.max(...scores) : null,
+    score: unlimited ? 0 : blocked || exhausted ? 100 : scores.length ? Math.max(...scores) : null,
     short,
     weekly,
     usable: account.state === 'enabled' && account.verification_state === 'verified',
     emulation_blocked: blocked,
+    exhausted_until: exhausted ? until : null,
   };
 }
 
-/** How long after a live switch a reading is checked against the previous account's windows. */
+/**
+ * How long after a live switch a reading is checked against the other accounts'
+ * windows while the bound account has no window of its own to compare with,
+ * and how long a reading refused as another account's has to keep arriving
+ * before it is believed after all.
+ */
 export const SWITCH_STALE_READING_MS = 30 * 60_000;
 
 /**
  * After a live switch Claude Code's statusline keeps showing the rate limits of
  * the last response, which the previous account served, while the reporter
- * already files them under the new binding. A reading taken shortly after a
- * switch is stale when its reset matches another account's current window
- * and not the bound account's own: reset times identify an account's window.
+ * already files them under the new binding. A reading is another account's
+ * when its reset matches that account's current window and not the bound
+ * account's own: reset times identify an account's window. While the bound
+ * account has a running window on record, that holds however long ago the
+ * switch was (a session can sit on its last response for hours). Without one
+ * there is nothing to contradict the report, so it is only doubted for the
+ * first half hour after the switch.
  */
 export function staleSwitchReading(
   report: { short_resets_at: string | null; weekly_resets_at: string | null },
@@ -139,7 +165,7 @@ export function staleSwitchReading(
   now: number,
 ): boolean {
   const at = boundAt ? Date.parse(boundAt) : NaN;
-  if (!Number.isFinite(at) || now - at > SWITCH_STALE_READING_MS) return false;
+  const justSwitched = Number.isFinite(at) && now - at <= SWITCH_STALE_READING_MS;
   const same = (a: string | null | undefined, b: string | null | undefined) => {
     if (!a || !b) return false;
     const x = Date.parse(a);
@@ -149,10 +175,44 @@ export function staleSwitchReading(
   const window = (key: 'short_resets_at' | 'weekly_resets_at') => {
     const reset = report[key];
     if (!reset || same(reset, bound?.[key])) return false;
+    const own = bound?.[key] ? Date.parse(bound[key] as string) : NaN;
+    if (!justSwitched && !(Number.isFinite(own) && own > now)) return false;
     return others.some((o) => same(reset, o[key]));
   };
   return window('weekly_resets_at') || window('short_resets_at');
 }
+
+/**
+ * Readings refused as another account's, by account and reset times. The
+ * refusal rests on what is stored, and what is stored can itself be wrong
+ * (two accounts whose first readings were filed crosswise would refuse each
+ * other's true readings until the windows end). A stale statusline stops
+ * repeating itself with the session's next response; a reading that keeps
+ * arriving for `SWITCH_STALE_READING_MS` is therefore taken as the truth.
+ */
+const refusedReadings = new Map<string, { since: number; last: number }>();
+const REFUSED_READING_GAP_MS = 15 * 60_000;
+
+function refusedLongEnough(key: string, now: number): boolean {
+  if (refusedReadings.size > 2000) {
+    for (const [k, v] of refusedReadings) if (now - v.last > REFUSED_READING_GAP_MS) refusedReadings.delete(k);
+  }
+  const seen = refusedReadings.get(key);
+  if (!seen || now - seen.last > REFUSED_READING_GAP_MS) {
+    refusedReadings.set(key, { since: now, last: now });
+    return false;
+  }
+  seen.last = now;
+  if (now - seen.since < SWITCH_STALE_READING_MS) return false;
+  refusedReadings.delete(key);
+  return true;
+}
+
+/** How long an operator, host or agent request may wait for its scope before it is withdrawn. */
+export const SWITCH_REQUEST_TTL_MS = 24 * 3_600_000;
+
+/** Unfinished credential writes already audited (host, engine, scope, binding generation). */
+const unfinishedWrites = new Set<string>();
 
 const liveLease = (row: Lease, now: string) => row.ownershipMode === 'connection' || row.expiresAt > now;
 const generationOf = (row: Pick<Lease, 'bindingGeneration'>) => row.bindingGeneration ?? 1;
@@ -225,6 +285,7 @@ export class AccountSwitchService {
           unlimited: a.quota_policy?.unlimited === true,
           active_sessions: a.sessions.length,
           last_selected_at: a.last_selected_at,
+          exhausted_until: position.exhausted_until,
         };
       });
   }
@@ -237,7 +298,7 @@ export class AccountSwitchService {
     }
   }
 
-  async directiveFor(row: Lease | undefined): Promise<SwitchDirective | null> {
+  async directiveFor(row: Lease | undefined, pool?: PoolAccount[]): Promise<SwitchDirective | null> {
     if (!row?.desiredAccountId || row.desiredAccountId === row.accountId) return null;
     return {
       account_id: row.desiredAccountId,
@@ -245,6 +306,7 @@ export class AccountSwitchService {
       binding_generation: generationOf(row),
       reason: (row.desiredReason as SwitchReason | null) ?? 'admin',
       requested_at: row.desiredAt ?? null,
+      bound_account_usable: this.usable(pool ?? (await this.pool(row.engine as Engine)), row.accountId),
     };
   }
 
@@ -253,6 +315,59 @@ export class AccountSwitchService {
     const row = (await this.leases({ hostId, engine })).find((r) => r.id === sessionId);
     if (!row) return { binding_generation: null, account_switch: null };
     return { binding_generation: generationOf(row), account_switch: await this.directiveFor(row) };
+  }
+
+  /** When the scope of a session was bound to its account (null: unknown session). */
+  async boundAt(hostId: number, engine: Engine, sessionId: string): Promise<string | null> {
+    const row = (await this.leases({ hostId, engine })).find((r) => r.id === sessionId);
+    return row ? (row.boundAt ?? row.createdAt) : null;
+  }
+
+  /**
+   * The account a host's usage report is filed under. The number in the report
+   * is only a claim: the account comes from a live lease of the reporting host,
+   * so a host cannot file a reading for an account it does not run on. A report
+   * that names its session is held to that session's binding. One that names
+   * only an account (a statusline outside a wrapper launch) needs a live lease
+   * of this host on that account, or the account to be the only one there is.
+   * A report that names neither stays unattributed, as before account pools.
+   */
+  async usageReportAccount(
+    hostId: number,
+    engine: Engine,
+    input: { sessionId?: string; accountId?: number; short_resets_at: string | null; weekly_resets_at: string | null },
+    now = Date.now(),
+  ): Promise<{ accountId?: number } | { ignored: 'stale_account' | 'session_required' }> {
+    let boundAt: string | null = null;
+    let accountId: number;
+    if (input.sessionId !== undefined) {
+      const session = await this.accounts.session(hostId, engine, input.sessionId);
+      // After a live switch the statusline may still carry the previous
+      // account; its reading must not be filed under the new one.
+      if (input.accountId !== undefined && input.accountId !== session.accountId) return { ignored: 'stale_account' };
+      accountId = session.accountId;
+      boundAt = session.boundAt ?? null;
+    } else if (input.accountId !== undefined) {
+      accountId = input.accountId;
+      const held = (await this.leases({ hostId, engine })).filter((row) => row.accountId === accountId);
+      if (!held.length) {
+        const live = (await this.accounts.list(engine)).filter((a) => a.state !== 'removed');
+        if (live.length !== 1 || live[0]!.id !== accountId) return { ignored: 'session_required' };
+      }
+      boundAt = held.map((row) => row.boundAt ?? null).sort((a, b) => (b ?? '').localeCompare(a ?? ''))[0] ?? null;
+    } else {
+      return {};
+    }
+    // The reporter files by binding, but the payload can still be the previous
+    // account's last response (same reset times).
+    const pool = await this.pool(engine);
+    const bound = pool.find((a) => a.id === accountId);
+    if (staleSwitchReading(input, boundAt, bound, pool.filter((a) => a.id !== accountId), now)) {
+      const minute = (at: string | null) => (at ? Math.round(Date.parse(at) / 60_000) : 0);
+      const key = `${engine}:${accountId}:${minute(input.short_resets_at)}:${minute(input.weekly_resets_at)}`;
+      if (!refusedLongEnough(key, now)) return { ignored: 'stale_account' };
+    }
+    return { accountId };
   }
 
   private usable(pool: PoolAccount[], id: number) {
@@ -351,6 +466,8 @@ export class AccountSwitchService {
     target: number | 'auto';
     reason: SwitchReason;
     actor?: string | null;
+    /** Why a pending request is being cleared (audit only). */
+    withdrawn?: 'requested' | 'readings' | 'expired' | 'target_unavailable';
   }): Promise<{ bound_account_id: number; binding_generation: number; account_switch: SwitchDirective | null }> {
     const { hostId, engine, scopeId, reason } = input;
     if (!LIVE_SWITCH_ENGINES.has(engine))
@@ -363,7 +480,14 @@ export class AccountSwitchService {
     if (input.target === 'auto') {
       const policy = await readAccountPolicy(this.db, engine);
       const candidates = this.candidates(pool);
-      const forced = rebalanceTarget({ ...policy, mode: 'auto', min_dwell_minutes: 0 }, first.accountId, candidates, null, Date.now());
+      const forced = rebalanceTarget(
+        { ...policy, mode: 'auto', min_dwell_minutes: 0 },
+        first.accountId,
+        candidates,
+        null,
+        Date.now(),
+        await this.limitPercent(),
+      );
       target = forced?.id ?? first.accountId;
     } else {
       target = (await this.accounts.canonicalId(input.target, engine)) ?? input.target;
@@ -373,7 +497,14 @@ export class AccountSwitchService {
     const generation = generationOf(first);
     if (target === first.accountId) {
       if (first.desiredAccountId)
-        await this.updateScope(hostId, engine, scopeId, { accountId: first.accountId, generation }, { desiredAccountId: null, desiredReason: null, desiredAt: null }, null);
+        await this.updateScope(
+          hostId,
+          engine,
+          scopeId,
+          { accountId: first.accountId, generation },
+          { desiredAccountId: null, desiredReason: null, desiredAt: null },
+          this.withdrawal(engine, scopeId, first, input.withdrawn ?? 'requested', reason, input.actor ?? null),
+        );
       return { bound_account_id: first.accountId, binding_generation: generation, account_switch: null };
     }
     const requestedAt = nowIso();
@@ -397,11 +528,38 @@ export class AccountSwitchService {
         binding_generation: generation,
         reason,
         requested_at: requestedAt,
+        bound_account_usable: this.usable(pool, first.accountId),
       },
     };
   }
 
-  /** Called by the wrapper that performed the switch (after flushing the old account). */
+  /** Audit row for a pending request that ends without a switch. */
+  private withdrawal(engine: Engine, scopeId: string, row: Lease, why: string, by: SwitchReason, actor: string | null) {
+    return {
+      action: 'provider_account.switch_withdrawn',
+      details: {
+        engine,
+        scope_id: scopeId,
+        from_account_id: row.accountId,
+        to_account_id: row.desiredAccountId ?? null,
+        requested_reason: row.desiredReason ?? null,
+        requested_at: row.desiredAt ?? null,
+        withdrawn: why,
+        by,
+        actor,
+      },
+    };
+  }
+
+  /**
+   * Called by the wrapper that performs the switch (after flushing the old
+   * account). The commit can be repeated: a wrapper that never saw the answer,
+   * or died before it wrote the credentials, sends the same request again and
+   * gets the same binding back (`replayed`), without a second move, audit row
+   * or notice. `credentialsReady` is the route's check that the target's
+   * credentials can be served; without them the binding must not move, since
+   * the scope would then be bound to an account it holds no login for.
+   */
   async commitSwitch(input: {
     hostId: number;
     engine: Engine;
@@ -409,7 +567,8 @@ export class AccountSwitchService {
     scopeId: string;
     accountId: number;
     generation: number;
-  }): Promise<{ previous_account_id: number; account_id: number; binding_generation: number; reason: string | null; moved_addresses: string[] }> {
+    credentialsReady?: boolean;
+  }): Promise<{ previous_account_id: number | null; account_id: number; binding_generation: number; reason: string | null; moved_addresses: string[]; replayed: boolean }> {
     const { hostId, engine, sessionId, scopeId, generation } = input;
     if (!LIVE_SWITCH_ENGINES.has(engine))
       throw new ConflictError('Live account switching is not supported for this engine yet', 'account_switch_unsupported_engine');
@@ -417,12 +576,23 @@ export class AccountSwitchService {
     const session = rows.find((r) => r.id === sessionId);
     if (!session) throw new NotFoundError('Account session not found');
     const target = (await this.accounts.canonicalId(input.accountId, engine)) ?? input.accountId;
+    if (session.accountId === target && generationOf(session) === generation + 1)
+      return { previous_account_id: null, account_id: target, binding_generation: generation + 1, reason: null, moved_addresses: [], replayed: true };
     if (session.desiredAccountId !== target || generationOf(session) !== generation)
       throw new ConflictError('The switch request is no longer pending', 'account_switch_stale');
     if (!this.usable(await this.pool(engine), target)) {
-      await this.updateScope(hostId, engine, scopeId, { accountId: session.accountId, generation }, { desiredAccountId: null, desiredReason: null, desiredAt: null }, null);
+      await this.updateScope(
+        hostId,
+        engine,
+        scopeId,
+        { accountId: session.accountId, generation },
+        { desiredAccountId: null, desiredReason: null, desiredAt: null },
+        this.withdrawal(engine, scopeId, session, 'target_unavailable', 'host', null),
+      );
       throw new ConflictError('The target account is not enabled and verified', 'account_switch_target_unavailable');
     }
+    if (input.credentialsReady === false)
+      throw new ServiceUnavailableError('Selected account is unavailable', 'account_unavailable');
     const boundAt = nowIso();
     await this.updateScope(
       hostId,
@@ -466,7 +636,26 @@ export class AccountSwitchService {
       binding_generation: generation + 1,
       reason: session.desiredReason ?? null,
       moved_addresses: movedAddresses,
+      replayed: false,
     };
+  }
+
+  /**
+   * A wrapper says the credentials of a committed switch are still not on
+   * disk. The scope runs with the new binding over the previous login until
+   * it succeeds, so the operator gets one audit row per scope and binding.
+   */
+  async reportUnfinishedWrite(hostId: number, engine: Engine, scopeId: string, accountId: number, generation: number): Promise<void> {
+    const key = `${hostId}:${engine}:${scopeId}:${generation}`;
+    if (unfinishedWrites.has(key)) return;
+    if (unfinishedWrites.size > 2000) unfinishedWrites.clear();
+    unfinishedWrites.add(key);
+    await appendAuditLog(this.db, {
+      hostId,
+      action: 'provider_account.switch_write_unfinished',
+      details: JSON.stringify({ engine, scope_id: scopeId, account_id: accountId, binding_generation: generation }),
+      createdAt: nowIso(),
+    });
   }
 
   /**
@@ -524,8 +713,9 @@ export class AccountSwitchService {
   }
 
   /** Live scopes of an engine with their binding (admin view). */
-  async scopes(engine: Engine) {
+  async scopes(engine: Engine, known?: PoolAccount[]) {
     const rows = await this.leases({ engine });
+    const pool = known ?? (rows.some((r) => r.desiredAccountId) ? await this.pool(engine) : undefined);
     const groups = new Map<string, Lease[]>();
     for (const row of rows.filter((r) => r.hostId > 0)) {
       const key = `${row.hostId}\u0000${row.scopeId}`;
@@ -548,7 +738,7 @@ export class AccountSwitchService {
           binding_generation: generationOf(first),
           sessions: group.length,
           bound_at: first.boundAt ?? first.createdAt,
-          account_switch: await this.directiveFor(first),
+          account_switch: await this.directiveFor(first, pool),
         };
       }),
     );
@@ -561,7 +751,7 @@ export class AccountSwitchService {
    * verdict for "the whole pool is high". `launch_account_id` is the account a
    * new launch would be assigned now (same selection as `POST /auth/sessions`).
    */
-  async poolView(engine: Engine, boundAccountId: number | null, warnPercent?: number) {
+  async poolView(engine: Engine, boundAccountId: number | null, warnPercent?: number, boundAt: string | null = null) {
     const [policy, pool, limitPercent] = await Promise.all([
       readAccountPolicy(this.db, engine),
       this.pool(engine),
@@ -576,8 +766,10 @@ export class AccountSwitchService {
     });
     const bound = pool.find((a) => a.id === boundAccountId) ?? null;
     const candidates = this.candidates(pool);
+    // With the scope's `boundAt` the advice respects the dwell like the policy
+    // itself: it does not announce a move the evaluator will not request yet.
     const planned = bound
-      ? rebalanceTarget(policy, bound.id, candidates, null, Date.now(), limitPercent)?.id ?? null
+      ? rebalanceTarget(policy, bound.id, candidates, boundAt, Date.now(), limitPercent)?.id ?? null
       : null;
     const recommendation: PoolRecommendation = poolRecommendation(
       policy,
@@ -607,6 +799,32 @@ export class AccountSwitchService {
   }
 
   /**
+   * Clears requests that can no longer happen: the target was paused, removed
+   * or lost its verification, or an operator, host or agent request has waited
+   * `SWITCH_REQUEST_TTL_MS` for a turn boundary that never came (no wrapper
+   * that can switch, a session that never goes idle). Policy requests are
+   * re-derived on every pass and need no age limit.
+   */
+  private async expireRequests(engine: Engine, pool: PoolAccount[], now = Date.now()): Promise<void> {
+    for (const scope of await this.scopes(engine, pool)) {
+      const pending = scope.account_switch;
+      if (!pending) continue;
+      const asked = pending.requested_at ? Date.parse(pending.requested_at) : NaN;
+      const withdrawn = !this.usable(pool, pending.account_id)
+        ? 'target_unavailable'
+        : pending.reason !== 'policy' && Number.isFinite(asked) && now - asked > SWITCH_REQUEST_TTL_MS
+          ? 'expired'
+          : null;
+      if (!withdrawn) continue;
+      try {
+        await this.requestSwitch({ hostId: scope.host_id, engine, scopeId: scope.scope_id, target: scope.account_id, reason: 'policy', withdrawn });
+      } catch {
+        // A scope that changed meanwhile is looked at again on the next pass.
+      }
+    }
+  }
+
+  /**
    * Applies the automatic policy to every live scope of an engine: a scope whose
    * account should move gets a pending `policy` switch. A pending policy switch
    * follows the current readings (retargeted or withdrawn); admin and agent
@@ -615,13 +833,19 @@ export class AccountSwitchService {
   async evaluate(engine: Engine): Promise<number> {
     if (!LIVE_SWITCH_ENGINES.has(engine)) return 0;
     const policy: AccountPolicy = await readAccountPolicy(this.db, engine);
-    if (policy.mode !== 'auto') return 0;
     const pool = await this.pool(engine);
-    if (pool.filter((a) => a.state === 'enabled' && a.verified).length < 2) return 0;
+    // Also under the manual policy: a request nobody can carry out must not
+    // wait on its scope for ever.
+    await this.expireRequests(engine, pool);
+    if (policy.mode !== 'auto') return 0;
+    // One usable account is enough to move a scope off an account that was
+    // paused or lost its verification; `rebalanceTarget` finds no target for a
+    // scope that already runs on the only usable one.
+    if (!pool.some((a) => a.state === 'enabled' && a.verified)) return 0;
     const candidates = this.candidates(pool);
     const limitPercent = await this.limitPercent();
     let requested = 0;
-    for (const scope of await this.scopes(engine)) {
+    for (const scope of await this.scopes(engine, pool)) {
       const pending = scope.account_switch;
       // Admin and agent requests stand; a policy request follows the readings.
       if (pending && pending.reason !== 'policy') continue;
@@ -632,7 +856,7 @@ export class AccountSwitchService {
         // The reading that asked for the move no longer holds (for example a
         // stale reading right after a switch): withdraw it instead of moving.
         try {
-          await this.requestSwitch({ hostId: scope.host_id, engine, scopeId: scope.scope_id, target: scope.account_id, reason: 'policy' });
+          await this.requestSwitch({ hostId: scope.host_id, engine, scopeId: scope.scope_id, target: scope.account_id, reason: 'policy', withdrawn: 'readings' });
         } catch {
           // Re-evaluated on the next pass.
         }

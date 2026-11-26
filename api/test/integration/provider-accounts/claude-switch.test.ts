@@ -159,21 +159,23 @@ describe.skipIf(!handle)('Claude account identity and live switching on MySQL', 
     await accounts.acquire(1, 'claude', scope, 'lease-one-bbbbbbbbbbbb', 95, a);
     await accounts.acquire(1, 'claude', scope, 'lease-two-bbbbbbbbbbbb', 95);
     const requested = await switches.requestSwitch({ hostId: 1, engine: 'claude', scopeId: scope, target: b, reason: 'admin' });
-    expect(requested.account_switch).toMatchObject({ account_id: b, binding_generation: 1, reason: 'admin' });
+    // A new scope starts at an opaque generation; only the steps are fixed.
+    const g = requested.binding_generation;
+    expect(requested.account_switch).toMatchObject({ account_id: b, binding_generation: g, reason: 'admin' });
     expect((await switches.sessionBinding(1, 'claude', 'lease-two-bbbbbbbbbbbb')).account_switch?.account_id).toBe(b);
     await expect(
-      switches.commitSwitch({ hostId: 1, engine: 'claude', sessionId: 'lease-one-bbbbbbbbbbbb', scopeId: scope, accountId: b, generation: 2 }),
+      switches.commitSwitch({ hostId: 1, engine: 'claude', sessionId: 'lease-one-bbbbbbbbbbbb', scopeId: scope, accountId: b, generation: g + 1 }),
     ).rejects.toMatchObject({ code: 'account_switch_stale' });
-    const committed = await switches.commitSwitch({ hostId: 1, engine: 'claude', sessionId: 'lease-one-bbbbbbbbbbbb', scopeId: scope, accountId: b, generation: 1 });
-    expect(committed).toMatchObject({ previous_account_id: a, account_id: b, binding_generation: 2, moved_addresses: [] });
+    const committed = await switches.commitSwitch({ hostId: 1, engine: 'claude', sessionId: 'lease-one-bbbbbbbbbbbb', scopeId: scope, accountId: b, generation: g });
+    expect(committed).toMatchObject({ previous_account_id: a, account_id: b, binding_generation: g + 1, moved_addresses: [] });
     for (const id of ['lease-one-bbbbbbbbbbbb', 'lease-two-bbbbbbbbbbbb']) {
       expect((await accounts.session(1, 'claude', id)).accountId).toBe(b);
-      expect(await switches.sessionBinding(1, 'claude', id)).toEqual({ binding_generation: 2, account_switch: null });
+      expect(await switches.sessionBinding(1, 'claude', id)).toEqual({ binding_generation: g + 1, account_switch: null });
     }
     // A new launch joining the scope inherits the moved binding.
     const joined = await accounts.acquire(1, 'claude', scope, 'lease-three-bbbbbbbbbb', 95);
     expect(joined.account.id).toBe(b);
-    expect((await switches.sessionBinding(1, 'claude', 'lease-three-bbbbbbbbbb')).binding_generation).toBe(2);
+    expect((await switches.sessionBinding(1, 'claude', 'lease-three-bbbbbbbbbb')).binding_generation).toBe(g + 1);
   });
 
   it('rejects switches to unusable accounts and for engines without live switching', async () => {
@@ -231,8 +233,9 @@ describe.skipIf(!handle)('Claude account identity and live switching on MySQL', 
     await new ClaudeUsageService(db, b).store({ accountId: b, hostId: 1, source: 'test', sevenDayUsedPercent: 10, sevenDayResetsAt: resets, fiveHourUsedPercent: null, fiveHourResetsAt: null });
     expect(await switches.evaluate('claude')).toBe(1);
     expect((await switches.sessionBinding(1, 'claude', 'lease-eeeeeeeeeeeeeeee')).account_switch).toMatchObject({ account_id: b, reason: 'policy' });
-    // A newer reading puts the bound account back inside the band.
-    await new ClaudeUsageService(db, a).store({ accountId: a, hostId: 1, source: 'test', sevenDayUsedPercent: 15, sevenDayResetsAt: resets, fiveHourUsedPercent: null, fiveHourResetsAt: null });
+    // The reading of a new window puts the bound account back inside the band
+    // (within one window a lower figure is an older one and would not count).
+    await new ClaudeUsageService(db, a).store({ accountId: a, hostId: 1, source: 'test', sevenDayUsedPercent: 15, sevenDayResetsAt: '2099-01-08T00:00:00Z', fiveHourUsedPercent: null, fiveHourResetsAt: null });
     await switches.evaluate('claude');
     expect((await switches.sessionBinding(1, 'claude', 'lease-eeeeeeeeeeeeeeee')).account_switch).toBeNull();
     // An operator request is never withdrawn by the policy.

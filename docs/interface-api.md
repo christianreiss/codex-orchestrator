@@ -820,7 +820,7 @@ Suspending an engine keeps everything; *destroy* removes it from every host.
 Host resource sync (`/skills`, `/sync/bootstrap`) and cron routes resolve the same body/query/header engine hints as auth, including the `clx`, `cgx` and `ckx` user-agent aliases. Invalid, conflicting, or disabled-engine requests fail before resource writes. Shared Skill and instruction inheritance is unchanged.
 
 - `GET /skills` — list registered skills (`slug`, `sha256`, `manifest_sha256`, `display_name`, `description`, `updated_at`, optional `deleted_at`, `managed`, `allow_implicit_invocation`) plus canonical `uri` / `canonical_uri` (`skill://{slug}`) and nullable provenance (`source_type`, `source_repository`, `source_path`, `source_revision`, `source_license`, `bundle_sha256`). For imported skills, `sha256` is the complete bundle digest while `manifest_sha256` remains the raw manifest digest. Auth required. This route remains available for inventory/admin-adjacent clients, but cdx reads Skill content through MCP resources instead of local sync. The code-managed `afk`, `context` and `skill-manager` Skills are always present.
-- `POST /claude/usage/report` — host API key auth. The clx wrapper's fleet-owned statusLine command pushes what Claude Code's own `rate_limits` payload just reported for the account: optional `five_hour`/`seven_day` objects (`used_percent`, `resets_at`), optional `source` (defaults `statusline`). Deliberately push-only: the server holds no Claude OAuth token and calls no Anthropic/claude.ai endpoint for this (unlike `ChatGptUsageService`, which does hold and use one). A report carrying neither window is accepted (`200 {status:"ignored"}`) but stored nowhere, so a stale/absent reading never blanks out the last known one. Publishes `claude.usage.updated` on a stored report.
+- `POST /claude/usage/report` — host API key auth. The clx wrapper's fleet-owned statusLine command pushes what Claude Code's own `rate_limits` payload just reported for the account: optional `five_hour`/`seven_day` objects (`used_percent`, `resets_at`), optional `source` (defaults `statusline`). Deliberately push-only: the server holds no Claude OAuth token and calls no Anthropic/claude.ai endpoint for this (unlike `ChatGptUsageService`, which does hold and use one). A report carrying neither window is accepted (`200 {status:"ignored"}`) but stored nowhere, so a stale/absent reading never blanks out the last known one. A window is taken only when it can describe the window running now: `used_percent` is a number of at least 0 (above 100 is stored as 100) and `resets_at`, when sent, is a timestamp ahead of the server clock by no more than the window's length (5 h or 7 d, plus 10 min of clock tolerance). Any other window is left out, including one whose reset already passed (an idle session keeps displaying it); a report left with no window answers `200 {status:"ignored", reason:"no_current_window"}`. The account comes from a live lease of the reporting host, never from the number in the report: with `session_id` it is that session's binding (`404` for a session this host does not hold; an `account_id` that differs answers `200 {status:"ignored", reason:"stale_account"}`); with only `account_id` the host must hold a live lease on that account or the account must be the engine's only one, otherwise `200 {status:"ignored", reason:"session_required"}`; with neither the reading stays unattributed. An insecure host needs its open window (`423 insecure_pending` otherwise; the report is treated as unattended and never opens an approval request). Like the heartbeat of the same running session, an admitted report slides the open window. Publishes `claude.usage.updated` on a stored report.
 - The `agents` block of `POST /sync/bootstrap` — the served agent document (`AGENTS.md` for Codex, `CLAUDE.md` for Claude). Optional `sha256` supports unchanged responses. Every render replaces a mandatory `cxx:managed-policy` prefix containing Fleet Identity, precedence/safety floor, and Hard Stop Lines, then preserves the canonical base, then replaces the `cxx:managed-features` suffix in fixed Skills, Memory, Projects, BrowserOS, Secrets, API keys in chat, Agent Messaging, Git Director, File Transfer order (a module that is off contributes no block and reports its section absent). Response metadata exposes combined `managed_sha256`, separate `policy_sha256` / nullable `features_sha256`, and mandatory section diagnostics alongside the capability sections. Feature blocks carry triggers, invariants and tool names only; Wake/Cron, Watchdog and Conference procedure lives in the managed `#wake-cron`, `#watchdog` and `#conference` Skills. Static policy modules carry craft only: anything a posture axis grants, asks for or forbids is said once, by the axis. Codex and MCP-enabled Claude Skill guidance makes MCP authoritative for fleet Skill content without overriding higher-level built-in/system Skill requirements; Memory and Secrets retain their safe read/write contracts. The served digest covers all three layers while `base_sha256` remains the canonical body digest. Missing canonical content preserves an existing local document, and per-host overrides still take precedence. When the host has extra instructions (`hosts.agents_extra`, set through `PUT /admin/hosts/{id}/agents-extra`), they are appended after everything else under `## Host-specific instructions (<fqdn>)`, for Codex, Claude, Grok and Kimi alike and independent of the generation mode; the served `sha256`/`size_bytes` cover them, the response gains `host_instructions_sha256` (digest of the trimmed text), and `base_sha256` / `managed_sha256` are unchanged. Without them the response is byte-identical to before and carries no `host_instructions_sha256`. The admin previews (`GET`/`POST /admin/agents/render`) include the same suffix.
 - The `config` block of `POST /sync/bootstrap` — the selected engine's canonical config template, baked into a per-host Codex `config.toml` or Claude JSON config using the authenticated host context. A missing engine-specific template returns `status:missing`; Claude never inherits Codex settings. The Claude `/sync/bootstrap` settings partial remains the preferred native deep-merge path. Optional body fields `username` and `home` allow the server to append a trusted project stanza (`[projects."<home>"] trust_level = "trusted"`) to silence Codex trust warnings for the calling user. Managed MCP uses `cxx communicator mcp <engine>` for supported wrapper releases (0.9.71+), otherwise native HTTP. `X-Wrapper-Version` describes the running caller for this render; it overrides the selected engine's last stored report without persisting it or changing authentication. Missing headers retain stored-version compatibility. The same rule applies to `/sync/bootstrap` config and Claude settings, including the first sync before `/cron/report`. For a Codex host whose reported `client_version` is 0.156.1 or newer (or unreported), profiles are not rendered as `[profiles.*]` tables — that layout makes `codex --profile <name>` fail with "failed to load configuration" — but returned as a `profiles: [{name, sha256, content}]` list beside the body, one `<name>.config.toml` layer each (names limited to `[A-Za-z0-9_-]{1,64}`). The list rides every reply, including `unchanged`, and is repeated under `data`; the key is absent for older Codex builds (which keep the tables) and for Claude. The same object is returned as `config` by `POST /sync/bootstrap`.
   ```toml
@@ -2692,7 +2692,7 @@ Operator-consolidated duplicate account IDs remain same-engine compatibility ali
 
 ChatGPT (`codex`) and Claude (`claude`) have independent account pools. Provider identities identify accounts; access/refresh fingerprints identify credentials and login lineage, not distinct subscriptions. Migrated identities are recovered from their canonical head when `identity_key` is unset. Fresh opaque tokens reuse the sole non-retired engine account or their explicit session/host assignment. A distinct provider identity can enroll another account automatically; additional opaque accounts require explicit `POST /admin/accounts` or an untargeted seed command. With multiple accounts, an unassigned opaque upload returns HTTP 409 `account_assignment_required` without creating an account. Replacing a known account can explicitly supply `account_id`; known cross-account identity/lineage conflicts remain HTTP 409 `account_identity_mismatch`. Existing runner validation, quarantine, generation/CAS, replay protection and secretbox encryption apply within each account.
 
-- `GET /admin/accounts` — session-gated metadata list: `accounts[]` with `id`, `engine`, `label`, lifecycle state, verification verdict/reason/time, generation, normalized short/weekly quota percentages, reset times, observation time/staleness, and active host sessions. Never returns credential bytes or provider identity fingerprints. The same URL serves the Accounts SPA for HTML navigation. Every row carries `pool: {score, short, weekly, usable, emulation_blocked}`, computed by the same rule as the live-switching pool (`poolPosition` in `account-switch.ts`): `short` and `weekly` are the windows as scored (`null` once their reset has passed or without a reading), `score` is their maximum, `0` for an unlimited account, `100` when an emulated budget blocks it and `null` without a reading; `usable` means enabled and verified. The console judges an engine with more than one usable account as a pool: its accounts at 80% or more count as "near quota" (Overview Needs you, Accounts and Engines totals) only when no usable account of that engine is below 80% or still unmeasured. Single-account engines keep the per-account rule. Accounts and the Overview's Provider usage show an engine with several accounts as one collapsible group whose header averages `short`/`weekly` over the usable accounts reporting them.
+- `GET /admin/accounts` — session-gated metadata list: `accounts[]` with `id`, `engine`, `label`, lifecycle state, verification verdict/reason/time, generation, normalized short/weekly quota percentages, reset times, observation time/staleness, and active host sessions. Never returns credential bytes or provider identity fingerprints. The same URL serves the Accounts SPA for HTML navigation. Every row carries `pool: {score, short, weekly, usable, emulation_blocked}`, computed by the same rule as the live-switching pool (`poolPosition` in `account-switch.ts`): `short` and `weekly` are the windows as scored (`null` once their reset has passed or without a reading), `score` is their maximum, `0` for an unlimited account, `100` when an emulated budget blocks it or the provider has refused the account with its usage limit (`exhausted_until`, see *Provider usage-limit refusals and continuing on another account*) and `null` without a reading; `usable` means enabled and verified. The console judges an engine with more than one usable account as a pool: its accounts at 80% or more count as "near quota" (Overview Needs you, Accounts and Engines totals) only when no usable account of that engine is below 80% or still unmeasured. Single-account engines keep the per-account rule. Accounts and the Overview's Provider usage show an engine with several accounts as one collapsible group whose header averages `short`/`weekly` over the usable accounts reporting them.
 
   Codex and Claude usage also include nullable `short_limit_seconds` and
   `weekly_limit_seconds`. Codex readings, durations and resets are projected
@@ -2706,12 +2706,12 @@ ChatGPT (`codex`) and Claude (`claude`) have independent account pools. Provider
 - `PATCH /admin/accounts/:id` — `{label?, state?: "enabled"|"paused"}`. Paused accounts accept same-account refreshes for existing sessions but receive no new scopes.
 - `POST /admin/accounts/:id/credentials` — `{payload}`; validates replacement for the specified engine/account. Known different account identities cannot overwrite it.
 - `POST /admin/accounts/:id/verify` — live runner verification; returns verdict metadata only.
-- `DELETE /admin/accounts/:id` — stops new assignments immediately (`removing`); after sessions release (or legacy timed grants expire), clears encrypted payload bodies and auth entries and retains an identity tombstone (`removed`).
+- `DELETE /admin/accounts/:id` — stops new assignments immediately (`removing`); after sessions release (or legacy timed grants expire), clears encrypted payload bodies and auth entries and retains an identity tombstone (`removed`). For Claude the tombstone keeps the account removed: a host that still holds the login gets 409 `account_removed` on `POST /auth` `command=store` (its local credentials stay untouched; nothing is enrolled), and `/sync/bootstrap` rejects the candidate and serves the launch its assigned account as for any rejected candidate. Only an explicit enrollment (`enroll: true` from `clx accounts add`, `POST /admin/accounts`, an untargeted seed command) or an operator replacement on another account releases the tombstone's identity.
 - `POST /auth/sessions` — host-key/IP/security gated `{engine, scope_id, session_id, account_id?, ownership_mode?}`. IDs are opaque strings of 16–64 characters; `scope_id` represents the native auth directory. Returns `ownership_mode` plus verified `auth`, `account_id`, `account_label`, `session_id`, `expires_at`, `canonical_digest`, `canonical_last_refresh` and existing quota controls. Omitting `ownership_mode` selects renewable timed ownership for legacy clients; `connection` explicitly opts into provider-stream ownership. Retries preserve the mode of the existing grant. Retries with one session ID are idempotent. An optional account ID supports retaining an already active native child, rather than a user pin. The initial Grok access projection uses this freshly acquired, unexpired host/account grant before its provider stream is attached; this bootstrap allowance is server-internal and does not authorize reactive renewal without a live connection.
-- `POST /auth/sessions/heartbeat` — `{engine, session_id}` validates a connection-owned reservation from RAM without a durable renewal. Negotiated clients stop this polling after authenticated connection ownership is confirmed. For legacy timed reservations only, it extends a live, host-owned lease by five minutes; expired/foreign sessions are rejected with 404. Wrappers heartbeat every 90 s (cxx 0.9.121; 30 s before) and answer a 404 (a host that slept past the TTL) by re-reserving the same `session_id` through `POST /auth/sessions` with their `scope_id` and bound `account_id`, discarding the returned auth; a lease landing on another account is released and retried on the next tick. Paused, unverified, or removed accounts refuse the re-reservation.
+- `POST /auth/sessions/heartbeat` — `{engine, session_id}` validates a connection-owned reservation from RAM without a durable renewal. Negotiated clients stop this polling after authenticated connection ownership is confirmed. For legacy timed reservations only, it extends a live, host-owned lease by five minutes; expired/foreign sessions are rejected with 404. Wrappers heartbeat every 90 s (cxx 0.9.121; 30 s before) and answer a 404 (a host that slept past the TTL) by re-reserving the same `session_id` through `POST /auth/sessions` with their `scope_id` and bound `account_id` (from cxx 0.9.211 also `ownership_mode: "connection"` where the lease was connection-owned; earlier wrappers get a timed lease back), discarding the returned auth; a lease landing on another account is released and retried on the next tick. Paused, unverified, or removed accounts refuse the re-reservation. A connection-owned Claude reservation of a host that has had neither a provider attachment nor a heartbeat for five minutes is removed by the account policy worker (every 60 s while Claude reservations exist): a wrapper that was killed, or whose host went down, never releases, and its reservation would keep pinning the scope to its account. Only a reservation whose holder has sent a heartbeat to this owner process is removed that way. The heartbeat of a connection-owned reservation comes from the switch supervisor (cxx 0.9.207), which also answers the 404 above by re-reserving, so a suspended laptop recovers; an older Claude wrapper only redials its attachment and would run on without a reservation, its token uploads refused with `404`. Its reservation therefore stays until release, as do those the owner has not heard from since its start. Absence is counted in memory from the owner's start, never from a stored timestamp. Other engines keep their connection-owned reservations until release, because their wrappers do not re-reserve, and internal reservations (host 0) end with their task. Reservations of a deleted host are removed in the same pass, for every engine (the table has no foreign key to `hosts`).
 - `POST /auth/sessions/release` — `{engine, session_id}` idempotently releases that host's reservation and drains pending removal.
 
-Admin mutations require `auth.manage`; listing requires `auth.metadata.read`. All host routes retain the API kill switch, engine membership, host/IP authentication and insecure credential-distribution window. `/auth` and `/sync/bootstrap` accept `account_id` and advertise `account_pool: true`; returned digests, generations, verdicts and quota readings belong to that account. `/claude/usage/report` accepts `account_id` and `session_id`, rejecting a mismatched binding.
+Admin mutations require `auth.manage`; listing requires `auth.metadata.read`. All host routes retain the API kill switch, engine membership, host/IP authentication and insecure credential-distribution window. `/auth` and `/sync/bootstrap` accept `account_id` and advertise `account_pool: true`; returned digests, generations, verdicts and quota readings belong to that account. `/claude/usage/report` accepts `account_id` and `session_id` and files the reading by the reporting host's live lease; a binding that does not match is not an error but `200 {status:"ignored"}` with a `reason`.
 
 Before a launch reservation, a host's saved account ID is a discovery hint: a recognized login for another provider identity enrolls or refreshes that identity instead of overwriting the saved account. Active session IDs and explicit admin replacement targets remain strict. Opaque Claude refreshes without a different recognized identity retain the saved account.
 
@@ -2721,7 +2721,8 @@ Selection runs once per native CLI launch. It prefers verified enabled accounts 
 
 Since cxx 0.9.207, Claude accounts carry a provider identity. On every Claude
 credential store the server asks Anthropic who the token belongs to (`GET https://api.anthropic.com/api/oauth/profile`,
-bearer = the uploaded OAuth access token, 5 s timeout, cached per access token for 6 h, failures for 60 s).
+bearer = the uploaded OAuth access token, 5 s timeout; cached per access token: an identity for 6 h, a
+refusal (401/403) or a rate limit (429) for 60 s, any other failure for 10 s).
 This is the only call the server makes to Anthropic with a subscription token; it never refreshes and
 never runs inference with one. The identity is `claude:<account_uuid>:<organization_uuid>` (stored as a
 hash in `identity_key`); a default label becomes the account e-mail.
@@ -2735,7 +2736,25 @@ hash in `identity_key`); a default label becomes the account e-mail.
   `enroll: true` (no `session_id`/`account_id`) for an explicit enrollment from `clx accounts add`.
 - An operator replacement (`POST /admin/accounts/:id/credentials`) with another subscription returns
   409 `account_identity_mismatch`.
-- When Anthropic cannot identify a token (offline, non-OAuth credential) the previous lineage rules apply.
+- A non-OAuth credential (API key) is never looked up; the lineage rules above apply to it.
+- An OAuth token Anthropic does not name is **unresolved**: the lookup was refused (401/403: expired or
+  revoked access token) or failed (timeout, network, 429, 5xx, unexpected profile shape). The uploading
+  session's lease and the host's saved account are never taken as proof of ownership:
+  - The exact access or refresh token is already stored under an account: a host upload is filed there
+    (also when the session is bound to another account); an operator replacement naming another account
+    stays 409 `account_identity_mismatch`.
+  - Otherwise, with more than one non-removed account, for `enroll: true` / `POST /admin/accounts`, and for
+    `POST /admin/accounts/:id/credentials` on an account with a known identity, the store is refused with
+    **503 `account_identity_unavailable`** (`Retry-After: 30`). Nothing is stored and no account is created.
+    `/sync/bootstrap` answers the same 503 instead of falling back to a retrieve. Wrappers of every version
+    treat it as a transient store failure: the local credentials stay untouched and the upload is retried.
+  - With at most one account the login is filed under it as before (a sole account keeps receiving its
+    rotations during an Anthropic outage).
+  - A known login is also refused with that 503 when it matches no recorded identity while the identity of
+    an account enrolled before identity detection could not be looked up (failed, not refused).
+  Each refusal and each sole-account fallback writes one audit row `provider_account.identity_unresolved`
+  per credential and ten minutes (`lookup`, `reason`, `outcome: refused|legacy_rules`, `account_id`,
+  `session_bound`, `enroll`, `accounts`; no token material).
 
 **Distribution policy** (`versions` key `account_policy_<engine>`):
 `{mode: auto|manual, strategy: balanced|exhaust|reset_aware, spread: eng|normal|locker, soft_ceiling, hard_ceiling, min_dwell_minutes}`,
@@ -2769,34 +2788,83 @@ score is `max(short, weekly)` used percent.
 - Automatic moves wait `min_dwell_minutes` after the last change (prompt caches are organization-scoped);
   an account at the quota limit moves immediately when another has headroom. Launches skip accounts
   blocked by emulated quota while others remain.
-- The evaluator runs after every Claude usage report and every 60 s.
+- The evaluator runs after every Claude usage report and every 60 s, and when a launch joins a scope
+  whose account is paused or no longer verified. A scope on such an account is moved to the best usable
+  account, also when only one usable account is left.
 
 **Live switching** (Claude only; other engines return 409 `account_switch_unsupported_engine`). A scope
 (host, engine, native credential directory) moves as a whole. Every scope row carries
 `binding_generation`, a pending `desired_account_id`/`desired_reason`/`desired_at` and `bound_at`.
+`binding_generation` is an opaque fence that only grows for a scope. A lease joining a live scope
+inherits it; a scope without a live lease starts at the current Unix time in seconds, which is above
+any generation the scope had before (its rows are gone, but a wrapper remembers the number in its
+binding file and ignores every answer below it).
 - `POST /auth/sessions/switch-request` — `{engine, session_id, account_id: <id>|"auto", reason?: "agent"}`
   records a pending switch (`reason` `host` or `agent`); the target must be enabled, verified and of the same
   engine (409 `account_switch_target_unavailable`). Requesting the bound account clears a pending request.
   Returns `{binding_generation, account_switch}`.
 - Acquire, heartbeat and `/auth` responses carry `binding_generation` and `account_switch`
-  `{account_id, account_label, binding_generation, reason, requested_at}` or null; a connected
-  communicator additionally receives `{type: "account_switch", engine, scope_id}`.
+  `{account_id, account_label, binding_generation, reason, requested_at, bound_account_usable}` or null; a
+  connected communicator additionally receives `{type: "account_switch", engine, scope_id}`.
+  `bound_account_usable: false` says the account being left is paused, being removed or not verified: the server no
+  longer confirms its credentials, so the wrapper (cxx 0.9.211) switches without that confirmation as
+  long as the local login is one the server already holds, accepted on upload, or refused for good
+  (including 409 `account_removed` for an account being removed).
+  Older wrappers ignore the field and keep waiting for the confirmation.
+- A launch that joins a live scope takes that scope's account, also a paused or unverified one: the
+  sessions share one credentials file. It is not bound elsewhere on its own; the policy moves the scope.
 - The wrapper waits for the next turn boundary, uploads any pending rotation of the old account, then
   calls `POST /auth/sessions/switch` `{engine, session_id, scope_id, account_id, binding_generation}`.
   The server compares account and generation (409 `account_switch_stale` otherwise), moves every row of
   the scope, increments the generation, clears the request and returns `{account_id, account_label,
-  session_id, binding_generation, auth, canonical_digest, canonical_last_refresh}`. Agent sessions bound to
-  the old account follow when no other live scope on that host still uses it.
+  session_id, binding_generation, previous_account_id, replayed, auth, canonical_digest,
+  canonical_last_refresh}`. Agent sessions bound to the old account follow when no other live scope on
+  that host still uses it.
+- The commit can be repeated. When the scope is already bound to `account_id` at `binding_generation + 1`
+  (the commit happened, but the wrapper never saw the answer or died before it wrote the credentials),
+  the same request returns the same binding and the credentials again with `replayed: true` and
+  `previous_account_id: null`, without a second move, audit row or notice. Any other mismatch stays 409
+  `account_switch_stale`. The target's credentials are read before the binding moves: when they cannot
+  be served the answer is 503 `account_unavailable` and the request stays pending.
+- Optional `credential_write: "unfinished"` on the commit (cxx 0.9.211) reports that the credentials of
+  the committed switch are still not on disk. The server writes one audit row
+  `provider_account.switch_write_unfinished` per scope and binding generation and answers as usual.
+- `/auth` retrieve from a session whose presented digest is a login the server holds for another account
+  (the binding moved, the credentials file did not) answers `status: "outdated"` with the bound
+  account's `auth` and `presented_account_id`, whatever `last_refresh` the client sent: refresh times of
+  two accounts do not order each other. Wrappers before 0.9.211 ignore `presented_account_id` and apply
+  their own `last_refresh` comparison to that answer, as they did before.
 - Each agent session that followed gets one server notice (`ACCOUNT/1 switched: …`, idempotent per
   scope and binding generation) naming the new and the previous account with their 5h and weekly
   usage, the reason, and that work continues. The notice is best effort: if it fails, the switch
-  still stands and the failure is logged.
-- Audit actions `provider_account.switch_requested` and `provider_account.switched`; WebSocket
+  still stands and the failure is logged. A session that waits to continue a quota-failed turn gets
+  no notice; its continuation names the account (see *Provider usage-limit refusals and continuing on
+  another account*).
+- A pending request ends without a switch when it is taken back, when its target is paused, removed or
+  no longer verified, or when an operator, host or agent request has waited 24 hours for a turn boundary
+  (checked on every evaluator pass, also under the `manual` policy). Each such end writes
+  `provider_account.switch_withdrawn` with `withdrawn` (`requested`, `readings`, `target_unavailable`,
+  `expired`). A change of the distribution policy writes `account.policy.updated` with the admin, the
+  previous and the new policy.
+- `recommendation` in `quota_pool` and `GET /auth/accounts` is computed with the scope's `bound_at` when
+  the request names a session, so it does not announce a move the policy withholds for
+  `min_dwell_minutes`. An `auto` target requested by an agent or host honours the fleet quota limit.
+- Audit actions `provider_account.switch_requested`, `provider_account.switched`,
+  `provider_account.switch_withdrawn` and `provider_account.switch_write_unfinished`; WebSocket
   `accounts.updated` and `provider.scope.switch`.
 - Usage reports for an account the session no longer holds return `{status: "ignored", reason: "stale_account"}`.
-  The same applies for 30 minutes after a switch when a report's reset time matches another
-  account's current window but not the bound account's own. Claude Code's statusline still
-  shows the previous account's last response until the first request on the new account.
+  The same applies when a report's reset time matches another account's current window but not
+  the bound account's own: Claude Code's statusline still shows the previous account's last
+  response until the first request on the new account. While the bound account has a running
+  window on record this check has no time limit; without one it applies for 30 minutes after the
+  switch. A reading refused this way that keeps arriving for 30 minutes (no gap over 15 minutes)
+  is stored after all, because the stored windows it was compared with can themselves have been
+  filed under the wrong account.
+- A stored reading is the account's, merged from every reporting session: within one window (same
+  `resets_at`, 60 s tolerance) a lower percentage does not replace a higher one that some session
+  reported within the last 60 minutes; a report without one of the two windows keeps the stored
+  one while it is still running; a different `resets_at` is a new window and replaces the stored
+  one. `fetched_at` is the time of the last stored report, also when a higher figure was kept.
 - The policy re-evaluates its own pending `policy` switches. One that the current readings no
   longer call for is withdrawn, and a better target retargets it. Admin and agent requests stay.
 
@@ -2808,7 +2876,7 @@ account lease.
 
 - `quota_pool` contains `{recommendation, policy{mode,strategy}, bound_account_id, headroom, launch_account_id,
   live_switch, accounts[]}`. Each account is `{id, label, state, verified, short_used_percent, short_resets_at,
-  weekly_used_percent, weekly_resets_at, fetched_at, score, emulation_blocked}`.
+  weekly_used_percent, weekly_resets_at, fetched_at, score, emulation_blocked, exhausted_until}`.
 - `headroom` and `launch_account_id` mean the same as in `quota_advice.<engine>.pool` above.
 - A bootstrap that carries a live `session_id` also gains `binding_generation` and `account_switch` in its auth
   block, exactly as `/auth` does. The wrapper's binding observer treats them the same way: a fenced update,
@@ -2824,6 +2892,111 @@ Admin: `GET /admin/accounts/policy/:engine` and `POST /admin/accounts/policy/:en
 re-evaluates immediately); `GET /admin/accounts/scopes` (`?engine=claude`) lists running scopes with host, bound account, generation and
 pending switch; `POST /admin/accounts/scopes/switch` `{engine, host_id, scope_id, account_id|"auto"}`
 requests a switch with reason `admin`.
+
+### Provider usage-limit refusals and continuing on another account (cxx 0.9.213)
+
+A statusline reading is what the last successful response said. An account the provider has just refused
+can therefore still read 93 %, and the pool would send more work to it. The refusal itself is recorded.
+
+**Exhaustion marker.** `POST /host/agent-sessions/:id/watchdog/activity` accepts `quota_limit: true`
+next to `failure: "capacity"`: the provider refused the turn with a usage limit of the account (not an
+overload). `retry_not_before` then carries the reset the provider printed, when the wrapper could read it.
+For an engine with live switching (Claude) the server marks the session's account as exhausted:
+
+- Stored in `versions` as `account_quota_exhausted_<account id>` (JSON `{at, until, window, source,
+  short_resets_at, long_resets_at, host_id, session_id}`), so it survives a restart. No schema change.
+- `until` is the stated reset when it lies ahead and at most 8 days away (`source: "provider_reset"`).
+  Otherwise it is the reset of the measured window that is furthest along, if that is at 75 % or more,
+  capped at 5 hours (`window_reset`). Otherwise it is 30 minutes (`default`), after which the account is
+  simply tried again.
+- Not marked: other engines, unlimited (PayG) accounts, removed accounts and accounts the reporting host
+  holds no live lease on. A second refusal never replaces a stronger or longer marker.
+- While it holds, the account scores 100 wherever the pool is scored: launch selection, the live-switch
+  evaluator, `quota_pool`, `GET /auth/accounts` and `GET /admin/accounts` (`pool.score`). The evaluator
+  runs at once, so scopes on the account get a pending `policy` switch without the dwell, as for any
+  account at the limit. Under the `manual` policy the marker still steers new launches; nothing moves.
+- It ends at `until`. Before that, only a stored Claude usage report whose reset for the marked window
+  is more than 60 s later than the one on record at marking ends it (a new window has begun). The same
+  or a lower percentage never does: sessions that have not asked the provider since keep repeating old
+  figures. There is no operator action to clear it.
+- `GET /admin/accounts` rows carry `quota_exhausted` (the marker or `null`) and `pool.exhausted_until`;
+  pool accounts in `quota_pool` and `GET /auth/accounts` carry `exhausted_until`. The stored percentages
+  are unchanged.
+- Audit actions `provider_account.quota_exhausted` (`until`, `window`, `source`, `replaced`) and
+  `provider_account.quota_exhaustion_cleared` (`reason` `new_window` or `expired`); both publish
+  `accounts.updated`.
+
+Wrappers before cxx 0.9.213 never send `quota_limit`, so no marker is written for them; the account is
+then held back only by its readings, as before.
+
+**Quota gate of a recovery.** The account a turn failed on is where the interruption was observed, not
+where the recovery has to happen. For an engine with live switching, the `auto` account policy and at
+least one other usable account, the gate that every quota recovery passes before its continuation is
+queued reads the pool:
+
+- Ready when the session now runs on a usable account below the policy's limit (its switch is
+  committed), when the account it failed on has room again, or when the session has ended and a new
+  launch would get an account with room.
+- Another account has room but the session has not moved: checked again every 15 s
+  (`last_error: "quota_switch_wait"`) for at most 20 minutes. After that the gate of the failed account
+  applies (`quota_wait`), looked at every 5 minutes so that a late switch still ends the wait.
+- No usable account has room: wait until 60 s after the earliest account gets room back (its marker or
+  its full window). Only accounts whose quota policy lets a recovery wait for that window count
+  (`short_auto_resume` / `long_auto_resume`); if none does, the recovery stops with
+  `quota_auto_resume_disabled`.
+- Unchanged on every path: a changed native session stops with `quota_native_session_changed`, the
+  attempt budget (one attempt plus three retries after 5, 15 and 30 minutes), deadlines.
+- Where the pool decides, the reset of the failed account is not a due time. A recovery, and an
+  agent's own watchdog whose turn failed on a usage limit, is first checked after the usual 5 minutes
+  (with jitter), also when the provider stated a reset or the account's window is full; the gate
+  produces whatever wait the pool needs. Elsewhere the first check stays at that reset.
+
+Other engines, the `manual` policy and a pool with one usable account keep the gate of the single
+account described under *Account quota warnings and reset recovery*.
+
+**Reset recovery on the refusal alone.** Reset recovery is armed by a failed turn plus a fresh reading of
+100 %. A refused account often reads less. With cxx 0.9.213 the marker counts as that proof when all of
+this holds: its `window` is known, the quota policy's auto-resume switch for that window is on, the host
+has a resident daemon for the user (reset recovery terminates the session and only that daemon resumes
+it), and the session is not a `peer_delivery` one. The recovery is the existing `quota:<native session
+id>` watchdog with `quota.reset_at` set to the marker's `until`. A marker without a known window, or a
+window whose auto-resume is off, arms nothing, as before.
+
+**Continuing the failed turn.** When a turn of a live Claude session fails on a quota limit (the marker
+was written, or the account's stored window is exhausted) and another usable account has room, the
+server arms one continuation for that session instead of the reset recovery:
+
+- Conditions: account policy `auto`; not a `peer_delivery` session; the session's channel receiver is
+  attached and can take peer messages; no live watchdog and no running persistent wake on the agent.
+  Otherwise the reset recovery applies, with the gate above.
+- It is a watchdog row with `task_key` `quota-switch:<native session id>:<time>` and `created_by`
+  `quota:<session id>`, in `capacity_wait` with `last_error: "quota_switch"`. The session is alive and
+  idle: this watchdog never sets `terminate_requested` and has no progress timeout.
+- It passes the gate above. After the committed switch one message (`kind: "schedule"`) is delivered
+  into the same native session: "The previous turn failed on a provider quota limit and now continues
+  on account <label> (#<id>). Continue where you left off; check quota_get before heavy work; do not
+  invent new work. …". It carries no `watchdog_finish` instruction; the watchdog completes with its
+  delivery. A host without a resident daemon is served through the live receiver, and the continuation
+  waits while there is none.
+- At most one per failed turn, and only while that turn is the newest activity of the session. A turn
+  that began more than 15 s after the failure (a typed prompt, a delivered message) drops it
+  (`disabled`, `last_error: "quota_continue_superseded"`); a turn still running defers it. The session's
+  native turn proof decides: `active`, or a finished `idle`, observed after the failure is a new turn.
+  `unknown` is not (the failed turn leaves it, and so does a reconnect), and neither is the activity
+  state decaying to `unknown` after 45 s without a hook. A session without a turn proof is judged by
+  its activity state the same way. An agent that enables its own watchdog supersedes the continuation
+  too. The fence is checked when the message is queued and again when the session claims it.
+- The `ACCOUNT/1 switched` notice is not sent to a session with a pending continuation: it would start
+  a turn of its own, and the continuation names the account.
+- If every account is full instead, the continuation waits for the earliest reset as above and its
+  deadline (2 hours) is extended to one day after that reset.
+- A session that ended with the failure (not a user stop, which disables the continuation) is resumed
+  with it on a host with a resident daemon, as reset recovery does; the new launch takes an account
+  with room. Elsewhere the continuation waits for a receiver until its deadline.
+
+Which setting decides: continuing on **another** account follows the account policy (`mode: "auto"`).
+Waiting for a **reset** follows the quota policy (`short_auto_resume`, default on; `long_auto_resume`,
+default off). A fleet with `manual` distribution gets today's behaviour.
 
 ### Provider subscription plans
 
@@ -3393,7 +3566,10 @@ closes the stream rather than buffering unbounded frames; Fastify shutdown drain
 
 Activity reports real output/CPU/tools and classified failure only; heartbeat is not
 progress. Failure is `capacity|crash|hang|user_stop|blocked`, with optional native ID
-and provider `retry_not_before`. Stale native hooks are ignored. Capacity/crash/hang
+and provider `retry_not_before`. `quota_limit: true` with `capacity` says the provider
+refused the turn with a usage limit of the account, as opposed to an overload (cxx 0.9.213
+sends it from the Claude `StopFailure` hook; see *Provider usage-limit refusals and
+continuing on another account*). Stale native hooks are ignored. Capacity/crash/hang
 create one pending encrypted internal once schedule; recovery starts after 5 minutes
 with positive jitter, backs off exponentially through the existing schedule worker,
 and observes later provider reset hints. Healthy sessions have no periodic model wakes.
@@ -4543,6 +4719,7 @@ Responses include canonical IDs, versions and an authenticated `report_url`; cla
 - Readings include account, engine, policy, status, short/long windows with percentage, actual duration, source, observation timestamp and reset. Missing is not zero; readings older than ten minutes or past reset are stale. Codex/Grok refreshes retain existing throttles; Claude reads only native statusline reports. Grok can report weekly or monthly usage; short-window emulation is opt-in and requires weekly evidence.
 - Fresh threshold crossings notify active sessions of the same account once per session/window/reset/severity. QUOTA/1 notices are informational, bound to the current lifecycle, and never wake an offline session.
 - A native capacity failure plus a fresh exhausted quota window arms reset recovery when enabled. Overload alone and usage without a failed turn cannot arm it. A known long blocker takes precedence. Unknown scope is left for the operator.
+- Claude with several accounts under the `auto` account policy: the failed turn continues on another account instead, and a recovery waits for the earliest reset in the pool rather than for the account it failed on. See *Provider usage-limit refusals and continuing on another account (cxx 0.9.213)*. The rules in this section are the single-account case and apply unchanged to Codex, Grok and Kimi Code, to the `manual` policy and to a pool of one usable account.
 - Recovery reuses the Watchdog schedule and native-session executor. It waits at least 60 seconds beyond all known blocking resets, rechecks effective policy and attempts, and stops on task completion, cancel, manual stop, changed native binding or missing transcript. PayG or a disabled policy cancels queued quota recovery. Initial attempt plus at most three retries (5, 15, 30 minutes when no newer reset exists); only persistent hosts start automatically. Stale post-reset readings permit a bounded probe. No replacement session or independent replacement subagent is created.
 - `agent_watchdogs` exposes nullable `quota` metadata (account, window, reset, attempts and last attempt). Engine quota defaults live in Usage limits, account overrides in Accounts, and recovery state in the existing Watchdog panel. Warning thresholds do not force a pause. Managed instructions require quota_get before heavy work/delegation.
 

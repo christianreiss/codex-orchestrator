@@ -113,27 +113,29 @@ describe.skipIf(!handle)('live Claude account switching under the owner runtime'
       expect(rows().map((r) => r.accountId)).toEqual([a, a]);
 
       const requested = await switches.requestSwitch({ hostId, engine: 'claude', scopeId: scope, target: b, reason: 'admin' });
-      expect(requested.account_switch).toMatchObject({ account_id: b, binding_generation: 1 });
+      // A new scope starts at an opaque generation; only the steps are fixed.
+      const g = requested.binding_generation;
+      expect(requested.account_switch).toMatchObject({ account_id: b, binding_generation: g });
       expect(rows().every((r) => r.desiredAccountId === b)).toBe(true);
 
       await expect(
-        switches.commitSwitch({ hostId, engine: 'claude', sessionId: leaseIds[1]!, scopeId: scope, accountId: b, generation: 2 }),
+        switches.commitSwitch({ hostId, engine: 'claude', sessionId: leaseIds[1]!, scopeId: scope, accountId: b, generation: g + 1 }),
       ).rejects.toMatchObject({ code: 'account_switch_stale' });
-      const committed = await switches.commitSwitch({ hostId, engine: 'claude', sessionId: leaseIds[1]!, scopeId: scope, accountId: b, generation: 1 });
-      expect(committed).toMatchObject({ previous_account_id: a, account_id: b, binding_generation: 2, moved_addresses: [] });
-      expect(rows().every((r) => r.accountId === b && r.bindingGeneration === 2 && r.desiredAccountId === null)).toBe(true);
+      const committed = await switches.commitSwitch({ hostId, engine: 'claude', sessionId: leaseIds[1]!, scopeId: scope, accountId: b, generation: g });
+      expect(committed).toMatchObject({ previous_account_id: a, account_id: b, binding_generation: g + 1, moved_addresses: [] });
+      expect(rows().every((r) => r.accountId === b && r.bindingGeneration === g + 1 && r.desiredAccountId === null)).toBe(true);
       const durable = await seedDb
         .select()
         .from(schema.providerAccountSessions)
         .where(inArray(schema.providerAccountSessions.id, leaseIds.slice(0, 2)));
       expect(durable.map((r) => [r.accountId, r.bindingGeneration, r.desiredAccountId])).toEqual([
-        [b, 2, null],
-        [b, 2, null],
+        [b, g + 1, null],
+        [b, g + 1, null],
       ]);
 
       const joined = await accounts.acquire(hostId, 'claude', scope, leaseIds[2]!, 95, undefined, 'connection');
       expect(joined.account.id).toBe(b);
-      expect((await switches.sessionBinding(hostId, 'claude', leaseIds[2]!)).binding_generation).toBe(2);
+      expect((await switches.sessionBinding(hostId, 'claude', leaseIds[2]!)).binding_generation).toBe(g + 1);
       expect(owner.runtime.state.snapshot().table('agentSessions').get(agentSessionId)?.providerAccountId).toBe(b);
       const [agent] = await seedDb.select().from(schema.agentSessions).where(eq(schema.agentSessions.id, agentSessionId));
       expect(agent?.providerAccountId).toBe(b);
