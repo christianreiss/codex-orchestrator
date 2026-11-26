@@ -438,6 +438,47 @@ export function subagentModelSelectionMutation(opts: MutationOpts<ApiKeysInChatV
   });
 }
 
+/** One registry model as the tier board places it (`GET /admin/model-tiers`). */
+export interface ModelTierModel {
+  engine: "codex" | "claude" | "grok" | "kimi";
+  id: string;
+  label: string;
+  family: string;
+  status: "active" | "deprecated" | "retired";
+  /** The registry's tier; `tier` is the effective one with the operator's placement. */
+  default_tier: number;
+  tier: number;
+}
+export interface ModelTiersValue {
+  levels: { tier: number; work: string }[];
+  models: ModelTierModel[];
+  updated_at: string | null;
+}
+/** Under "settings": `settings.changed` refreshes it after a save anywhere. */
+export const modelTiersQueryKey = ["settings", "model-tiers"] as const;
+export function modelTiersQuery() {
+  return createQuery<ModelTiersValue>({
+    queryKey: modelTiersQueryKey,
+    queryFn: () => api.get<ModelTiersValue>("/admin/model-tiers"),
+  });
+}
+/** Replaces every placement: send each model's tier; the server keeps only deviations. */
+export function modelTiersMutation(opts: MutationOpts<ModelTiersValue, Record<string, Record<string, number>>> = {}) {
+  const qc = useQueryClient();
+  return createMutation<ModelTiersValue, Error, Record<string, Record<string, number>>>({
+    mutationFn: (tiers) => api.post<ModelTiersValue>("/admin/model-tiers", { tiers }),
+    ...opts,
+    onSuccess: (value, ...rest) => {
+      qc.setQueryData(modelTiersQueryKey, value);
+      opts.onSuccess?.(value, ...rest);
+    },
+    onSettled: (...args) => {
+      void qc.invalidateQueries({ queryKey: modelTiersQueryKey });
+      opts.onSettled?.(...args);
+    },
+  });
+}
+
 export function modelTierCheckQuery() {
   return createQuery<ApiKeysInChatValue>({
     queryKey: modelTierCheckQueryKey,

@@ -14,8 +14,23 @@
 
 The table is rendered from the fleet model registry
 (`api/src/services/model-registry/data.ts`, see `docs/model-registry.md`): each
-model's `tier` is the single source, and `npm run models:generate` rewrites the
+model's `tier` is its **default**, and `npm run models:generate` rewrites the
 block above. Codex and Claude rows name families, Grok rows exact models.
+
+## Operator placements (admin console, 2026-11-26)
+
+Settings → Agents → Model tiers lets the operator drag models between the five tiers
+(or move them with a per-model control). Only deviations from the registry default are
+stored (`versions.model_tier_overrides`, `GET/POST /admin/model-tiers` in
+`docs/interface-api.md`), and they win over the registry everywhere tiers are read:
+the Model Class Check table and configured-model line, Subagent Model Selection, the
+Fleet Advisor's tiers and strongest model, and the launch picker's order. The five
+levels and their typical work stay fixed; the two-tier stop rule is unchanged. A
+registry update still sets the default of a new model; a placement of a model that is
+retired later is ignored. When a family is split by a placement (for example only Opus
+5.5 moved), an unknown id of that family such as the CLI's bare `opus` resolves to the
+family's newest member. Engine-maintenance runs keep registry tiers current and leave
+the operator's placements alone.
 
 The operator set this table after a seven-agent fleet review (4 Codex, 3 Claude) had first put Sonnet,
 Opus and Sol together in Tier 3: that flattened three models nobody considers equal. It is a judgment

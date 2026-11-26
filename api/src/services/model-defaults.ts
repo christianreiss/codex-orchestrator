@@ -2,7 +2,7 @@ import { clientConfigDocuments } from '../db/schema.js';
 import { ownerRuntimeFor, type OwnerMutationContext } from '../control-plane/state/runtime.js';
 import { versionCompare } from './wrapper-bin-registry.js';
 import { CODEX_MODEL_MIN_CLI_VERSIONS } from './codex-model-capabilities.js';
-import { modelTier } from './model-tiers.js';
+import { DEFAULT_TIER_RESOLVER, type TierResolver } from './model-tiers.js';
 import { liveCatalogRequired } from './model-registry/index.js';
 import { readModelPolicy, applyModelPolicy, type ModelPolicy } from './model-policy.js';
 import type { Database } from '../db/client.js';
@@ -146,10 +146,10 @@ export interface LaunchCatalog {
  * defaults catalog; session-only choices are separate capabilities, including
  * Claude Opus 4.6 / Sonnet 4.6 `max` despite their persistent ceiling of `high`.
  */
-export function modelLaunchCatalog(engine: Engine, policy?: ModelPolicy, observedVersion?: string | null): LaunchCatalog {
+export function modelLaunchCatalog(engine: Engine, policy?: ModelPolicy, observedVersion?: string | null, tiers: TierResolver = DEFAULT_TIER_RESOLVER): LaunchCatalog {
   const catalog = modelDefaultsCatalog(engine);
-  const offered = launchEntries(engine, catalog.filter(entry => !entry.live_catalog_required), policy, observedVersion);
-  const gated = launchEntries(engine, catalog.filter(entry => entry.live_catalog_required), policy, observedVersion, true);
+  const offered = launchEntries(engine, catalog.filter(entry => !entry.live_catalog_required), policy, observedVersion, tiers);
+  const gated = launchEntries(engine, catalog.filter(entry => entry.live_catalog_required), policy, observedVersion, tiers, true);
   const floors = Object.fromEntries(catalog.flatMap(entry => entry.min_cli_version ? [[entry.model, entry.min_cli_version]] : []));
   return {
     default_model: policy?.latest_only ? policy.replacements[defaultModel(engine)]! : defaultModel(engine),
@@ -164,6 +164,7 @@ function launchEntries(
   entries: ModelDefaultsCatalogEntry[],
   policy: ModelPolicy | undefined,
   observedVersion: string | null | undefined,
+  tiers: TierResolver,
   gated = false,
 ): LaunchCatalogModel[] {
   return entries
@@ -175,7 +176,7 @@ function launchEntries(
         return Boolean(observed && versionCompare(observed, entry.min_cli_version) >= 0);
       })
       // Stable sorting preserves catalog precedence within each capability tier.
-      .sort((a, b) => (modelTier(engine, b.model) ?? 0) - (modelTier(engine, a.model) ?? 0))
+      .sort((a, b) => (tiers.tier(engine, b.model) ?? 0) - (tiers.tier(engine, a.model) ?? 0))
       .map((entry) => ({
         model: entry.model,
         efforts: [...entry.persistent_efforts],

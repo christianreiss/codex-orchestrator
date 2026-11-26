@@ -29,6 +29,7 @@ export const POLICY_TERMS: Readonly<Record<string, PolicyTerms>> = {
   "api-keys-in-chat": { group: "agents", label: "Tell agents how to treat keys pasted in chat", terms: ["API keys in chat", "secrets in chat"] },
   "model-tier-check": { group: "agents", label: "Agents check their model against the task", terms: ["model-tier self-check", "tier", "underclassed"] },
   "subagent-model-selection": { group: "agents", label: "Choose models for delegated work", terms: ["subagent model selection", "delegation", "subagents"] },
+  "model-tiers": { group: "agents", label: "Model tiers", terms: ["model tier placements", "tier", "model class", "drag"] },
   authorization: { group: "agents", label: "Role checks", terms: ["authorization mode", "strict", "capabilities", "rbac"] },
   "agent-sessions": { group: "agents", label: "Agent sessions", terms: ["agent portal", "transcripts", "sessions"] },
   "session-housekeeping": { group: "retention", label: "Clean up old agent sessions", terms: ["session housekeeping", "cleanup", "disk space"] },

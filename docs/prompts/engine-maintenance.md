@@ -112,12 +112,16 @@ Die folgenden Auditkriterien gelten vollständig für jeden Engine-Auftrag.
 - Prüfe pro Modell erlaubte Efforts, Default, Persistenz und native Schlüssel.
   Trenne persistierbare Einstellungen von Session-Flags und API-Parametern.
   Separate Produktmodi sind keine zusätzlichen Effort-Stufen.
-- Pflege das Modell-Tiering in `api/src/services/model-tiers.ts` (Tier 1–5,
-  engineübergreifend). Jedes neue Katalogmodell erhält ein Tier; prüfe bestehende
+- Pflege das Modell-Tiering (Tier 1–5, engineübergreifend): Das Default-Tier steht
+  je Modell in `api/src/services/model-registry/data.ts`, gelesen über
+  `api/src/services/model-tiers.ts`. Jedes neue Katalogmodell erhält ein Tier; prüfe bestehende
   Zuordnungen gegen die aktuelle Positionierung des Anbieters (Benchmarks,
   vorgesehener Einsatz, Preisklasse). Eine Umstufung braucht eine belegte
   Begründung; entfernte Modelle verschwinden auch aus dem Tiering. Recherche-Subagents
-  liefern nur Tier-Vorschläge im Bericht.
+  liefern nur Tier-Vorschläge im Bericht. Platzierungen, die der Operator in der
+  Admin-Konsole (Settings → Agents → Model tiers, `versions.model_tier_overrides`)
+  vorgenommen hat, haben Vorrang vor dem Registry-Default und bleiben unangetastet;
+  weicht dein Vorschlag davon ab, nenne es im Bericht.
 
 ### Neue Features und CLI-Kompatibilität
 

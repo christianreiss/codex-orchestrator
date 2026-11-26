@@ -7,6 +7,7 @@
   import AgentCoordinationSettings from "../AgentCoordinationSettings.svelte";
   import AgentSupervisorSettings from "../AgentSupervisorSettings.svelte";
   import ChattySettings from "$lib/components/chatty/ChattySettings.svelte";
+  import ModelTierBoard from "../ModelTierBoard.svelte";
 </script>
 
 <Section id="agents" title="Agents" description="What agents are told and who may change access rules.">
@@ -22,6 +23,7 @@
   {/if}
 </Section>
 
+<ModelTierBoard />
 <AgentCoordinationSettings />
 <AgentSupervisorSettings />
 <ChattySettings />

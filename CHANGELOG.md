@@ -1,5 +1,7 @@
 # 2026-11-26
 
+- Settings → Agents → Model tiers: the operator decides which tier each model counts as. The five levels stay fixed; models are dragged between them (or moved with the menu on each model) and saved explicitly. Only differences from the registry default are stored. The placements win everywhere tiers are read: the Model Class Check table and the configured-model line in AGENTS.md / CLAUDE.md, Subagent Model Selection, the Fleet Advisor's tiers and default model, and the order of the launch model picker. They reach hosts at their next sync, without a new document version. A placement also covers the model's aliases, `[1m]` variants and dated snapshots. API: `GET/POST /admin/model-tiers`.
+
 - Overview, Provider usage: a collapsed engine group is laid out like an account row and shows the pool's usage as the same meters (5-hour and weekly window, the mean of its usable accounts, with the period marker and the account colour thresholds), the next reset and the oldest reading behind it. A coverage note appears only when an account has no current reading. Expanding it lists each account as before. The group header on Accounts also names the "Expiring first" strategy instead of calling it Balanced.
 
 - Admin console: segmented controls (such as Mode, Strategy and Band in the distribution policy) keep their own width with a framed track and a raised active option, instead of an empty grey bar across the form. The Minimum dwell hint no longer wraps in a narrow column.

@@ -44,7 +44,7 @@ import { ENGINE_DISABLED_FLAGS, readFleetEngineState, type FleetEngineState } fr
 import type { Database } from '../db/client.js';
 import { advisorHost } from './internal-hosts.js';
 import { buildModelPolicy, modelPolicyKey, readModelPolicy } from './model-policy.js';
-import { buildModelTierTable, modelTier } from './model-tiers.js';
+import { buildModelTierTable, MODEL_TIER_OVERRIDES_KEY, modelTier, tierResolver } from './model-tiers.js';
 import { ADVISOR_KINDS, advisorFailureDiagnostic, type AdvisorKind } from './advisor-delivery.js';
 import { compareWrapperVersions, highestVersion } from './wrapper-rollout.js';
 import { advisorStartupDiagnostic } from './advisor-startup.js';
@@ -69,6 +69,8 @@ export type AdvisorAsk = z.infer<typeof advisorAskSchema>;
 // row added and removed during awaits is safe: availability never read it.
 const ADVISOR_POLICY_KEYS = [
   AGENT_MESSAGING_ENABLED_KEY,
+  // The default advisor is the strongest placed model: a moved tier changes it.
+  MODEL_TIER_OVERRIDES_KEY,
   ...ENGINES.flatMap((engine) => [
     ENGINE_DISABLED_FLAGS[engine],
     modelPolicyKey(engine),
@@ -177,7 +179,7 @@ function rolePrompt(input: {
   return `You are the Fleet Advisor of the Codex Orchestrator fleet: a senior reviewer other agents consult when they are unsure. You give second opinions; you never take over their task.
 
 Caller: ${input.callerName} (${input.callerAddress}), engine ${input.callerEngine}, host ${input.callerHost}.
-Your concrete session model: ${input.advisorEngine}/${input.advisorModel} (Tier ${modelTier(input.advisorEngine, input.advisorModel) ?? 'unknown'}). This overrides the host's configured model for your model class check.
+Your concrete session model: ${input.advisorEngine}/${input.advisorModel} (Tier ${input.models.find((m) => m.engine === input.advisorEngine && m.model === input.advisorModel)?.tier ?? modelTier(input.advisorEngine, input.advisorModel) ?? 'unknown'}). This overrides the host's configured model for your model class check.
 Request kind: ${KIND_GUIDANCE[input.kind]}
 Available advisor models (engine/model, tier): ${input.models.map((m) => `${m.engine}/${m.model}, ${m.tier ?? 'unknown'}`).join('; ')}. For tier_check recommend the lowest fitting available tier, preferring the caller's engine within that tier; say if none fits.
 
@@ -255,6 +257,11 @@ export class AdvisorService {
     const active = activeHostEngines(host.engines, fleetState);
     const engines = ENGINES.filter((engine) => active.includes(engine) && view.engines.includes(engine));
     if (!engines.length) return result(false, 'advisor_engine_unavailable', {}, host.id);
+    const tiers = tierResolver(
+      policySnapshot
+        ? policySnapshot.setting(MODEL_TIER_OVERRIDES_KEY)
+        : await this.settingsStore.getRaw(MODEL_TIER_OVERRIDES_KEY).catch(() => null),
+    );
     const models: AdvisorAvailability['models'] = [];
     const byEngine: Partial<Record<Engine, string[]>> = {};
     for (const engine of engines) {
@@ -264,9 +271,9 @@ export class AdvisorService {
       byEngine[engine] = policy.latest_models.filter(
         (model) => !(policy.disabled_models ?? []).includes(model),
       );
-      for (const model of byEngine[engine]!) models.push({ engine, model, tier: modelTier(engine, model) });
+      for (const model of byEngine[engine]!) models.push({ engine, model, tier: tiers.tier(engine, model) });
     }
-    const strongest = buildModelTierTable(engines, byEngine).at(-1)?.models[0] ?? null;
+    const strongest = buildModelTierTable(engines, byEngine, tiers).at(-1)?.models[0] ?? null;
     if (!strongest) return result(false, 'advisor_model_unavailable', {}, host.id);
     return result(
       true,
@@ -291,10 +298,12 @@ export class AdvisorService {
     if (!engine || !availability.engines.includes(engine))
       throw unavailable(`Engine ${input.engine ?? 'for that model'}`);
     if (!input.model) {
-      const table = buildModelTierTable([engine], {
-        [engine]: availability.models.filter((m) => m.engine === engine).map((m) => m.model),
-      });
-      return table.at(-1)!.models[0]!;
+      // The engine's strongest placed model, first in canonical order (as `buildModelTierTable`).
+      const own = availability.models.filter((m) => m.engine === engine && m.tier !== null);
+      const top = Math.max(...own.map((m) => m.tier!));
+      const pick = own.find((m) => m.tier === top);
+      if (!pick) throw unavailable(`Engine ${engine}`);
+      return { engine, model: pick.model };
     }
     if (!availability.models.some((m) => m.engine === engine && m.model === input.model))
       throw unavailable(`Model ${engine}/${input.model}`);

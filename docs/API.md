@@ -391,6 +391,8 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/subagent-model-selection` — admin session, `settings.manage`: set the default-off subagent model selection guidance (`enabled` boolean)
 - `GET /admin/model-tier-check` — admin session, `settings.read`: read the default-on cross-engine Model Class Check (`enabled` boolean)
 - `POST /admin/model-tier-check` — admin session, `settings.manage`: set the default-on cross-engine Model Class Check (`enabled` boolean)
+- `GET /admin/model-tiers` — admin session, `settings.read`: the five tier levels and every non-retired registry model with its default and effective tier
+- `POST /admin/model-tiers` — admin session, `settings.manage`: replace the operator's tier placements (`tiers`: engine → model id → 1–5; only deviations are stored)
 - `GET /admin/api-keys-in-chat` — admin session, `settings.read`: read the default-off cross-engine instruction for operator-supplied API keys (`enabled` boolean)
 - `POST /admin/api-keys-in-chat` — admin session, `settings.manage`: set the default-off cross-engine instruction for operator-supplied API keys (`enabled` boolean)
 - `GET /admin/agents-generation-mode` — admin session, `settings.read`: read the fleet-wide master switch for AGENTS.md/CLAUDE.md generation

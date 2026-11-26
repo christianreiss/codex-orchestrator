@@ -1,1 +1,0 @@
-import{on as e}from"../chunks/D6Zcd1Pp.js";import{u as t}from"../chunks/D_tB6O38.js";import"../chunks/xihTtKlq.js";import"../chunks/BK0RGzZ8.js";import{n}from"../chunks/JVyDYbBI.js";var r=e({load:()=>i}),i=({params:e})=>{n(307,`${t}/projects/${encodeURIComponent(e.slug)}/board`)};function a(e){}export{a as component,r as universal};

@@ -9,7 +9,7 @@ it("maps every retired flat-page anchor to the tab that now holds it", () => {
     "#hosts": "hosts", "#auto-update": "hosts", "#reverse-dns": "hosts", "#insecure-approval": "hosts", "#host-spawn": "hosts",
     "#host-lifecycle": "hosts", "#prune-policy": "hosts",
     "#agents": "agents", "#agent-sessions": "agents", "#api-keys-in-chat": "agents", "#model-tier-check": "agents",
-    "#subagent-model-selection": "agents", "#authorization": "agents", "#agent-coordination": "agents", "#agent-supervisor": "agents", "#chatty": "agents",
+    "#subagent-model-selection": "agents", "#model-tiers": "agents", "#authorization": "agents", "#agent-coordination": "agents", "#agent-supervisor": "agents", "#chatty": "agents",
     "#cxx-rollout": "rollout", "#rtk": "rollout",
     "#retention": "retention", "#session-housekeeping": "retention",
   };

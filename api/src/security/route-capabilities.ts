@@ -270,6 +270,8 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'GET /admin/subagent-model-selection': cap('settings.read'),
   'POST /admin/subagent-model-selection': cap('settings.manage'),
   'POST /admin/model-tier-check': cap('settings.manage'),
+  'GET /admin/model-tiers': cap('settings.read'),
+  'POST /admin/model-tiers': cap('settings.manage'),
   'GET /admin/auto-update': cap('settings.read'),
   'POST /admin/auto-update': cap('settings.manage'),
   // The posture itself, and the dry-run record of what `strict` would refuse.

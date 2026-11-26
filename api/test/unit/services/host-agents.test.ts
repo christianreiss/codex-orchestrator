@@ -460,6 +460,21 @@ describe('HostAgentsService Model Class Check', () => {
     expect(out['sections']).toMatchObject({ model_tiers: { present: true, reason: 'ok' } });
   });
 
+  it('follows the operator\'s tier placements in the table and the configured-model line', async () => {
+    // Sonnet moved up to 4, Opus 5.5 up to 5: the same row and identity line, never two answers.
+    const db = makeDb([
+      [agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n', ENGINE_CLAUDE)]],
+      [versions, [{ name: 'model_tier_overrides', version: JSON.stringify({ claude: { 'claude-sonnet-5-5': 4, 'claude-opus-5-5': 5 } }) }]],
+    ]);
+    const host = makeHost({ engines: 'claude', status: 'active', claudeModelOverride: 'claude-sonnet-5-5' });
+    const body = String((await makeService(db).renderCurrent(host, ENGINE_CLAUDE))['content']);
+    const row = (tier: number) => body.split('\n').find(line => line.startsWith(`| ${tier} |`))!;
+    expect(body).toContain('configured claude model is `claude-sonnet-5-5` (Tier 4)');
+    expect(row(4)).toContain('`claude-sonnet-5-5`');
+    expect(row(3)).not.toContain('`claude-sonnet-5-5`');
+    expect(row(5)).toContain('`claude-opus-5-5`');
+  });
+
   it('withholds the guidance when the fleet switch is off', async () => {
     const db = makeDb([
       [agentsDocuments, [agentsRow(4, 'Canonical AGENTS body\n')]],

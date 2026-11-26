@@ -34,6 +34,7 @@ import { readFleetEngineState } from './engine-switch.js';
 import { effectiveSkillDigest } from './skill-provenance.js';
 import { readModelPolicy, type ModelPolicy } from './model-policy.js';
 import { modelLaunchCatalog } from './model-defaults.js';
+import { MODEL_TIER_OVERRIDES_KEY, tierResolver, type TierResolver } from './model-tiers.js';
 import { normalizeClaudeModelReference } from './claude-models.js';
 import { isTruthyFlagValue, SettingsService } from './settings.js';
 import { withSpan, type TraceSpan } from '../observability/tracing.js';
@@ -204,6 +205,8 @@ export interface WrapperConfigSettingsLoader {
   adminThemeHint(): Promise<string | null>;
   autoUpdateDefault(): Promise<boolean>;
   wrapperTrack(): Promise<string>;
+  /** Raw `model_tier_overrides`: the launch picker sorts by the operator's placements. */
+  modelTierOverrides?(): Promise<string | null>;
 }
 
 /** No-op settings loader used when callers don't pass one. */
@@ -237,6 +240,7 @@ export function createWrapperConfigSettingsLoader(db: Database): WrapperConfigSe
     adminThemeHint: async () => (await settings.getString('admin_theme'))?.trim().toLowerCase() || null,
     autoUpdateDefault: () => settings.getFleetAutoUpdate(),
     wrapperTrack: async () => 'stable',
+    modelTierOverrides: () => settings.getRaw(MODEL_TIER_OVERRIDES_KEY),
   };
 }
 
@@ -400,6 +404,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
     engine: Engine,
     opts: { silent: boolean; adminTheme: string | null },
     policy: ModelPolicy,
+    tiers: TierResolver,
   ): Record<string, unknown> {
     if (engine === 'grok')
       return {
@@ -409,7 +414,7 @@ export function createWrapperConfigService(deps: WrapperConfigDeps): WrapperConf
         grok_model_override: host.grokModelOverride ?? null,
         grok_reasoning_effort_override: host.grokReasoningEffortOverride ?? null,
         admin_theme_hint: opts.adminTheme,
-        model_catalog: modelLaunchCatalog(engine, policy),
+        model_catalog: modelLaunchCatalog(engine, policy, undefined, tiers),
         ...(policy.latest_only ? { model_policy: policy } : {}),
       };
 if (engine === 'kimi')
@@ -420,7 +425,7 @@ if (engine === 'kimi')
         kimi_model_override: host.kimiModelOverride ?? null,
         kimi_reasoning_effort_override: host.kimiReasoningEffortOverride ?? null,
         admin_theme_hint: opts.adminTheme,
-        model_catalog: modelLaunchCatalog(engine, policy),
+        model_catalog: modelLaunchCatalog(engine, policy, undefined, tiers),
         ...(policy.latest_only ? { model_policy: policy } : {}),
       };
     if (engine === 'claude') {
@@ -429,7 +434,7 @@ if (engine === 'kimi')
         // Older rows may hold a raw retired ID; the wrapper exports it as ANTHROPIC_MODEL.
         claude_model_override: host.claudeModelOverride ? normalizeClaudeModelReference(host.claudeModelOverride) : null,
         admin_theme_hint: opts.adminTheme,
-        model_catalog: modelLaunchCatalog(engine, policy, host.claudeClientVersion),
+        model_catalog: modelLaunchCatalog(engine, policy, host.claudeClientVersion, tiers),
         ...(policy.latest_only ? { model_policy: policy } : {}),
       };
     }
@@ -438,7 +443,7 @@ if (engine === 'kimi')
       model_override: host.modelOverride ?? null,
       reasoning_effort_override: host.reasoningEffortOverride ?? null,
       admin_theme_hint: opts.adminTheme,
-      model_catalog: modelLaunchCatalog(engine, policy, host.clientVersion),
+      model_catalog: modelLaunchCatalog(engine, policy, host.clientVersion, tiers),
       ...(policy.latest_only ? { model_policy: policy } : {}),
     };
   }
@@ -533,6 +538,7 @@ if (engine === 'kimi')
       portalEnabled,
       fleet,
       policy,
+      tierOverrides,
     ] = await withSpan('wrapper.config.collect', { 'wrapper.engine': engine }, () =>
       Promise.all([
         activeAgentsDocSha(engine, host.agentsDocumentIdOverride ?? null),
@@ -545,6 +551,8 @@ if (engine === 'kimi')
         portalGloballyEnabled(),
         readFleetEngineState(deps.db),
         readModelPolicy(deps.db, engine),
+        // Unreadable placements sort by the registry tiers.
+        (settings.modelTierOverrides?.() ?? Promise.resolve(null)).catch(() => null),
       ]),
     );
     // Assigned *and* not switched off fleet-wide. A suspended engine still
@@ -619,7 +627,7 @@ if (engine === 'kimi')
       },
       speech_input: await speechInputPolicy(deps.db, engine),
       engine_options: {
-        ...engineOptions(host, engine, { silent, adminTheme }, policy),
+        ...engineOptions(host, engine, { silent, adminTheme }, policy, tierResolver(tierOverrides)),
         ...(engine === ENGINE_CODEX && freebsd ? {
           native_full_access: (await new AgentPolicyProfilesService(deps.db).enforcementForHost(host.id)).codex.sandbox_mode.value === 'danger-full-access',
         } : {}),

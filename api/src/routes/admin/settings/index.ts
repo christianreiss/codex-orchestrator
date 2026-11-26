@@ -55,7 +55,17 @@ import {
   CLAUDE_SUPPORTED_MODELS,
 } from '../../../services/claude-models.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from '../../../services/api-keys-in-chat.js';
-import { MODEL_TIER_CHECK_ENABLED_KEY, SUBAGENT_MODEL_SELECTION_ENABLED_KEY } from '../../../services/model-tiers.js';
+import {
+  MODEL_TIER_CHECK_ENABLED_KEY,
+  MODEL_TIER_OVERRIDES_KEY,
+  MODEL_TIER_WORK,
+  MODEL_TIERS,
+  modelTierCatalog,
+  serializeModelTierOverrides,
+  SUBAGENT_MODEL_SELECTION_ENABLED_KEY,
+  tierResolver,
+  validateModelTierOverrides,
+} from '../../../services/model-tiers.js';
 import {
   AUTHORIZATION_MODES,
   isAuthorizationMode,
@@ -204,6 +214,34 @@ export async function registerAdminSettingsRoutes(
     await settings.setFlag(MODEL_TIER_CHECK_ENABLED_KEY, enabled);
     await recordLog(ctx, 'admin.model_tier_check', { enabled });
     return ok({ enabled });
+  });
+
+  // ── model-tiers ──────────────────────────────────────────────────────────
+  // The registry sets each model's default tier; the operator's placements are
+  // stored as deviations and take effect on the next AGENTS.md retrieve, advisor
+  // availability and signed wrapper config. The write replaces every placement.
+  const modelTierView = async () => {
+    const { value, updatedAt } = await settings.getWithMeta(MODEL_TIER_OVERRIDES_KEY);
+    const resolver = tierResolver(value);
+    return {
+      levels: MODEL_TIERS.map((tier) => ({ tier, work: MODEL_TIER_WORK[tier] })),
+      models: modelTierCatalog(resolver),
+      updated_at: value ? updatedAt : null,
+    };
+  };
+  app.get('/admin/model-tiers', { preHandler: app.requireAdmin }, async () => ok(await modelTierView()));
+  app.post('/admin/model-tiers', { preHandler: app.requireAdmin }, async (req) => {
+    const body = (req.body ?? {}) as { tiers?: unknown };
+    const { overrides, errors } = validateModelTierOverrides(body.tiers);
+    if (errors.length) throw new ValidationError(errors.join('; '), { param: 'tiers' });
+    const before = modelTierCatalog(tierResolver(await settings.getRaw(MODEL_TIER_OVERRIDES_KEY)));
+    const raw = serializeModelTierOverrides(overrides);
+    if (raw === '{}') await settings.delete(MODEL_TIER_OVERRIDES_KEY);
+    else await settings.set(MODEL_TIER_OVERRIDES_KEY, raw);
+    const after = modelTierCatalog(tierResolver(raw));
+    const changes = after.flatMap((entry, index) => (entry.tier === before[index]?.tier ? [] : [{ engine: entry.engine, model: entry.id, from: before[index]?.tier ?? null, to: entry.tier }]));
+    if (changes.length) await recordLog(ctx, 'admin.model_tiers', { changes });
+    return ok(await modelTierView());
   });
 
   app.get('/admin/subagent-model-selection', { preHandler: app.requireAdmin }, async () => {

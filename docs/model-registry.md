@@ -92,7 +92,7 @@ like the others; the `grok_default_model` gateway setting is unchanged.
 
 - `model-registry/data.ts` — plain typed data, one array per engine, in canonical
   (picker) order, plus the fleet defaults and the Claude advisor alias targets.
-  Entry: `id`, `label`, `family`, `tier` (1-5, `docs/model-tiers.md`), `efforts`,
+  Entry: `id`, `label`, `family`, `tier` (default 1-5; the operator's placements win, `docs/model-tiers.md`), `efforts`,
   `defaultEffort`, `status` (`active` | `deprecated` | `retired`), optional
   `minCliVersion`, `upgradesFrom` (retired ids that heal to this one), `aliases`
   (active spellings that canonicalize without changing model), and capability

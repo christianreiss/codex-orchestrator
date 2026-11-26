@@ -44,7 +44,7 @@ import { WORKFLOWS_MIN_CXX_VERSION } from './managed-workflows-skill.js';
 import { ROLES_ENABLED_KEY, ROLES_MIN_CXX_VERSION } from './roles/contract.js';
 import { AGENT_MESSAGING_ENABLED_KEY } from './agent-messaging.js';
 import { API_KEYS_IN_CHAT_ALLOWED_KEY } from './api-keys-in-chat.js';
-import { buildModelTierTable, MODEL_TIER_CHECK_ENABLED_KEY, SUBAGENT_MODEL_SELECTION_ENABLED_KEY, type ConfiguredModel } from './model-tiers.js';
+import { buildModelTierTable, MODEL_TIER_CHECK_ENABLED_KEY, MODEL_TIER_OVERRIDES_KEY, SUBAGENT_MODEL_SELECTION_ENABLED_KEY, tierResolver, type ConfiguredModel } from './model-tiers.js';
 import { buildModelPolicy, readModelPolicy } from './model-policy.js';
 import { readFleetEngineState } from './engine-switch.js';
 import { activeHostEngines } from './host-engine-policy.js';
@@ -490,6 +490,7 @@ export class HostAgentsService {
       feedbackMode,
       modelTierCheckEnabled,
       subagentModelSelectionEnabled,
+      modelTierOverrides,
       fleetEngines,
       modelPolicies,
       slopJobsEnabled,
@@ -523,6 +524,8 @@ export class HostAgentsService {
       this.settings.getRaw(FEEDBACK_MODE_KEY).catch(() => null),
       this.settings.getFlag(MODEL_TIER_CHECK_ENABLED_KEY, true).catch(() => null),
       this.settings.getFlag(SUBAGENT_MODEL_SELECTION_ENABLED_KEY, false).catch(() => null),
+      // Unreadable placements fall back to the registry tiers rather than hiding the check.
+      this.settings.getRaw(MODEL_TIER_OVERRIDES_KEY).catch(() => null),
       readFleetEngineState(this.db),
       // A missing settings table must not hide the check: fall back to the
       // unfiltered catalog, which is what an unconfigured policy serves anyway.
@@ -662,6 +665,7 @@ export class HostAgentsService {
             : state(true, 'ok', transferCount);
 
     const tierEngines = activeHostEngines(host.engines, fleetEngines);
+    const tiers = tierResolver(modelTierOverrides);
     const tierTable = buildModelTierTable(
       tierEngines,
       Object.fromEntries(
@@ -670,7 +674,9 @@ export class HostAgentsService {
           policy.latest_models.filter((model) => !(policy.disabled_models ?? []).includes(model)),
         ]),
       ),
+      tiers,
     );
+    const configured = configuredModel(host, engine, rawSettings as Record<string, unknown> | null);
     const modelTiers = {
       ...(modelTierCheckEnabled === null
         ? state(false, 'service_unavailable')
@@ -682,7 +688,7 @@ export class HostAgentsService {
               tierTable.reduce((total, row) => total + row.models.length, 0),
             )),
       table: tierTable,
-      configured: configuredModel(host, engine, rawSettings as Record<string, unknown> | null),
+      configured: { ...configured, tier: tiers.tier(configured.engine, configured.model) },
     };
 
     const workflowsEnabled = await this.settings.getFlag('workflows_enabled', false).catch(() => false);

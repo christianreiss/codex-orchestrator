@@ -29,6 +29,7 @@ const GROUP_OF_ID: Record<string, SettingsGroup> = {
   "api-keys-in-chat": "agents",
   "model-tier-check": "agents",
   "subagent-model-selection": "agents",
+  "model-tiers": "agents",
   authorization: "agents",
   "agent-coordination": "agents",
   "agent-supervisor": "agents",
