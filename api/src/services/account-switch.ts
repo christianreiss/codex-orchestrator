@@ -12,6 +12,8 @@ import { persistAuditLog } from './audit-log.js';
 import { wsPublisher } from '../ws/publisher.js';
 import { quotaWindowScore } from './account-selection.js';
 import { readQuotaPolicy } from './quota-policy.js';
+import { quotaSnapshot } from './quota-observation.js';
+import { emulationBlocks } from './quota-emulation.js';
 import { ProviderAccountsService } from './provider-accounts.js';
 import { SettingsService } from './settings.js';
 import {
@@ -47,6 +49,7 @@ export interface PoolAccount {
   weekly_used_percent: number | null;
   weekly_resets_at: string | null;
   score: number | null;
+  emulation_blocked: boolean;
   active_sessions: number;
   last_selected_at: string | null;
 }
@@ -106,6 +109,9 @@ export class AccountSwitchService {
           const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
           const str = (v: unknown) => (typeof v === 'string' ? v : null);
           const unlimited = (await readQuotaPolicy(this.db, engine, a.id)).effective.unlimited;
+          // An emulated budget that blocks managed work makes the account full
+          // for the policy: running scopes move away and nothing moves onto it.
+          const blocked = !unlimited && emulationBlocks((await quotaSnapshot(this.db, a.id, engine).catch(() => null))?.short);
           const scores = [
             quotaWindowScore(num(usage.short_used_percent), str(usage.short_resets_at), now),
             quotaWindowScore(num(usage.weekly_used_percent), str(usage.weekly_resets_at), now),
@@ -120,7 +126,8 @@ export class AccountSwitchService {
             short_resets_at: str(usage.short_resets_at),
             weekly_used_percent: num(usage.weekly_used_percent),
             weekly_resets_at: str(usage.weekly_resets_at),
-            score: unlimited ? 0 : scores.length ? Math.max(...scores) : null,
+            score: unlimited ? 0 : blocked ? 100 : scores.length ? Math.max(...scores) : null,
+            emulation_blocked: blocked,
             active_sessions: a.sessions.length,
             last_selected_at: a.last_selected_at,
           };

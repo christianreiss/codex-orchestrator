@@ -79,8 +79,16 @@ export async function resolveClaudeIdentity(accessToken: string | null | undefin
       },
       signal: AbortSignal.timeout(5_000),
     });
-    if (response.ok) identity = parseProfile(await response.json());
-  } catch {
+    if (response.ok) {
+      identity = parseProfile(await response.json());
+      // A 2xx without the expected fields means the profile shape changed:
+      // stores silently fall back to lineage, which merges subscriptions.
+      if (!identity) console.warn('claude identity: profile response lacks account/organization uuid');
+    } else if (response.status !== 401 && response.status !== 403) {
+      console.warn(`claude identity: profile lookup returned HTTP ${response.status}`);
+    }
+  } catch (error) {
+    console.warn('claude identity: profile lookup failed', error instanceof Error ? error.message : String(error));
     identity = null;
   }
   if (cache.size >= MAX_ENTRIES) cache.delete(cache.keys().next().value as string);
