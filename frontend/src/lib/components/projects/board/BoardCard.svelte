@@ -56,10 +56,13 @@
         {/snippet}
       </DropdownMenu.Trigger>
       <DropdownMenu.Content align="end">
-        <DropdownMenu.Label>Move to</DropdownMenu.Label>
-        {#each targets as target (target.id)}
-          <DropdownMenu.Item onSelect={() => onMove(target.id)}>{target.title}</DropdownMenu.Item>
-        {/each}
+        <!-- The label is a group heading: bits-ui throws at open without its Group. -->
+        <DropdownMenu.Group>
+          <DropdownMenu.Label>Move to</DropdownMenu.Label>
+          {#each targets as target (target.id)}
+            <DropdownMenu.Item onSelect={() => onMove(target.id)}>{target.title}</DropdownMenu.Item>
+          {/each}
+        </DropdownMenu.Group>
         <DropdownMenu.Separator />
         <DropdownMenu.Item onSelect={onEdit}>Edit</DropdownMenu.Item>
         {#if held}
