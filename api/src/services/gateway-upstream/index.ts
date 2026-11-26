@@ -15,8 +15,10 @@
  *     order, cooling keys last (503 `upstream_unconfigured` when none).
  *  3. Failover only before the first byte reaches the client, see
  *     `failover.ts`. A buffered body is replayed; a streamed upload gets one
- *     attempt. A header timeout is 504 `upstream_timeout`; when every key fails
- *     to connect, 502 `upstream_unreachable`.
+ *     attempt. A header timeout is 504 `upstream_timeout`; a connection lost
+ *     after the request may have been sent is 502 `upstream_connection_lost`
+ *     (never retried on another key); when every key fails to connect, 502
+ *     `upstream_unreachable`.
  *  4. The committed answer streams through unchanged (status, allowed headers,
  *     body bytes; no decompression, no redirects followed). An upstream error
  *     after the headers were sent destroys the client socket.
@@ -71,22 +73,29 @@ export interface GatewayUpstreamOptions {
   dispatcher?: Dispatcher;
 }
 
-/** The path below the surface prefix plus the raw query; dot segments are refused. */
+/**
+ * The path below the surface prefix plus the raw query, forwarded verbatim.
+ * Refused with 400, because a proxy behind a custom base URL may normalise
+ * them into a path outside the base: dot segments, and a segment whose
+ * percent-decoding contains a separator (`%2f`, `%5c`) or does not decode.
+ */
 export function upstreamPath(rawUrl: string, basePath: string): string {
   if (!rawUrl.startsWith(`${basePath}/`) && !rawUrl.startsWith(`${basePath}?`) && rawUrl !== basePath)
     throw new ApiError('Route not found', { status: 404, code: 'not_found', type: 'not_found_error' });
   const rest = rawUrl.slice(basePath.length);
   const query = rest.indexOf('?');
   const path = query === -1 ? rest : rest.slice(0, query);
-  const segments = path.split('/').map((segment) => {
+  const unsafe = path.includes('\\') || path.split('/').some((segment) => {
+    let decoded: string;
     try {
-      return decodeURIComponent(segment);
+      decoded = decodeURIComponent(segment);
     } catch {
-      return segment;
+      return true;
     }
+    return decoded === '.' || decoded === '..' || decoded.includes('/') || decoded.includes('\\');
   });
-  if (segments.some((segment) => segment === '.' || segment === '..') || path.includes('\\'))
-    throw new ApiError('Request path must not contain dot segments', {
+  if (unsafe)
+    throw new ApiError('Request path must not contain dot segments or encoded separators', {
       status: 400,
       code: 'invalid_request',
       type: 'invalid_request_error',
@@ -96,6 +105,19 @@ export function upstreamPath(rawUrl: string, basePath: string): string {
 
 function isHeadersTimeout(err: unknown): boolean {
   return (err as { code?: unknown } | null)?.code === 'UND_ERR_HEADERS_TIMEOUT';
+}
+
+/**
+ * Errors that can happen after the request reached the provider (a reset or
+ * close on an established connection, a body that did not match its
+ * length). The provider may already have acted on it, so another key must
+ * not get the same request: only failures to connect fail over.
+ */
+const AFTER_SEND_ERRORS = new Set(['UND_ERR_SOCKET', 'ECONNRESET', 'EPIPE', 'UND_ERR_REQ_CONTENT_LENGTH_MISMATCH']);
+
+function mayHaveBeenSent(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && AFTER_SEND_ERRORS.has(code);
 }
 
 function isUploadTooLarge(err: unknown): boolean {
@@ -210,6 +232,13 @@ export function createGatewayUpstream(
         recordProviderKeyError(ctx.db, candidate.id, reasonForError(err), null);
         if (isHeadersTimeout(err)) {
           throw new ApiError(`${provider.label} did not answer in time`, { status: 504, code: 'upstream_timeout', type: 'api_error' });
+        }
+        if (mayHaveBeenSent(err)) {
+          throw new ApiError(`${provider.label} closed the connection before answering`, {
+            status: 502,
+            code: 'upstream_connection_lost',
+            type: 'api_error',
+          });
         }
         timedOut ||= reasonForError(err) === 'timeout';
         continue;

@@ -20,7 +20,7 @@ import {
   retryAfterSeconds,
 } from '../../../src/services/gateway-upstream/failover.js';
 import { describeReason, safeReason } from '../../../src/services/gateway-upstream/telemetry.js';
-import { verifyProviderKey } from '../../../src/services/gateway-upstream/verify.js';
+import { classifyVerification, verifyProviderKey } from '../../../src/services/gateway-upstream/verify.js';
 import { createUpstreamAgent, upstreamConfigFromEnv } from '../../../src/services/gateway-upstream/client.js';
 import { keyHint } from '../../../src/services/provider-api-keys.js';
 
@@ -374,6 +374,46 @@ describe('verifyProviderKey', () => {
     expect(result).toEqual({ state, reason, status });
     expect(JSON.stringify(result)).not.toContain('should-never-appear');
     expect(seen[0]).toMatchObject({ path: '/v1/models', 'x-api-key': 'sk-ant-api03-verifyme', 'anthropic-version': '2023-06-01' });
+  });
+
+  it('keeps a key that authenticated but lacks a scope, and reads xAI\'s 400 for a wrong key', () => {
+    const restricted = classifyVerification(
+      'openai',
+      401,
+      JSON.stringify({ error: { message: 'You have insufficient permissions for this operation. Missing scopes: api.model.read.' } }),
+    );
+    expect(restricted).toEqual({ state: 'valid', reason: 'restricted (HTTP 401)', status: 401 });
+    expect(
+      classifyVerification('anthropic', 403, '{"type":"error","error":{"type":"permission_error","message":"no access"}}'),
+    ).toEqual({ state: 'valid', reason: 'restricted (HTTP 403)', status: 403 });
+    expect(classifyVerification('openai', 401, '{"error":{"code":"invalid_api_key","message":"Incorrect API key provided"}}')).toEqual({
+      state: 'invalid',
+      reason: 'unauthorized (HTTP 401)',
+      status: 401,
+    });
+    expect(classifyVerification('xai', 400, '{"error":"Incorrect API key provided: xa***"}')).toEqual({
+      state: 'invalid',
+      reason: 'unauthorized (HTTP 400)',
+      status: 400,
+    });
+    expect(classifyVerification('openai', 400, '{"error":"Incorrect API key provided"}').state).toBe('error');
+    expect(classifyVerification('xai', 400, '{"error":"bad request"}').state).toBe('error');
+  });
+
+  it('classifies a real error answer from its first bytes only', async () => {
+    server = createServer((_req, res) => {
+      res.writeHead(401, { 'content-type': 'application/json' });
+      res.write('{"error":{"message":"Missing scopes: api.model.read"},"pad":"');
+      res.end(`${'x'.repeat(64 * 1024)}"}`);
+    });
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve));
+    agent = createUpstreamAgent(upstreamConfigFromEnv({ GATEWAY_UPSTREAM_PRIVATE_HOSTS: '127.0.0.1' } as never));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+    expect(await verifyProviderKey(agent, 'openai', base, 'sk-proj-verifyme1234')).toEqual({
+      state: 'valid',
+      reason: 'restricted (HTTP 401)',
+      status: 401,
+    });
   });
 
   it('uses the guarded agent: a loopback base is refused when not a private host', async () => {

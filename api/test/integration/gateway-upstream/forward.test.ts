@@ -386,6 +386,24 @@ describe('gateway upstream source', () => {
     expect(provider.seen.map(keyOf)).toEqual([KEY_A]);
   });
 
+  it('does not repeat a request on another key once the connection drops after sending it', async () => {
+    const provider = await fakeProvider((_seen, res) => {
+      res.socket?.destroy();
+    });
+    const h = await harness();
+    await h.addKey('openai', KEY_A, provider.base);
+    await h.addKey('openai', KEY_B, provider.base);
+    const r = await h.app.inject({
+      method: 'POST',
+      url: '/v1/chat/completions',
+      headers: { authorization: `Bearer ${GW_UP}`, 'content-type': 'application/json' },
+      payload: '{"model":"gpt-x","messages":[]}',
+    });
+    expect(r.statusCode).toBe(502);
+    expect(JSON.parse(r.payload).error.code).toBe('upstream_connection_lost');
+    expect(provider.seen.map(keyOf)).toEqual([KEY_A]);
+  });
+
   it('answers 504 when the provider sends no headers in time', async () => {
     const provider = await fakeProvider(() => new Promise<void>(() => undefined));
     const h = await harness({ config: { headersTimeoutMs: 200 } });
@@ -482,7 +500,15 @@ describe('gateway upstream source', () => {
     // Over a real socket: inject() would resolve the dot segments itself.
     const forwarded = provider.seen.length;
     const address = new URL(await h.app.listen({ host: '127.0.0.1', port: 0 }));
-    for (const path of ['/v1/files/%2e%2e/admin', '/v1/files/../admin', '/v1/files/%2E/x']) {
+    for (const path of [
+      '/v1/files/%2e%2e/admin',
+      '/v1/files/../admin',
+      '/v1/files/%2E/x',
+      '/v1/files/..%2fadmin',
+      '/v1/files/%5c..%5cadmin',
+      '/v1/files/%2F%2Fevil.example',
+      '/v1/files/%zz',
+    ]) {
       const status = await new Promise<number>((resolve, reject) => {
         http
           .request({ host: address.hostname, port: address.port, path, headers: { authorization: `Bearer ${GW_UP}` } }, (res) => {
@@ -495,6 +521,10 @@ describe('gateway upstream source', () => {
       expect(status, path).toBe(400);
     }
     expect(provider.seen).toHaveLength(forwarded);
+    // Other percent-encoding passes through verbatim.
+    const encoded = await h.app.inject({ method: 'GET', url: '/v1/files/file%2D1%20x', headers: { authorization: `Bearer ${GW_UP}` } });
+    expect(encoded.statusCode).toBe(200);
+    expect(provider.seen.at(-1)?.url).toBe('/v1/files/file%2D1%20x');
 
     const strict = await harness({ settings: [['api_surface_source_openai', 'upstream']] });
     const unauthenticated = await strict.app.inject({ method: 'GET', url: '/v1/files' });

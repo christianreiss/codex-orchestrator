@@ -27,6 +27,7 @@ export type UpstreamReason =
   | 'unauthorized'
   | 'forbidden'
   | 'rate_limited'
+  | 'restricted'
   | 'upstream_error'
   | 'unexpected_status'
   | 'unreachable'
@@ -39,6 +40,7 @@ export const UPSTREAM_REASONS: readonly UpstreamReason[] = [
   'unauthorized',
   'forbidden',
   'rate_limited',
+  'restricted',
   'upstream_error',
   'unexpected_status',
   'unreachable',

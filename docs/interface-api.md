@@ -389,8 +389,9 @@ provider API key stored server-side in `provider_api_keys` (see
   `PUT /grok/v1/*`, `PATCH /grok/v1/*`, `DELETE /grok/v1/*`, `GET /kimi/v1/*`,
   `POST /kimi/v1/*`, `PUT /kimi/v1/*`, `PATCH /kimi/v1/*`, `DELETE /kimi/v1/*`
   (HEAD follows GET). The remainder after the base path and the raw query go to
-  `{base_url}{remainder}`; a `.`/`..` segment (also percent-encoded) or a
-  backslash is `400 invalid_request`. On an `emulated` request these catch-alls
+  `{base_url}{remainder}` verbatim; a segment that decodes to `.`/`..` or
+  contains an encoded `/` or `\`, a segment that does not decode, or a backslash
+  is `400 invalid_request`. On an `emulated` request these catch-alls
   answer `404 not_found` as before. Without a credential header they answer 404
   without authenticating; a request that carries `authorization`/`x-api-key`, or
   any request while the surface defaults to `upstream`, must present a valid
@@ -419,16 +420,19 @@ provider API key stored server-side in `provider_api_keys` (see
   body is logged; a key keeps `last_used_at` and `last_error_at/status/reason`.
 - **Keys and failover.** Candidates are the provider's `active` keys that are
   not `verification_state=invalid`, ordered by `sort_order`, then id; keys cooling
-  down move last. Before the first byte reaches the client a connection failure,
+  down move last. Before the first byte reaches the client a failure to connect,
   `401`, `403` or `429` moves to the next key; the last key's answer is passed
-  through. A `429` cools the key for `retry-after-ms`/`retry-after` (1–300 s,
-  default 30 s). A `401` cools it 60 s and starts a background re-verification;
-  only that verification (`401`/`403` on `GET {base_url}/models`) marks the key
-  `invalid` (audit `provider_key.invalidated`), because restricted keys answer
-  `401` for a missing scope. Every other status, 5xx included, is committed.
+  through. A connection lost after the request may have reached the provider is
+  never repeated on another key. A `429` cools the key for
+  `retry-after-ms`/`retry-after` (1–300 s, default 30 s). A `401` cools it 60 s
+  and starts a background re-verification; only that verification marks the
+  key `invalid` (audit `provider_key.invalidated`, rules under `verify` below),
+  because restricted keys answer `401` for a missing scope. Every other status,
+  5xx and xAI's `400` for a wrong key included, is committed.
 - **Errors before the commit.** `503 upstream_unconfigured` (no candidate key),
   `502 upstream_unreachable` (every candidate failed to connect; `extra.reason:
-  "timeout"` when one timed out), `504 upstream_timeout` (no response headers
+  "timeout"` when one timed out), `502 upstream_connection_lost` (the connection
+  closed after the request was sent), `504 upstream_timeout` (no response headers
   within `GATEWAY_UPSTREAM_HEADERS_TIMEOUT`), `503 backend_unavailable` (the
   upstream forward is not wired on this server), all in the surface's envelope.
   After the commit an error or a revoked authority (gateway key, kill switch,
@@ -485,10 +489,16 @@ provider body.
   candidate.
 - `POST /admin/provider-keys/{id}/verify` (`keys.manage`) → `ProviderKey`
   after calling `GET {effective_base_url}/models` with the key through the
-  forward's guarded agent (10 s). 2xx is `valid`, 401/403 is `invalid` (no
-  longer a candidate), and anything else, including a refused address or a
-  timeout, is `error`. A result that arrives after the key or base URL changed
-  is discarded.
+  forward's guarded agent (10 s). 2xx is `valid`. 401/403 is `invalid` (no
+  longer a candidate), unless the answer says the key authenticated but lacks a
+  scope or permission (OpenAI "Missing scopes"/"insufficient permissions",
+  Anthropic `permission_error`): then it stays `valid` with reason
+  `restricted (HTTP 401|403)`. xAI's `400` for an incorrect key is `invalid`.
+  Anything else, including a refused address or a timeout, is `error`. Only the
+  first 16 KiB of an error answer are read to decide this; none of it is
+  stored or returned. A result that arrives after the key or base URL changed
+  is discarded. A suspended provider engine is `409 engine_disabled` with no
+  provider call; an unknown id is `404 provider_key_not_found`.
 - `POST /admin/provider-keys/order` (`keys.manage`) with
   `{provider, ids:[id, …]}`, listing every key of that provider exactly once →
   `{keys:[ProviderKey]}` (that provider's keys, in the new order). A

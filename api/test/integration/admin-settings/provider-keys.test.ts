@@ -202,10 +202,17 @@ describe('/admin/provider-keys', () => {
     expect(h.state.snapshot().setting('api_surface_source_openai')).toBe('upstream');
     expect((await set('openai', 'emulated')).json().data.source).toBe('emulated');
 
-    await h.app.inject({ method: 'POST', url: '/admin/provider-keys', payload: { provider: 'anthropic', label: 'k', key: 'sk-ant-api03-ABCDEFGHIJKLMNOP' } });
+    const anthropic = (
+      await h.app.inject({ method: 'POST', url: '/admin/provider-keys', payload: { provider: 'anthropic', label: 'k', key: 'sk-ant-api03-ABCDEFGHIJKLMNOP' } })
+    ).json().data;
     const off = await set('anthropic', 'upstream');
     expect(off.statusCode).toBe(409);
     expect(off.json()).toMatchObject({ code: 'engine_disabled', engine: 'claude' });
+    // A suspended engine makes no provider call, not even a verification.
+    const verify = await h.app.inject({ method: 'POST', url: `/admin/provider-keys/${anthropic.id}/verify` });
+    expect(verify.statusCode).toBe(409);
+    expect(verify.json()).toMatchObject({ code: 'engine_disabled', engine: 'claude' });
+    expect((await h.app.inject({ method: 'POST', url: '/admin/provider-keys/999/verify' })).statusCode).toBe(404);
     expect((await set('anthropic', 'emulated')).statusCode).toBe(200);
 
     expect((await set('claude', 'upstream')).statusCode).toBe(400);
