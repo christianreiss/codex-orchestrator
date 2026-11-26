@@ -47,7 +47,7 @@ The **Form of address** choice sits in the same *How cautious agents are* block,
 
 **Choose models for delegated work** in Settings → Agents enables independent, default-off guidance for choosing a suitable stronger or lighter model per permitted subagent task. Quality and parent verification come first. If the Model Class Check is also on, a fitting delegated model can handle an otherwise underclassed assignment when runtime and user instructions permit delegation. The setting is guidance and takes effect on the next sync.
 
-The Model Class Check (**Settings → Agents → Agents check their model against the task**, `GET`/`POST /admin/model-tier-check`, on by default) is a separate managed section. Besides the tier table it asks each new session to open its first reply with one line naming its launch name, vendor, model family and tier; resumed sessions and delivered work turns skip that greeting. See `docs/model-tiers.md`.
+The Model Class Check (**Settings → Agents → Agents check their model against the task**, `GET`/`POST /admin/model-tier-check`, on by default) is a separate managed section. Besides the tier table it asks each new session to open its first reply with one line naming its launch name, vendor, model family and tier; resumed sessions and delivered work turns skip that greeting. Which tier each model counts as is set under **Settings → Agents → Model tiers**: drag a model to another tier (or use its menu) and save; the registry default applies until then. See `docs/model-tiers.md`.
 
 ## Roles
 

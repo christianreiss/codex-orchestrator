@@ -46,8 +46,12 @@
   const hidden = $derived(models.filter((model) => !$fleet.isEnabled(model.engine)).length);
   const placedAway = $derived(deviations(models, draft));
 
+  /** A model's draft tier; one the draft has not seen yet (new from the server) keeps its saved tier. */
+  const placedTier = (model: ModelTierModel) => draft[tierKey(model)] ?? model.tier;
+
   function move(key: string, tier: number) {
-    if (!canManage || draft[key] === tier) return;
+    const model = models.find((candidate) => tierKey(candidate) === key);
+    if (!canManage || !model || placedTier(model) === tier) return;
     draft = { ...draft, [key]: tier };
     saved = false;
     $save.reset();
@@ -74,7 +78,7 @@
   function drop(event: DragEvent, tier: number) {
     event.preventDefault();
     const key = event.dataTransfer?.getData("text/plain") || dragging;
-    if (key && key in draft) move(key, tier);
+    if (key) move(key, tier);
     dragging = null;
     over = null;
   }
@@ -114,7 +118,8 @@
             <ul class="flex min-h-9 flex-wrap content-start gap-2">
               {#each column.models as model (tierKey(model))}
                 {@const key = tierKey(model)}
-                {@const unsaved = draft[key] !== model.tier}
+                {@const tier = placedTier(model)}
+                {@const unsaved = tier !== model.tier}
                 <li
                   draggable={canManage}
                   ondragstart={(event) => dragStart(event, key)}
@@ -135,7 +140,7 @@
                     <span class="text-caption text-muted-foreground">{engineName(model)}</span>
                     {#if unsaved}
                       <span class="text-caption text-primary">· unsaved, was Tier {model.tier}</span>
-                    {:else if draft[key] !== model.default_tier}
+                    {:else if tier !== model.default_tier}
                       <span class="text-caption text-muted-foreground">· default Tier {model.default_tier}</span>
                     {/if}
                   </span>
@@ -154,12 +159,12 @@
                         <DropdownMenu.Group>
                           <DropdownMenu.Label>Move to</DropdownMenu.Label>
                           {#each columns as target (target.tier)}
-                            {#if target.tier !== draft[key]}
+                            {#if target.tier !== tier}
                               <DropdownMenu.Item onSelect={() => move(key, target.tier)}>Tier {target.tier}</DropdownMenu.Item>
                             {/if}
                           {/each}
                         </DropdownMenu.Group>
-                        {#if draft[key] !== model.default_tier}
+                        {#if tier !== model.default_tier}
                           <DropdownMenu.Separator />
                           <DropdownMenu.Item onSelect={() => move(key, model.default_tier)}>Reset to default (Tier {model.default_tier})</DropdownMenu.Item>
                         {/if}
