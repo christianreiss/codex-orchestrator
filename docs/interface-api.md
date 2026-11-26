@@ -1270,7 +1270,7 @@ All four engine config GET/store routes share the revision contract: `revision` 
   title edits and commit-format settings produce no separate agent notice.
 
   `git_release` accepts optional `outcome: merged|aborted|unknown` (default unknown).
-  A reported outcome requires `request_id` and matching `worktree_path`; `merged` also requires `target_head_sha` (40–64 lowercase hex characters). It remains
+  A reported outcome requires `request_id` and matching `worktree_path`; `merged` also requires `target_head_sha` (40–64 lowercase hex characters). A value that starts or ends with eight or more zeros, including the all-zero null SHA, is refused as a padded short hash (a real commit SHA has that shape about once in two billion); this check also applies to a correction's replacement SHA, and nothing else about the SHA is verified. It remains
   an **unverified agent report**, labelled `evidence: agent_reported`; a reported
   merge informs relevant repository peers, including related clones. Release
   alone proves neither integration, push nor deployment. The first report is stored even after expiry/withdrawal; identical retries

@@ -285,6 +285,19 @@ func TestTransferHelpAllPersonas(t *testing.T) {
 	}
 }
 
+func TestSecretStoreHelpAllPersonas(t *testing.T) {
+	for _, name := range []string{"cxx", "cdx", "clx", "cgx", "ckx"} {
+		var stdout, stderr bytes.Buffer
+		if code := run(name, []string{"secret", "--help"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "secret store SLUG") {
+			t.Fatalf("%s: code=%d stdout=%s stderr=%s", name, code, &stdout, &stderr)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run("cxx", []string{"--help"}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "cxx secret store SLUG") {
+		t.Fatalf("selector help omits secret store: code=%d stdout=%s", code, &stdout)
+	}
+}
+
 func TestProjectFileHelpAllPersonas(t *testing.T) {
 	for _, name := range []string{"cxx", "cdx", "clx", "cgx", "ckx"} {
 		var stdout, stderr bytes.Buffer

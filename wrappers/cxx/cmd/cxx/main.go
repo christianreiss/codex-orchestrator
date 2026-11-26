@@ -18,6 +18,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/housekeeping"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/projectfiles"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/secretstore"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/terminalui"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/transfers"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/workload"
@@ -154,6 +155,8 @@ func runExplicit(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "project":
 		return projectfiles.Command(args[1:], "", stdout, stderr)
+	case "secret":
+		return secretstore.Command(args[1:], "", os.Stdin, stdout, stderr)
 	case "transfer":
 		return transfers.Command(args[1:], "", stdout, stderr)
 	case "housekeeping":
@@ -444,6 +447,7 @@ func printSelectorHelp(w io.Writer) {
 	fmt.Fprintln(w, "  cxx doctor [--fix] [--minimal]  (local wrapper PATH check and repair)")
 	fmt.Fprintln(w, "  cxx sync")
 	fmt.Fprintln(w, "  cxx project file put SLUG FILE [--stored-name NAME] [--engine ENGINE] [--json]")
+	fmt.Fprintln(w, "  cxx secret store SLUG (--file PATH | --stdin) [--name NAME] [--description TEXT] [--tag TAG] [--json]")
 	fmt.Fprintln(w, "  cxx transfer put FILE [--journal-dir DIR] [--resume] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx transfer get ID --output FILE [--resume] [--engine ENGINE] [--json]")
 	fmt.Fprintln(w, "  cxx rtk status [--engine ENGINE] [--json]; --no-rtk disables RTK for one launch")
@@ -485,6 +489,9 @@ func runPersona(engine string, args []string, stdout, stderr io.Writer) int {
 	args = clean
 	if len(args) > 0 && args[0] == "project" {
 		return projectfiles.Command(args[1:], engine, stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "secret" {
+		return secretstore.Command(args[1:], engine, os.Stdin, stdout, stderr)
 	}
 	if len(args) > 0 && args[0] == "transfer" {
 		return transfers.Command(args[1:], engine, stdout, stderr)

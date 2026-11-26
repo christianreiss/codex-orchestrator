@@ -28,7 +28,7 @@ Controls, and the capability each needs:
 
 ## How agents use it
 
-The MCP tools are `secret_list` (no arguments; its `status` and `capabilities` report live availability), `secret_search`, `secret_get` (by slug), `secret_store` (create, or rotate one the calling host owns), and `secret_delete` (retire one the calling host owns). The fleet policy served to agents tells them to check the store *before* asking a person for a credential, to prefer a tool-native secret parameter, stdin, or a process-scoped environment variable when using one, and never to write a value into shared memory or project state.
+The MCP tools are `secret_list` (no arguments; its `status` and `capabilities` report live availability), `secret_search`, `secret_get` (by slug), `secret_store` (create, or rotate one the calling host owns), and `secret_delete` (retire one the calling host owns). The fleet policy served to agents tells them to check the store *before* asking a person for a credential, to prefer a tool-native secret parameter, stdin, or a process-scoped environment variable when using one, and never to write a value into shared memory or project state. Agents can store a key file or a command's output with `cxx secret store SLUG --file PATH` or `--stdin` (cxx 0.9.210+, also as `cdx`/`clx`/`cgx`/`ckx secret store`), so the value never passes through their context.
 
 ## Live updates
 

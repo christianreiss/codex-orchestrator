@@ -10,7 +10,7 @@ import {
   validateModelTierOverrides,
 } from '../../../src/services/model-tiers.js';
 import { registryModels } from '../../../src/services/model-registry/index.js';
-import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINES } from '../../../src/util/engine.js';
+import { ENGINE_CLAUDE, ENGINE_CODEX, ENGINE_GROK, ENGINE_KIMI, ENGINES } from '../../../src/util/engine.js';
 
 const placed = (overrides: object) => tierResolver(JSON.stringify(overrides));
 
@@ -45,8 +45,12 @@ describe('operator tier placements', () => {
     const whole = placed({ codex: Object.fromEntries(registryModels(ENGINE_CODEX).filter((e) => e.family === 'sol').map((e) => [e.id, 4])) });
     expect(whole.tier(ENGINE_CODEX, 'gpt-6.3-sol')).toBe(4);
     expect(DEFAULT_TIER_RESOLVER.tier(ENGINE_CLAUDE, 'opus')).toBe(4);
-    // Grok ranks by exact id only, placed or not.
+    // Grok and Kimi rank by exact id only, placed or not.
     expect(placed({ grok: { 'grok-4.7': 3 } }).tier(ENGINE_GROK, 'grok-4.8')).toBeNull();
+    const kimi = placed({ kimi: { 'k3.1-pro': 4 } });
+    expect(kimi.tier(ENGINE_KIMI, 'k3.1-pro')).toBe(4);
+    expect(kimi.tier(ENGINE_KIMI, 'k3.1-pro-highspeed')).toBe(3);
+    expect(kimi.tier(ENGINE_KIMI, 'k3.2-pro')).toBeNull();
   });
 
   it('move a model between rows of the guidance table and the strongest pick', () => {

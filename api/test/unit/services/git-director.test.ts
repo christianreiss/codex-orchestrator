@@ -13,14 +13,17 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  GitDirectorService,
   normalizeJudgeVerdict,
   normalizePath,
   normalizeRemote,
   overlappingPaths,
   peerDeclarationOverlap,
+  reportedShaProblem,
   resolveVerdict,
   summarizeCloneEntry,
 } from '../../../src/services/git-director.js';
+import type { Host } from '../../../src/db/schema.js';
 import { parseJudgeReply } from '../../../src/services/git-director-judge.js';
 
 describe('normalizeRemote', () => {
@@ -339,5 +342,44 @@ describe('summarizeCloneEntry', () => {
     expect(worktrees[0]).not.toHaveProperty('declared_paths');
     expect(String(worktrees[0]!['task']).length).toBeLessThanOrEqual(121);
     expect(JSON.stringify(out).length).toBeLessThan(JSON.stringify(entry).length / 10);
+  });
+});
+
+describe('reportedShaProblem', () => {
+  it('accepts full commit SHAs, including ones with short zero runs', () => {
+    expect(reportedShaProblem('51eee0cd7f1c4d8fe88f0ad72e6245897ea92854')).toBeNull();
+    expect(reportedShaProblem('0000000a' + 'b'.repeat(32))).toBeNull(); // seven leading zeros
+    expect(reportedShaProblem('b'.repeat(33) + '0000000')).toBeNull(); // seven trailing zeros
+    expect(reportedShaProblem('ab' + '0'.repeat(20) + 'cd'.repeat(9))).toBeNull(); // zeros inside
+    expect(reportedShaProblem('c'.repeat(64))).toBeNull(); // SHA-256 object format
+  });
+
+  it('refuses a short hash padded with zeros and the null SHA', () => {
+    // The reported case: an agent padded `git rev-parse --short` output to 40 characters.
+    expect(reportedShaProblem('51eee0cd7' + '0'.repeat(31))).toMatch(/padded short hash/);
+    expect(reportedShaProblem('0'.repeat(31) + '51eee0cd7')).toMatch(/padded short hash/);
+    expect(reportedShaProblem('51eee0cd7f1c4d8f' + '0'.repeat(48))).toMatch(/padded short hash/);
+    expect(reportedShaProblem('0'.repeat(40))).toMatch(/padded short hash/);
+  });
+
+  it('keeps the format rule for short, long and non-hex values', () => {
+    for (const bad of ['51eee0cd7', 'a'.repeat(39), 'a'.repeat(65), 'A'.repeat(40), 'g'.repeat(40)]) {
+      expect(reportedShaProblem(bad)).toMatch(/full 40-64 lowercase hex/);
+    }
+  });
+
+  it('is enforced by git_release before any lease or report is touched', async () => {
+    // The fake database throws on any use, so a refusal proves the check runs first.
+    const db = new Proxy({}, { get: () => { throw new Error('database touched'); } });
+    const director = new GitDirectorService({ db } as unknown as ConstructorParameters<typeof GitDirectorService>[0]);
+    const host = { id: 1 } as Host;
+    const report = { request_id: 'r1', worktree_path: '/srv/repo', outcome: 'merged' };
+    await expect(director.release({ ...report, target_head_sha: 'abc1234' + '0'.repeat(33) }, host)).rejects.toThrow(/padded short hash/);
+    await expect(
+      director.release(
+        { ...report, target_head_sha: '0'.repeat(40), correction_id: '6f1c2b8e-5d4a-4f3e-9a2b-1c0d9e8f7a6b', correction_reason: 'Fix the SHA' },
+        host,
+      ),
+    ).rejects.toThrow(/padded short hash/);
   });
 });

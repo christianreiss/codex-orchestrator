@@ -101,6 +101,14 @@ export interface SecretListing {
   owned_by_you: boolean;
 }
 
+/**
+ * The name a host-created secret gets when the caller gave none: its slug.
+ * Only creation falls back; a rotation without a name keeps the stored one.
+ */
+function createName(input: CreateSecretInput): string {
+  return input.name?.trim() || input.slug;
+}
+
 export function toSecretListing(row: SecretMetadata, hostId: number | null): SecretListing {
   return {
     slug: row.slug,
@@ -491,7 +499,7 @@ export class SecretsService {
           } else {
             const now = nowIso(),
               values = this.createValues(
-                { ...input, slug, sourceHostId: host.id, sourceEngine: engine },
+                { ...input, name: createName(input), slug, sourceHostId: host.id, sourceEngine: engine },
                 now,
               );
             if (existing) saved = toMetadata(stageUpdate(ctx, 'secrets', existing.id, values));
@@ -533,6 +541,7 @@ export class SecretsService {
 
     const created = await this.create({
       ...input,
+      name: createName(input),
       slug,
       sourceHostId: host.id,
       sourceEngine: engine,

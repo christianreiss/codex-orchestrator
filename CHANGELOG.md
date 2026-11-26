@@ -1,5 +1,10 @@
 # 2026-11-26
 
+- cxx 0.9.210: `cxx secret store SLUG --file PATH` or `--stdin` (also `cdx`/`clx`/`cgx`/`ckx secret store`) saves a fleet credential through `secret_store` without the value entering the model context. It prints only slug, status and byte count and requires valid UTF-8 of at most 1 MiB. `secret_store` without `name` now keeps a rotated secret's stored name instead of renaming it to the slug.
+- `git_release` refuses a merged `target_head_sha` that starts or ends with eight or more zeros (a zero-padded short hash or the null SHA), corrections included.
+- Projects, board: a card's "Card actions" menu opens again. It threw on open, so cards could not be moved, edited, force-released or archived from it.
+- The `project_file_upsert` tool description points agents to `cxx project file put` for files already on disk.
+
 - Accounts, distribution policy: Mode and Strategy are chosen on cards that describe each option, instead of segmented buttons whose meaning showed only after a click. The soft and hard limit are two thumbs on one slider (50–100 %), so the soft limit can no longer pass the hard one. Arrow keys move a limit by one percent, Page keys by ten.
 
 - Overview, Provider usage: a collapsed engine group now says what the next weekly reset throws away, for example "Expires at the next reset: 86% of Work". It names the unused share of the account whose weekly window (for Grok, its reported period) resets first; resets within an hour of it count together. Quota left at a reset is lost, and the pool average could not show which account was about to lose it. Unmeasured accounts are left out, and the line is hidden when nothing would be lost.

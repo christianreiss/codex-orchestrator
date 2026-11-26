@@ -613,6 +613,18 @@ describe('secret_store / secret_delete ownership', () => {
     expect((await service.getForHost('mine', host, ENGINE_CODEX)).value).toBe('v2');
   });
 
+  it('names a nameless creation after its slug and keeps the name on a nameless rotation', async () => {
+    // secret_store and `cxx secret store` pass an empty name when the caller
+    // gave none: creating falls back to the slug, rotating leaves the name alone.
+    const { service } = makeHarness([
+      { slug: 'kept', name: 'Kept name', value: 'v1', sourceHostId: host.id, sourceEngine: ENGINE_CODEX },
+    ]);
+    const rotated = await service.storeForHost({ slug: 'kept', name: '', value: 'v2' }, host, ENGINE_CODEX);
+    expect(rotated).toMatchObject({ status: 'rotated', secret: { name: 'Kept name' } });
+    const created = await service.storeForHost({ slug: 'fresh', name: '', value: 'v' }, host, ENGINE_CODEX);
+    expect(created).toMatchObject({ status: 'created', secret: { slug: 'fresh', name: 'fresh' } });
+  });
+
   it('refuses to overwrite an operator-created secret', async () => {
     // The powerdns-api-key case, exactly.
     const { service } = makeHarness([{ slug: 'powerdns-api-key', value: 'real', sourceHostId: null }]);

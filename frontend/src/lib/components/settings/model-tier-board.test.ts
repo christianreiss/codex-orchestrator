@@ -8,6 +8,7 @@ const models = [
   { engine: "codex" as const, id: "gpt-6.2-sol", tier: 3, default_tier: 3 },
   { engine: "claude" as const, id: "claude-sonnet-5-5", tier: 4, default_tier: 3 },
   { engine: "grok" as const, id: "grok-4.7", tier: 2, default_tier: 2 },
+  { engine: "kimi" as const, id: "k3.1-pro", tier: 3, default_tier: 3 },
 ];
 const levels = [1, 2, 3, 4, 5].map((tier) => ({ tier, work: `work ${tier}` }));
 
@@ -28,12 +29,13 @@ it("sends every model, hidden engines included, so a save never drops a placemen
     codex: { "gpt-6.2-sol": 5 },
     claude: { "claude-sonnet-5-5": 4 },
     grok: { "grok-4.7": 2 },
+    kimi: { "k3.1-pro": 3 },
   });
 });
 
 it("fills each column with the visible models of its tier in canonical order", () => {
   const columns = tierColumns(levels, models, draftFrom(models), (engine) => engine !== "grok");
   assert.deepEqual(columns.map((column) => [column.tier, column.models.map((model) => model.id)]), [
-    [1, []], [2, []], [3, ["gpt-6.2-sol"]], [4, ["claude-sonnet-5-5"]], [5, []],
+    [1, []], [2, []], [3, ["gpt-6.2-sol", "k3.1-pro"]], [4, ["claude-sonnet-5-5"]], [5, []],
   ]);
 });
