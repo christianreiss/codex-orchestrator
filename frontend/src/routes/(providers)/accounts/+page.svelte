@@ -11,6 +11,8 @@
   import { useFleetEngines } from "$lib/engines/fleet-engines";
   import AccountRow from "$lib/components/accounts/AccountRow.svelte";
   import AccountDialogs, { type AccountDialog } from "$lib/components/accounts/AccountDialogs.svelte";
+  import AccountPolicy from "$lib/components/accounts/AccountPolicy.svelte";
+  import AccountScopes from "$lib/components/accounts/AccountScopes.svelte";
   import EngineFilter from "$lib/components/accounts/EngineFilter.svelte";
   import { isNearQuota, matchesSearch, needsAttention, sortAccounts, NEAR_QUOTA_PERCENT } from "$lib/components/accounts/account-state";
   import { UrlFilters } from "$lib/utils/url-filters.svelte";
@@ -42,6 +44,9 @@
     { label: "need attention", value: attention, tone: attention ? ("danger" as const) : ("default" as const), hint: "Login needs renewal or verification failed" },
     { label: "near quota", value: nearQuota, tone: nearQuota ? ("warning" as const) : ("default" as const), hint: `Either usage window at ${NEAR_QUOTA_PERCENT}% or more` },
   ]);
+
+  // Policy is per engine: follow the engine filter, with Claude (the only live-switching engine) as the default view.
+  const policyEngine = $derived<Engine | null>(scope !== "all" ? scope : $fleet.isEnabled("claude") ? "claude" : ($fleet.enabled[0] ?? null));
 
   const addDisabled = $derived($fleet.enabled.length === 0);
   const countLabel = $derived($query.data && (search.trim() || scope !== "all") ? `${visible.length} of ${accounts.length}` : "");
@@ -124,6 +129,13 @@
       />
     {/snippet}
   </DataTable>
+
+  {#if policyEngine}
+    {#key policyEngine}<AccountPolicy engine={policyEngine} {canManage} />{/key}
+    {#if policyEngine === "claude"}
+      <AccountScopes engine="claude" accounts={accounts} {canManage} />
+    {/if}
+  {/if}
 </PageShell>
 
 <AccountDialogs

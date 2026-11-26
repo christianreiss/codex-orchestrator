@@ -216,7 +216,7 @@ export const DEFAULT_INVALIDATIONS: WsInvalidationMap = {
   // is unchanged, so keep the source card live across tabs and worker ticks.
   "companion.devices.changed": [["companion-devices"]],
   "quota.policy.updated": [["settings", "quota-policy"], ["accounts"]],
-  "accounts.updated": [["accounts"], ["overview"], ["hosts"]],
+  "accounts.updated": [["accounts"], ["accounts", "policy"], ["accounts", "scopes"], ["overview"], ["hosts"]],
   "host.spawn.state_changed": [["settings", "host-spawn"], ["hosts"]],
   "settings.changed": [["settings", "speech-input"],["projects", "changelog-state"],["supervisor"], ["settings"], ["runner"], ["claude-settings"], ["hosts"], ["skills", "source"], ["keys", "openai", "state"], ["keys", "claude", "state"], ["keys", "grok", "state"], ["keys", "kimi", "state"]],
   // Fleet engine master switch. Settings covers the switch rows and the

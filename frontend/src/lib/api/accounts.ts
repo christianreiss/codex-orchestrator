@@ -11,6 +11,10 @@ export interface ProviderAccount {
   id: number;
   engine: AuthEngine;
   label: string;
+  /** Provider login e-mail when the server could derive it (Claude profile). */
+  email?: string | null;
+  /** False when no provider identity was recorded yet, so re-logins cannot be matched to this account. */
+  identity_known?: boolean;
   state: "enabled" | "paused" | "removing";
   verification_state: string;
   verification_reason: string | null;
@@ -45,14 +49,62 @@ export interface ProviderAccount {
       shared: boolean | null;
     } | null;
   };
-  sessions: Array<{ id: string; host_id: number; expires_at: string }>;
+  sessions: Array<{ id: string; host_id: number; expires_at: string; scope_id?: string; binding_generation?: number; account_switch?: AccountSwitchDirective | null }>;
 }
 
-export const accountsKeys = { all: () => ["accounts"] as const };
+/** A pending account switch for one scope (host + user + native credential directory). */
+export interface AccountSwitchDirective {
+  account_id: number;
+  account_label: string;
+  binding_generation: number;
+  reason: "policy" | "admin" | "host" | "agent";
+  requested_at: string;
+}
+
+export type PolicyMode = "auto" | "manual";
+export type PolicyStrategy = "balanced" | "exhaust";
+export type PolicySpread = "eng" | "normal" | "locker";
+
+/** Per-engine account distribution policy (`GET/POST /admin/accounts/policy/:engine`). */
+export interface AccountPolicy {
+  mode: PolicyMode;
+  strategy: PolicyStrategy;
+  spread: PolicySpread;
+  spread_points: number;
+  soft_ceiling: number;
+  hard_ceiling: number;
+  min_dwell_minutes: number;
+}
+export type AccountPolicyChanges = Partial<Pick<AccountPolicy, "mode" | "strategy" | "spread" | "soft_ceiling" | "hard_ceiling" | "min_dwell_minutes">>;
+
+/** One live scope: every session of one user on one host shares this binding. */
+export interface AccountScope {
+  host_id: number;
+  host_fqdn: string;
+  scope_id: string;
+  account_id: number;
+  account_label: string;
+  binding_generation: number;
+  sessions: number;
+  bound_at: string | null;
+  account_switch: AccountSwitchDirective | null;
+}
+
+// policy/scopes sit under the "accounts" root, so every accounts.updated invalidation reaches them too.
+export const accountsKeys = {
+  all: () => ["accounts"] as const,
+  policy: (engine: AuthEngine) => ["accounts", "policy", engine] as const,
+  scopes: (engine: AuthEngine) => ["accounts", "scopes", engine] as const,
+};
 export const accountsApi = {
   list: () => api.get<{ accounts: ProviderAccount[] }>("/admin/accounts"),
   update: (id: number, changes: { label?: string; state?: "enabled" | "paused" }) => api.patch(`/admin/accounts/${id}`, changes),
   remove: (id: number) => api.delete(`/admin/accounts/${id}`),
+  policy: (engine: AuthEngine) => api.get<AccountPolicy>(`/admin/accounts/policy/${engine}`),
+  setPolicy: (engine: AuthEngine, changes: AccountPolicyChanges) => api.post<AccountPolicy>(`/admin/accounts/policy/${engine}`, changes),
+  scopes: (engine: AuthEngine) => api.get<AccountScope[]>(`/admin/accounts/scopes?engine=${encodeURIComponent(engine)}`),
+  switchScope: (input: { engine: AuthEngine; host_id: number; scope_id: string; account_id: number }) =>
+    api.post<{ binding_generation: number; account_switch: AccountSwitchDirective | null }>("/admin/accounts/scopes/switch", input),
   verify: (id: number) => api.post<{ verification_state: string; reason?: string }>(`/admin/accounts/${id}/verify`, {}),
 };
 export function accountsQuery() {

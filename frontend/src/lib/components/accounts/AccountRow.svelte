@@ -49,12 +49,16 @@
       <span class={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", dot[status.tone])} aria-hidden="true"></span>
       <div class="min-w-0">
         <div class="truncate font-medium" title={account.label}>{account.label}</div>
+        {#if account.email && account.email !== account.label}<div class="truncate text-caption text-muted-foreground" title={account.email}>{account.email}</div>{/if}
         <div class={cn("text-caption", textTone[status.tone])}>
           <span class={status.tone === "danger" ? "font-medium" : ""}>{status.label}</span>{#if status.detail}<span class="text-muted-foreground">{" · "}{status.detail}</span>{/if}
         </div>
         <div class="text-caption text-muted-foreground">
           <span class="inline-flex items-center gap-1.5"><span class={cn("h-2 w-2 rounded-full", meta.color)} aria-hidden="true"></span>{meta.label}</span>{#if account.plan?.name}{" · "}{account.plan.name}{/if}{#if account.quota_policy?.unlimited}{" · "}PayG / unlimited{/if}
         </div>
+        {#if account.identity_known === false}
+          <div class="text-caption text-muted-foreground" title="No provider identity is recorded for this account, so a later login cannot be matched to it automatically. Use Replace credentials to refresh it.">Identity unknown</div>
+        {/if}
       </div>
     </div>
   </Table.Cell>

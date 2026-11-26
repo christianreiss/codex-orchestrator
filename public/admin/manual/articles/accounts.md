@@ -1,8 +1,8 @@
 ---
 title: Provider accounts
 section: Fleet operations
-verified: 2026-10-17
-sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/(providers)/accounts/+page.svelte
+verified: 2026-11-26
+sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/(providers)/accounts/+page.svelte, frontend/src/lib/components/accounts/AccountPolicy.svelte, frontend/src/lib/components/accounts/AccountScopes.svelte
 ---
 
 Grok Build (`cgx`) is supported alongside Codex, Claude and Kimi Code; see [Grok Build](cgx) for
@@ -22,11 +22,25 @@ An account is a subscription, not a login session. Client uploads with a known d
 
 Every account shows separate short and weekly utilization, reset times, observation freshness, verification state, and active hosts. Unknown quota remains unknown; stale readings are labeled and retained conservatively until their reset. The Overview's Provider usage table also shows each account separately. Percentages from different subscriptions are never added together.
 
-At a new native CLI launch, cxx chooses a verified enabled account with lower quota utilization. Accounts within five percentage points share work by active reservation count, then least recent assignment. An idle account without usable quota observations receives a bounded trial so native usage can become known. Existing hard-fail, warning and VIP controls still apply when all known accounts are exhausted.
+At a new native CLI launch, cxx chooses a verified enabled account with lower quota utilization. Accounts within the policy band (Balanced) share work by active reservation count, then least recent assignment. An idle account without usable quota observations receives a bounded trial so native usage can become known. Existing hard-fail, warning and VIP controls still apply when all known accounts are exhausted.
 
-The selected account stays fixed for that session. Overlapping invocations sharing one native auth directory use the same account; balancing happens after that scope is idle. Heartbeats extend five-minute reservations, and normal exits release them. A crashed wrapper's reservation expires automatically. Routine sync and maintenance preserve the current account rather than rebalance. There is no manual host pinning and no cross-engine fallback.
+Without a switch request the selected account stays fixed for that session (see Distribution policy below for live switching in Claude). Overlapping invocations sharing one native auth directory use the same account; balancing happens after that scope is idle. Heartbeats extend five-minute reservations, and normal exits release them. A crashed wrapper's reservation expires automatically. Routine sync and maintenance preserve the current account rather than rebalance. There is no manual host pinning and no cross-engine fallback.
 
 Claude usage reports carry the account and session inherited from their native process, so a delayed report cannot be attributed to the next selected account. ChatGPT usage refreshes run separately for each enabled account. Historical unassigned readings remain separate from the pool.
+
+## Distribution policy and live switching
+
+The **distribution policy** card sits under the account list and follows the engine filter (with **All** it shows Claude). It decides which account new sessions use and when running sessions move. Changes need **Save policy**; nothing applies before it, and a background refresh does not overwrite unsaved edits.
+
+- **Mode.** **Automatic** (default): the server picks the account and requests switches. **Manual**: no automatic switches; new sessions still start on the account with the most headroom, and moving a running scope is an explicit action.
+- **Strategy** (automatic only). **Balanced** raises the accounts together: a running scope only moves when its account is further ahead of the least-used account than the band, **Tight** 10, **Normal** 20 (default) or **Loose** 30 percentage points. **Exhaust** uses account 1 up to the **soft limit** (default 90 %), then the next one; only when every account is past the soft limit does work continue up to the **hard limit** (default 99 %). The hard limit cannot be below the soft limit.
+- **Minimum dwell** (minutes, 0 to 240, default 15): after a switch the scope stays on its account at least this long, which protects against flapping and repeated prompt-cache rebuilds.
+
+Usage per account is the higher of its short and weekly window. Live switching of running sessions currently works only for Claude; for Codex, Grok and Kimi Code the policy decides which account a new launch picks.
+
+**Active Claude scopes** lists every host and user with a live Claude session: the host, the bound account, the number of sessions and a pending switch with its target. Sessions of one user on one host share a single credential file, so they always run on the same account and a switch moves them all. **Switch to…** offers the enabled, verified Claude accounts; the switch applies at the next turn boundary (never during a turn), with a prompt-cache rebuild per session. Agents can ask for the same through the account-switch skill; in automatic mode the minimum dwell still applies.
+
+Account rows show the provider login e-mail when it is known. **Identity unknown** means no provider identity is recorded yet, so a later login cannot be matched to that account automatically; use **Replace credentials** or log in again.
 
 ## Permissions and rollout
 
@@ -42,6 +56,8 @@ Migration `0035_provider_accounts.sql` preserves each previous canonical head as
 - api/src/routes/auth/index.ts
 - wrappers/cxx/internal/accountpool/context.go
 - frontend/src/routes/(providers)/accounts/+page.svelte
+- frontend/src/lib/components/accounts/AccountPolicy.svelte
+- frontend/src/lib/components/accounts/AccountScopes.svelte
 
 ## Quota warnings, reset recovery and PayG
 
