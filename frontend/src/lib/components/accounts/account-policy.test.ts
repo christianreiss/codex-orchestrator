@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 const mod: string = "./account-policy.ts";
-const { policyIssues, policySummary, switchTargets, usesCeilings, SPREAD_POINTS, STRATEGY_OPTIONS } = (await import(mod)) as typeof import("./account-policy");
+const { ceilingsFrom, policyIssues, policySummary, switchTargets, usesCeilings, SPREAD_POINTS, STRATEGY_OPTIONS } = (await import(mod)) as typeof import("./account-policy");
 
 const base = { mode: "auto", strategy: "exhaust", soft_ceiling: 90, hard_ceiling: 99, min_dwell_minutes: 15 } as const;
 
@@ -34,6 +34,23 @@ describe("policy form validation", () => {
   it("offers the three server strategies, each with a label, a hint and one explanation", () => {
     assert.deepEqual(STRATEGY_OPTIONS.map((option) => option.value), ["balanced", "exhaust", "reset_aware"]);
     for (const option of STRATEGY_OPTIONS) assert.ok(option.label && option.hint && option.explanation.endsWith("."));
+  });
+});
+
+describe("limit slider", () => {
+  it("passes valid thumbs through", () => assert.deepEqual(ceilingsFrom([90, 96]), { soft_ceiling: 90, hard_ceiling: 96 }));
+  it("keeps the soft limit at most 99 when both thumbs reach the end", () => {
+    assert.deepEqual(ceilingsFrom([100, 100]), { soft_ceiling: 99, hard_ceiling: 100 });
+  });
+  it("orders crossed thumbs and clamps to 50..100 whole percent", () => {
+    assert.deepEqual(ceilingsFrom([97, 80]), { soft_ceiling: 80, hard_ceiling: 97 });
+    assert.deepEqual(ceilingsFrom([30, 120]), { soft_ceiling: 50, hard_ceiling: 100 });
+    assert.deepEqual(ceilingsFrom([85.4, Number.NaN]), { soft_ceiling: 50, hard_ceiling: 85 });
+  });
+  it("always yields a pair the form accepts", () => {
+    for (const pair of [[50, 50], [99, 99], [100, 100], [60, 100]] as const) {
+      assert.deepEqual(policyIssues({ mode: "auto", strategy: "exhaust", min_dwell_minutes: 15, ...ceilingsFrom(pair) }), {});
+    }
   });
 });
 

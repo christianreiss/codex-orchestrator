@@ -61,6 +61,17 @@ export function policyIssues(policy: PolicyDraft): Partial<Record<"soft_ceiling"
   return issues;
 }
 
+/**
+ * Soft and hard limit from the two thumbs of the limit slider: whole percent from 50 to 100,
+ * the soft limit at most 99 (the server's bound), the hard limit never below it.
+ */
+export function ceilingsFrom([low, high]: readonly [number, number]): { soft_ceiling: number; hard_ceiling: number } {
+  const clamp = (value: number) => Math.min(100, Math.max(50, Math.round(Number.isFinite(value) ? value : 50)));
+  const [a, b] = [clamp(low), clamp(high)].sort((x, y) => x - y) as [number, number];
+  const soft = Math.min(a, 99);
+  return { soft_ceiling: soft, hard_ceiling: Math.max(b, soft) };
+}
+
 /** Accounts a scope may be moved to: same engine, enabled and verified, not the one it is on. */
 export function switchTargets(
   accounts: ReadonlyArray<{ id: number; engine: string; label: string; email?: string | null; state: string; verification_state: string }>,

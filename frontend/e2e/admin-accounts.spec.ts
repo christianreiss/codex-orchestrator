@@ -237,3 +237,61 @@ for (const engine of ["codex", "claude", "grok", "kimi"] as const) {
     });
   }
 }
+
+test("the distribution policy is chosen on cards and limited on one two-thumb slider", async ({ page }) => {
+  await fixtures(page);
+  let policy = { mode: "auto", strategy: "balanced", spread: "normal", spread_points: 20, soft_ceiling: 90, hard_ceiling: 96, min_dwell_minutes: 15 };
+  const posts: unknown[] = [];
+  await page.route("**/admin/accounts/policy/claude", async (route) => {
+    if (route.request().method() === "POST") {
+      const changes = route.request().postDataJSON();
+      posts.push(changes);
+      policy = { ...policy, ...changes };
+    }
+    await route.fulfill({ json: { status: "ok", data: policy } });
+  });
+  await page.goto("/admin/accounts");
+  const automatic = page.getByRole("radio", { name: /^Automatic/ });
+  await expect(automatic).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByRole("radio", { name: /^Balanced/ })).toHaveAttribute("aria-checked", "true");
+  // Balanced uses the band: no limits until a filling strategy is chosen.
+  await expect(page.getByRole("slider")).toHaveCount(0);
+  await page.getByRole("radio", { name: /^Expiring first/ }).click();
+  await expect(page.getByRole("radio", { name: /^Balanced/ })).toHaveAttribute("aria-checked", "false");
+
+  const soft = page.getByRole("slider", { name: "Soft limit" });
+  const hard = page.getByRole("slider", { name: "Hard limit" });
+  await expect(soft).toHaveAttribute("aria-valuenow", "90");
+  await expect(hard).toHaveAttribute("aria-valuetext", "96%");
+  await soft.focus();
+  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowLeft");
+  await hard.focus();
+  await page.keyboard.press("End");
+  await expect(page.getByTestId("policy-limits")).toHaveText(/Soft\s*85%\s*Hard\s*100%/);
+  // Pushed to the end, the soft thumb stops one short of the hard one: the server allows 99 at most.
+  await soft.focus();
+  await page.keyboard.press("End");
+  await expect(page.getByTestId("policy-limits")).toHaveText(/Soft\s*99%\s*Hard\s*100%/);
+  await page.keyboard.press("Home");
+  // The pointer moves the thumbs too: drag the hard limit down from 100%.
+  const box = (await hard.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 60, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+  const dragged = Number(await hard.getAttribute("aria-valuenow"));
+  expect(dragged).toBeLessThan(100);
+  expect(dragged).toBeGreaterThan(50);
+  expect(posts).toEqual([]);
+
+  await page.getByRole("button", { name: "Save policy" }).click();
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0]).toEqual({ mode: "auto", strategy: "reset_aware", min_dwell_minutes: 15, soft_ceiling: 50, hard_ceiling: dragged });
+
+  // Manual hides strategy and limits and sends only the mode.
+  await page.getByRole("radio", { name: /^Manual/ }).click();
+  await expect(page.getByRole("radio", { name: /^Expiring first/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Save policy" }).click();
+  await expect.poll(() => posts.length).toBe(2);
+  expect(posts[1]).toEqual({ mode: "manual" });
+});

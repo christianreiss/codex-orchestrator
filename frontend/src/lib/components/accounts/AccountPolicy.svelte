@@ -12,9 +12,16 @@
   import { Button } from "$lib/components/ui/button";
   import { Input } from "$lib/components/ui/input";
   import { FormField } from "$lib/components/ui/form-field";
+  import { ChoiceCard } from "$lib/components/ui/choice-card";
+  import { RangeSlider } from "$lib/components/ui/slider";
   import { Section, StateBlock, DraftGuard, SaveState } from "$lib/components/page";
   import SegmentedControl from "$lib/components/page/SegmentedControl.svelte";
-  import { policyIssues, usesCeilings, SPREAD_POINTS, STRATEGY_OPTIONS } from "./account-policy";
+  import { ceilingsFrom, policyIssues, usesCeilings, SPREAD_POINTS, STRATEGY_OPTIONS } from "./account-policy";
+
+  const MODE_OPTIONS = [
+    { value: "auto", label: "Automatic", explanation: "The server picks the account for new sessions and requests a switch when the strategy says so." },
+    { value: "manual", label: "Manual", explanation: "Nothing switches on its own. New sessions still start on the account with the most headroom; moving a running scope is an explicit action (below, or the account-switch skill)." },
+  ] as const;
 
   type Props = { engine: Engine; canManage: boolean };
   let { engine, canManage }: Props = $props();
@@ -81,33 +88,26 @@
   {:else if !draft}
     <StateBlock state="loading" />
   {:else}
-    <form class="grid max-w-xl gap-4" onsubmit={submit}>
+    <form class="grid max-w-3xl gap-5" onsubmit={submit}>
       <fieldset class="grid gap-4" disabled={!canManage || $save.isPending}>
-        <div class="grid gap-1.5">
-          <span class="text-body-sm font-medium">Mode</span>
-          <SegmentedControl
-            label="Mode"
-            value={draft.mode}
-            options={[{ value: "auto", label: "Automatic", hint: "The server moves work between accounts" }, { value: "manual", label: "Manual", hint: "Only an operator or an agent switches" }]}
-            onChange={(mode) => edit({ mode })}
-          />
-          <p class="text-body-sm text-muted-foreground">
-            {draft.mode === "auto"
-              ? "The server picks the account for new sessions and requests a switch when the strategy says so."
-              : "Nothing switches on its own. New sessions still start on the account with the most headroom; moving a running scope is an explicit action (below, or the account-switch skill)."}
-          </p>
+        <!-- Each choice is a card with its consequence on it: the difference between the options is the explanation. -->
+        <div class="grid gap-2">
+          <span id={`${prefix}-mode-label`} class="text-body-sm font-medium">Mode</span>
+          <div role="radiogroup" aria-labelledby={`${prefix}-mode-label`} class="grid gap-2 sm:grid-cols-2">
+            {#each MODE_OPTIONS as option (option.value)}
+              <ChoiceCard title={option.label} description={option.explanation} checked={draft.mode === option.value} onSelect={() => edit({ mode: option.value })} />
+            {/each}
+          </div>
         </div>
 
         {#if draft.mode === "auto"}
-          <div class="grid gap-1.5">
-            <span class="text-body-sm font-medium">Strategy</span>
-            <SegmentedControl
-              label="Strategy"
-              value={draft.strategy}
-              options={STRATEGY_OPTIONS}
-              onChange={(strategy) => edit({ strategy })}
-            />
-            <p class="text-body-sm text-muted-foreground">{STRATEGY_OPTIONS.find((option) => option.value === draft!.strategy)?.explanation}</p>
+          <div class="grid gap-2">
+            <span id={`${prefix}-strategy-label`} class="text-body-sm font-medium">Strategy</span>
+            <div role="radiogroup" aria-labelledby={`${prefix}-strategy-label`} class="grid gap-2 md:grid-cols-3">
+              {#each STRATEGY_OPTIONS as option (option.value)}
+                <ChoiceCard title={option.label} description={option.explanation} checked={draft.strategy === option.value} onSelect={() => edit({ strategy: option.value })} />
+              {/each}
+            </div>
           </div>
 
           {#if !usesCeilings(draft.strategy)}
@@ -122,17 +122,31 @@
               <p class="text-body-sm text-muted-foreground">Tight {SPREAD_POINTS.eng}, normal {SPREAD_POINTS.normal}, loose {SPREAD_POINTS.locker} percentage points of usage. Tighter bands even out accounts sooner but switch more often.</p>
             </div>
           {:else}
-            <div class="grid gap-4 sm:grid-cols-2">
-              <FormField id={`${prefix}-soft`} label="Soft limit (%)" hint="Preferred ceiling per account, 50 to 99." error={issues.soft_ceiling}>
-                {#snippet children(f)}
-                  <Input id={`${prefix}-soft`} type="number" min={50} max={99} step={1} required value={draft!.soft_ceiling} oninput={(e) => edit({ soft_ceiling: e.currentTarget.valueAsNumber })} aria-describedby={f.describedBy} aria-invalid={f.invalid} />
-                {/snippet}
-              </FormField>
-              <FormField id={`${prefix}-hard`} label="Hard limit (%)" hint="Used only when every account is past the soft limit." error={issues.hard_ceiling}>
-                {#snippet children(f)}
-                  <Input id={`${prefix}-hard`} type="number" min={50} max={100} step={1} required value={draft!.hard_ceiling} oninput={(e) => edit({ hard_ceiling: e.currentTarget.valueAsNumber })} aria-describedby={f.describedBy} aria-invalid={f.invalid} />
-                {/snippet}
-              </FormField>
+            <!-- One track, two thumbs: the soft limit can never pass the hard one. -->
+            <div role="group" aria-labelledby={`${prefix}-limits-label`} aria-describedby={`${prefix}-limits-hint`} class="grid gap-2">
+              <div class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
+                <span id={`${prefix}-limits-label`} class="text-body-sm font-medium">Limits per account</span>
+                <span class="flex gap-4 text-body-sm" data-testid="policy-limits">
+                  <span><span class="text-muted-foreground">Soft</span> <span class="font-medium tabular-nums">{draft.soft_ceiling}%</span></span>
+                  <span><span class="text-muted-foreground">Hard</span> <span class="font-medium tabular-nums">{draft.hard_ceiling}%</span></span>
+                </span>
+              </div>
+              <RangeSlider
+                value={[draft.soft_ceiling, draft.hard_ceiling]}
+                min={50}
+                max={100}
+                labels={["Soft limit", "Hard limit"]}
+                format={(value) => `${value}%`}
+                scale={[50, 60, 70, 80, 90, 100]}
+                disabled={!canManage || $save.isPending}
+                onValueChange={(pair) => edit(ceilingsFrom(pair))}
+              />
+              <p id={`${prefix}-limits-hint`} class="text-body-sm text-muted-foreground">
+                Each account is used up to the soft limit. Only when every account is past it does work continue, up to the hard limit. Arrow keys move a limit by one percent.
+              </p>
+              {#if issues.soft_ceiling || issues.hard_ceiling}
+                <p class="text-body-sm text-destructive" role="alert">{issues.soft_ceiling ?? issues.hard_ceiling}</p>
+              {/if}
             </div>
           {/if}
 
