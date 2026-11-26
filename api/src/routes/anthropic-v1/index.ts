@@ -24,6 +24,7 @@ import { randomBytes } from 'node:crypto';
 import type { RouteContext } from '../index.js';
 import { ApiError } from '../../http/errors.js';
 import { createGatewayLifecycle } from '../../http/gateway-lifecycle.js';
+import { installGatewayBodyCapture } from '../../http/gateway-dispatch.js';
 import {
   createClaudeKeyResolver,
   type ClaudeKeyResolver,
@@ -97,10 +98,23 @@ export interface RegisterAnthropicCompatOptions {
 
 const SURFACE = API_SURFACES.anthropic;
 
+/** The routes live in their own encapsulated scope so the gateway body capture
+ * (`installGatewayBodyCapture`) never reaches the admin API's parsers. */
 export async function registerAnthropicCompatRoutes(
-  app: FastifyInstance,
+  parent: FastifyInstance,
   ctx: RouteContext,
   options: RegisterAnthropicCompatOptions = {},
+): Promise<void> {
+  await parent.register(async (app) => {
+    installGatewayBodyCapture(app);
+    await mountAnthropicCompatRoutes(app, ctx, options);
+  });
+}
+
+async function mountAnthropicCompatRoutes(
+  app: FastifyInstance,
+  ctx: RouteContext,
+  options: RegisterAnthropicCompatOptions,
 ): Promise<void> {
   const runGeneration = createGatewayLifecycle(app);
   const keyResolver = options.keyResolver ?? createClaudeKeyResolver(new OpenAiKeyService({ db: ctx.db, keyring: ctx.keyring }));

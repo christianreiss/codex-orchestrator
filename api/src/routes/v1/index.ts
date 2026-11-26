@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from 'fas
 import type { RouteContext } from '../index.js';
 import { ApiError } from '../../http/errors.js';
 import { createGatewayLifecycle } from '../../http/gateway-lifecycle.js';
+import { installGatewayBodyCapture } from '../../http/gateway-dispatch.js';
 import { OpenAiKeyService } from '../../services/openai-keys.js';
 import { makeOpenAiKeyResolver } from '../../services/openai-key-resolver.js';
 import { makeOpenAiKillSwitch, type KillSwitch } from '../../services/openai-kill-switch.js';
@@ -57,11 +58,25 @@ export interface OpenAiCompatOverrides {
  * URL prefix; this module mounts handlers, applies the surface's auth +
  * kill-switch preHandlers, and hands each request to whichever backend engine
  * the surface is routed to right now (see `api-surfaces.ts`).
+ *
+ * The routes live in their own encapsulated scope so the gateway body capture
+ * (`installGatewayBodyCapture`) never reaches the admin API's parsers.
  */
 export async function registerOpenAiCompatRoutes(
-  app: FastifyInstance,
+  parent: FastifyInstance,
   ctx: RouteContext,
   overrides: OpenAiCompatOverrides = {},
+): Promise<void> {
+  await parent.register(async (app) => {
+    installGatewayBodyCapture(app);
+    await mountOpenAiCompatRoutes(app, ctx, overrides);
+  });
+}
+
+async function mountOpenAiCompatRoutes(
+  app: FastifyInstance,
+  ctx: RouteContext,
+  overrides: OpenAiCompatOverrides,
 ): Promise<void> {
   const runGeneration = createGatewayLifecycle(app);
   const surface = API_SURFACES[overrides.surface ?? 'openai'];
