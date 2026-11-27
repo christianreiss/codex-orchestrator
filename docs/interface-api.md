@@ -2759,8 +2759,8 @@ hash in `identity_key`); a default label becomes the account e-mail.
   `session_bound`, `enroll`, `accounts`; no token material).
 
 **Distribution policy** (`versions` key `account_policy_<engine>`):
-`{mode: auto|manual, strategy: balanced|exhaust|reset_aware, spread: eng|normal|locker, soft_ceiling, hard_ceiling, min_dwell_minutes}`,
-default `auto`/`balanced`/`normal`/90/99/15. The band words are 10, 20 and 30 percentage points. The
+`{mode: auto|manual, strategy: balanced|exhaust|reset_aware, spread: eng|normal|locker, soft_ceiling, hard_ceiling, min_dwell_minutes, pause: off|on, pause_after_seconds, pause_hold_seconds}`,
+default `auto`/`balanced`/`normal`/90/99/15 and `off`/120/90 (see *Pause rounds* below). The band words are 10, 20 and 30 percentage points. The
 score is `max(short, weekly)` used percent.
 - `balanced`: launches take the least used account; a running scope moves once its account is more than
   the band above the least used one.
@@ -2848,6 +2848,51 @@ binding file and ignores every answer below it).
   `provider_account.switch_withdrawn` with `withdrawn` (`requested`, `readings`, `target_unavailable`,
   `expired`). A change of the distribution policy writes `account.policy.updated` with the admin, the
   previous and the new policy.
+- **Pause rounds** (cxx 0.9.216; policy `pause: on`). The turn boundary a switch waits for needs every
+  session of the scope to be between turns at once, which on a busy host rarely happens. The server can
+  make that moment: it asks every session of the scope to hold itself at its next hook, records who was
+  asked and who reported back, and releases everyone after the switch.
+  - **Who can pause.** A lease is pause-capable once its session reported `capable`: a hook of the launch
+    has run, so the session is gated (`docs/interface-clx.md` → *Pause, switch, resume*). The lease must be
+    connection-owned and its provider stream attached. A round starts only when every live lease of the
+    scope qualifies; a scope with a timed lease, a wrapper before 0.9.216 or a detached session waits for a
+    turn boundary as before. Rounds exist only under the owner runtime.
+  - **When.** A switch is pending and has waited `pause_after_seconds` (0–3600, default 120) since
+    `requested_at`; or it is pending and the bound account is at the policy's limit (`hard_ceiling` for
+    `exhaust` and `reset_aware`, the quota limit for `balanced`), refused by the provider, paused or no
+    longer verified, in which case the round starts at once; or a wrapper reports the credentials of the
+    current binding as not written (`credential_write: "unfinished"`, repeated every minute while that is
+    so, believed for three minutes). A request whose target is unusable gets no round.
+  - **Pause.** Every lease row of the scope gets `pause_round` (a UUID), `pause_deadline`
+    (now + `pause_hold_seconds`, 30–300, default 90) and `pause_state: requested`. The provider stream of
+    each lease then carries `pause: {round, deadline, ready}` in its snapshot (`null` outside a round).
+    The deadline is the server's clock; a wrapper measures the time left on the stream's server time.
+  - **Reports.** `POST /auth/sessions/pause` `{engine, session_id, state, round?, reason?}` answers
+    `{pause_capable?, binding_generation, account_switch}`. `capable` needs no round. `paused` records the
+    session; when every lease of the scope has reported for the round, `pause_ready_at` is set on all rows
+    and each stream says `ready: true`. `running` (the session can no longer vouch for itself) and
+    `failed` (flush, commit or write did not go through; `reason` at most 300 characters) end the round at
+    once. `done` (the credentials are written) ends it and releases everyone. A report for a round that is
+    over is 409 `account_pause_stale`.
+  - **Commit.** `POST /auth/sessions/switch` takes `pause_round` when the wrapper commits inside a round.
+    The server refuses it with 409 `account_switch_pause_expired` unless that round is the scope's own
+    and has more than 10 seconds left. A commit without `pause_round` is judged as before.
+  - **Ending without a switch.** At `pause_deadline`, on `running` or `failed`, when a lease of the scope
+    loses its provider stream, or when the policy is switched off, the round fields are cleared and the
+    sessions go on. The request stays pending. The next round for that scope and binding generation waits
+    2, 5, then 10 minutes after a round a session did not join in time, and 10, 30, then 60 minutes after
+    a `failed` one. Backoff and the last outcome are kept in memory and lost with the owner process.
+  - **Joining.** A lease that joins a scope during a round inherits the round with state `requested` and
+    is not pause-capable until it says so; the round is ready only when it has reported too.
+  - **Audit.** `provider_account.switch_pause_started` (`round`, `asked`, `from_account_id`,
+    `to_account_id`, `reason`, `hold_seconds`), `provider_account.switch_pause_finished` (`round`,
+    `session_id`, `asked`, `paused_after_ms`, `held_ms`) and `provider_account.switch_pause_aborted`
+    (`round`, `reason`: `deadline`, `running`, `detached`, `failed`, `disabled`; `detail`, `asked`,
+    `paused`, `waiting`, `blocker`, `waited_ms`). `provider_account.switched` carries
+    `pause: {round, asked, paused_after_ms, committed_after_ms}` when the commit named a round.
+  - Heartbeat, acquire and `/auth` answers carry `pause_capable` for a connection-owned Claude lease
+    under the owner runtime, and omit it for a lease that can never pause. A wrapper that can pause
+    announces itself once and again when it reads `false` (a lease the server re-reserved).
 - `recommendation` in `quota_pool` and `GET /auth/accounts` is computed with the scope's `bound_at` when
   the request names a session, so it does not announce a move the policy withholds for
   `min_dwell_minutes`. An `auto` target requested by an agent or host honours the fleet quota limit.
@@ -2891,8 +2936,8 @@ usable account is at its limit, so one account near its quota no longer tells ag
 notices in a pool name the other accounts and carry the same recommendation.
 
 Admin: `GET /admin/accounts/policy/:engine` and `POST /admin/accounts/policy/:engine` read/patch the policy (POST
-re-evaluates immediately); `GET /admin/accounts/scopes` (`?engine=claude`) lists running scopes with host, bound account, generation and
-pending switch; `POST /admin/accounts/scopes/switch` `{engine, host_id, scope_id, account_id|"auto"}`
+re-evaluates immediately); `GET /admin/accounts/scopes` (`?engine=claude`) lists running scopes with host, bound account, generation,
+pending switch and `pause` (`{pausable, blocked_by: [{session_id, reason: timed_lease|no_hooks|detached}], round: {id, deadline, ready_at, sessions: [{session_id, state, reported_at}]}|null, last: {round, outcome, at, asked, paused, blocker, detail}|null, retry_at}`; `null` without the owner runtime); `POST /admin/accounts/scopes/switch` `{engine, host_id, scope_id, account_id|"auto"}`
 requests a switch with reason `admin`.
 
 ### Provider usage-limit refusals and continuing on another account (cxx 0.9.213)

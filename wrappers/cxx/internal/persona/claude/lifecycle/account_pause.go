@@ -78,6 +78,8 @@ func runPauseAgent(ctx context.Context, d *pauseAgentDeps) {
 		round     string // the round the gate is active for
 		reported  string // what the server was last told about that round
 		announced time.Time
+		// told: one announcement got through.
+		told bool
 		// unsupported: the server answered that it has no pause route.
 		unsupported bool
 	)
@@ -125,12 +127,15 @@ func runPauseAgent(ctx context.Context, d *pauseAgentDeps) {
 			}
 		}
 		// A launch whose hooks have run can be paused. The server is told
-		// once; a lease it re-reserved meanwhile has lost the flag and says
-		// so in its heartbeat answers.
+		// once. It is told again when it says the lease is not capable: a
+		// lease it re-reserved has lost the flag. A server that says nothing
+		// (a lease that can never pause) is not asked twice.
 		if !unsupported && dir != "" && accountgate.Ready(dir) && now.Sub(announced) >= announceEvery {
-			if capable, known := d.pool.PauseCapable(); !known || !capable {
+			if capable, known := d.pool.PauseCapable(); (!known && !told) || (known && !capable) {
 				announced = now
-				if err := d.report(ctx, "", accountpool.PauseStateCapable, ""); err != nil {
+				if err := d.report(ctx, "", accountpool.PauseStateCapable, ""); err == nil {
+					told = true
+				} else {
 					// A server without pause rounds has no such route. It is
 					// not asked again by this launch.
 					var status interface{ HTTPStatus() int }

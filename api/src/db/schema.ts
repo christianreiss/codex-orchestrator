@@ -247,6 +247,15 @@ export const providerAccountSessions = mysqlTable(
     desiredReason: varchar('desired_reason', { length: 16 }),
     desiredAt: varchar('desired_at', { length: 100 }),
     boundAt: varchar('bound_at', { length: 100 }),
+    // Pause rounds (services/account-switch/pause.ts). pauseCapable is this
+    // lease's own; round, deadline and readyAt are scope-wide; state and
+    // reportedAt are what this lease reported for the round.
+    pauseCapable: tinyint('pause_capable').notNull().default(0),
+    pauseRound: varchar('pause_round', { length: 36 }),
+    pauseDeadline: varchar('pause_deadline', { length: 100 }),
+    pauseState: varchar('pause_state', { length: 16 }).$type<'requested' | 'paused' | 'running'>(),
+    pauseReportedAt: varchar('pause_reported_at', { length: 100 }),
+    pauseReadyAt: varchar('pause_ready_at', { length: 100 }),
   },
   (t) => ({
     accountIdx: index('idx_account_session_active').on(t.accountId, t.expiresAt),

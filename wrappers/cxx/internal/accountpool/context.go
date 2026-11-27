@@ -419,7 +419,7 @@ func (c *Context) StartWithCredentialCheck(ctx context.Context, client Client, l
 				var snapshot providerState
 				_, changed, ok := state.Snapshot(&snapshot)
 				if ok {
-					c.observePause(snapshot.Pause, time.Now())
+					c.observePause(snapshot.Pause.command(state.ServerNow()), time.Now())
 				}
 				select {
 				case <-hctx.Done():

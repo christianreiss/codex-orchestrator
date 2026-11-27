@@ -14,8 +14,10 @@ import { quotaWindowScore } from './account-selection.js';
 import { emulationBlocks } from './quota-emulation.js';
 import { ProviderAccountsService } from './provider-accounts.js';
 import { SettingsService } from './settings.js';
+import { AccountPauseRounds, type PauseReportState, type PauseScopeView } from './account-switch/pause.js';
 import {
   LIVE_SWITCH_ENGINES,
+  policyCeiling,
   poolHeadroomTarget,
   poolRecommendation,
   readAccountPolicy,
@@ -219,11 +221,24 @@ const generationOf = (row: Pick<Lease, 'bindingGeneration'>) => row.bindingGener
 
 export class AccountSwitchService {
   private readonly accounts: ProviderAccountsService;
+  /** Pause rounds: the quiet moment a switch needs, made on request. */
+  private readonly pauses: AccountPauseRounds;
   constructor(
     private readonly db: Database,
     keyring: Keyring,
   ) {
     this.accounts = new ProviderAccountsService(db, keyring);
+    this.pauses = new AccountPauseRounds(db);
+  }
+
+  /** A session's report in a pause round (`POST /auth/sessions/pause`). */
+  reportPause(input: { hostId: number; engine: Engine; sessionId: string; state: PauseReportState; round?: string; reason?: string | null }) {
+    return this.pauses.report(input);
+  }
+
+  /** When the policy worker should look at this engine's pause rounds again (0: nothing waits). */
+  pauseNextAt(engine: Engine): number {
+    return this.pauses.nextAt(engine);
   }
 
   private async leases(filter: { hostId?: number; engine: Engine; scopeId?: string }): Promise<Lease[]> {
@@ -314,7 +329,15 @@ export class AccountSwitchService {
   async sessionBinding(hostId: number, engine: Engine, sessionId: string) {
     const row = (await this.leases({ hostId, engine })).find((r) => r.id === sessionId);
     if (!row) return { binding_generation: null, account_switch: null };
-    return { binding_generation: generationOf(row), account_switch: await this.directiveFor(row) };
+    // Whether the server counts this lease as able to pause; absent for a
+    // lease that never can. A wrapper that can announces itself again when
+    // it reads false (a lease the server re-reserved has lost the flag).
+    const capable = this.pauses.capable(hostId, engine, sessionId);
+    return {
+      binding_generation: generationOf(row),
+      account_switch: await this.directiveFor(row),
+      ...(capable === null ? {} : { pause_capable: capable }),
+    };
   }
 
   /** When the scope of a session was bound to its account (null: unknown session). */
@@ -568,6 +591,8 @@ export class AccountSwitchService {
     accountId: number;
     generation: number;
     credentialsReady?: boolean;
+    /** The pause round the wrapper commits in (absent: a natural gap between turns). */
+    pauseRound?: string;
   }): Promise<{ previous_account_id: number | null; account_id: number; binding_generation: number; reason: string | null; moved_addresses: string[]; replayed: boolean }> {
     const { hostId, engine, sessionId, scopeId, generation } = input;
     if (!LIVE_SWITCH_ENGINES.has(engine))
@@ -580,6 +605,10 @@ export class AccountSwitchService {
       return { previous_account_id: null, account_id: target, binding_generation: generation + 1, reason: null, moved_addresses: [], replayed: true };
     if (session.desiredAccountId !== target || generationOf(session) !== generation)
       throw new ConflictError('The switch request is no longer pending', 'account_switch_stale');
+    // A commit inside a pause round must still be inside it: once the round
+    // is over the sessions run again and this is no quiet moment any more.
+    this.pauses.assertCommit(session, input.pauseRound);
+    const pauseDetails = this.pauses.commitDetails(session, input.pauseRound);
     if (!this.usable(await this.pool(engine), target)) {
       await this.updateScope(
         hostId,
@@ -610,6 +639,7 @@ export class AccountSwitchService {
           to_account_id: target,
           reason: session.desiredReason ?? null,
           binding_generation: generation + 1,
+          ...(pauseDetails ? { pause: pauseDetails } : {}),
         },
       },
     );
@@ -646,6 +676,9 @@ export class AccountSwitchService {
    * it succeeds, so the operator gets one audit row per scope and binding.
    */
   async reportUnfinishedWrite(hostId: number, engine: Engine, scopeId: string, accountId: number, generation: number): Promise<void> {
+    // Every report keeps the scope eligible for a pause round: the write
+    // waits for a quiet moment the scope may not have by itself.
+    this.pauses.noteUnfinishedWrite(hostId, engine, scopeId, generation);
     const key = `${hostId}:${engine}:${scopeId}:${generation}`;
     if (unfinishedWrites.has(key)) return;
     if (unfinishedWrites.size > 2000) unfinishedWrites.clear();
@@ -739,6 +772,7 @@ export class AccountSwitchService {
           sessions: group.length,
           bound_at: first.boundAt ?? first.createdAt,
           account_switch: await this.directiveFor(first, pool),
+          pause: this.pauses.view(group) as PauseScopeView | null,
         };
       }),
     );
@@ -837,6 +871,22 @@ export class AccountSwitchService {
     // Also under the manual policy: a request nobody can carry out must not
     // wait on its scope for ever.
     await this.expireRequests(engine, pool);
+    const requested = await this.rebalance(engine, policy, pool);
+    // After the requests are settled: a scope whose switch has waited long
+    // enough, or cannot wait, is paused for it. Operator and agent requests
+    // count as well, so this runs under the manual policy too.
+    const limitPercent = await this.limitPercent();
+    await this.pauses.tick(engine, {
+      policy,
+      usable: (id) => this.usable(pool, id),
+      score: (id) => pool.find((a) => a.id === id)?.score ?? null,
+      ceiling: policyCeiling(policy, limitPercent),
+    });
+    return requested;
+  }
+
+  /** The automatic policy's part of `evaluate`: requests, retargets and withdrawals. */
+  private async rebalance(engine: Engine, policy: AccountPolicy, pool: PoolAccount[]): Promise<number> {
     if (policy.mode !== 'auto') return 0;
     // One usable account is enough to move a scope off an account that was
     // paused or lost its verification; `rebalanceTarget` finds no target for a

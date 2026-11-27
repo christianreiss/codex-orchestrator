@@ -41,7 +41,8 @@ Default spec section: [Host-facing](interface-api.md#host-facing); lines with an
 - `POST /auth/sessions/release` — host key: `{engine, session_id}` idempotently releases that host's reservation and drains pending removal ([spec](interface-api.md#provider-accounts-and-launch-reservations))
 - `GET /auth/accounts` — host key: `?engine&session_id?` account pool metadata, distribution policy, this scope's binding and the pool recommendation ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
 - `POST /auth/sessions/switch-request` — host key: `{engine, session_id, account_id|"auto", reason?}` asks to move this session's scope to another account at the next turn boundary ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
-- `POST /auth/sessions/switch` — host key: `{engine, session_id, scope_id, account_id, binding_generation, credential_write?}` commits a requested switch and returns the new account's auth; repeating a committed request returns it again (`replayed`) ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
+- `POST /auth/sessions/pause` — host key: `{engine, session_id, state, round?, reason?}` reports a session's part in a pause round (`capable`, `paused`, `running`, `done`, `failed`) ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
+- `POST /auth/sessions/switch` — host key: `{engine, session_id, scope_id, account_id, binding_generation, credential_write?, pause_round?}` commits a requested switch and returns the new account's auth; repeating a committed request returns it again (`replayed`) ([spec](interface-api.md#claude-multiple-accounts-and-live-switching))
 
 ## Wrapper, installer and rescue media
 

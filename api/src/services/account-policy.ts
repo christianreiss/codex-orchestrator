@@ -17,6 +17,11 @@ import { selectAccount, selectionOrder, trialDue, weeklyDeadline, type AccountCh
  *   account whose weekly quota expires first is used first, a freshly reset
  *   one last. Quota left at a reset is lost; quota in a new window keeps.
  * - manual: no automatic moves; only explicit switches.
+ *
+ * `pause` is independent of the mode: with it on, a switch that has waited
+ * `pause_after_seconds` for a gap between turns (or cannot wait, because its
+ * account is at the limit or unusable) gets one made. No session is held
+ * longer than `pause_hold_seconds`. See services/account-switch/pause.ts.
  */
 export const SPREAD_POINTS = { eng: 10, normal: 20, locker: 30 } as const;
 export type Spread = keyof typeof SPREAD_POINTS;
@@ -29,6 +34,11 @@ const policySchema = z
     soft_ceiling: z.number().int().min(50).max(99),
     hard_ceiling: z.number().int().min(50).max(100),
     min_dwell_minutes: z.number().int().min(0).max(240),
+    // Pause rounds: the server asks the sessions of a scope to hold at their
+    // hooks so a pending switch does not have to wait for a gap between turns.
+    pause: z.enum(['off', 'on']),
+    pause_after_seconds: z.number().int().min(0).max(3600),
+    pause_hold_seconds: z.number().int().min(30).max(300),
   })
   .strict()
   .refine((p) => p.hard_ceiling >= p.soft_ceiling, { message: 'hard_ceiling must be at least soft_ceiling' });
@@ -45,6 +55,9 @@ export const DEFAULT_ACCOUNT_POLICY: StoredAccountPolicy = {
   soft_ceiling: 90,
   hard_ceiling: 99,
   min_dwell_minutes: 15,
+  pause: 'off',
+  pause_after_seconds: 120,
+  pause_hold_seconds: 90,
 };
 
 export const accountPolicyKey = (engine: Engine) => `account_policy_${engine}`;

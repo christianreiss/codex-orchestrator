@@ -514,6 +514,31 @@ if (engine === ENGINE_KIMI) {
     return switches.requestSwitch({ hostId: host.id, engine, scopeId: session.scopeId, target, reason, actor: host.fqdn });
   });
 
+  // POST /auth/sessions/pause — a session's report in a pause round: `capable`
+  // (its hooks run, so it can be held), `paused`, `running`, and from the
+  // wrapper that switched, `done` or `failed`.
+  app.post('/auth/sessions/pause', async (req) => {
+    await assertApiNotDisabled(versions);
+    const host = await hostAuth.authenticate(req);
+    const payload = readPayload(req.body);
+    const engine = resolveAuthRequestEngine(req, payload);
+    // Like a heartbeat this comes from a running session, also on a suspended
+    // engine (its round must still end) and never from an operator.
+    assertHostEngineAssigned(host, engine);
+    await maybeEnforceInsecure(insecure, host, 'retrieve', req.clientIp, true);
+    const sessionId = opaqueId(payload.session_id, 'session_id');
+    const state = payload.state;
+    if (state !== 'capable' && state !== 'paused' && state !== 'running' && state !== 'done' && state !== 'failed')
+      throw new ValidationError('state must be capable, paused, running, done or failed', { param: 'state' });
+    const round = payload.round === undefined ? undefined : opaqueId(payload.round, 'round');
+    if (state !== 'capable' && round === undefined) throw new ValidationError('round is required', { param: 'round' });
+    if (payload.reason !== undefined && payload.reason !== null && typeof payload.reason !== 'string')
+      throw new ValidationError('reason must be a string', { param: 'reason' });
+    const reason = typeof payload.reason === 'string' ? payload.reason.slice(0, 300) : null;
+    const result = await switches.reportPause({ hostId: host.id, engine, sessionId, state, round, reason });
+    return { ...(await sessionExtras(host.id, engine, sessionId)), ...result };
+  });
+
   // POST /auth/sessions/switch — commit by the wrapper that performs the switch.
   app.post('/auth/sessions/switch', async (req) => {
     await assertApiNotDisabled(versions);
@@ -529,6 +554,9 @@ if (engine === ENGINE_KIMI) {
     if (typeof generation !== 'number' || !Number.isSafeInteger(generation) || generation < 1)
       throw new ValidationError('binding_generation must be a positive integer', { param: 'binding_generation' });
     const scopeId = opaqueId(payload.scope_id, 'scope_id');
+    // A commit inside a pause round names it; the server refuses it once
+    // that round is over (409 `account_switch_pause_expired`).
+    const pauseRound = payload.pause_round === undefined ? undefined : opaqueId(payload.pause_round, 'pause_round');
     // The target's credentials are read before the binding moves: a commit
     // that then cannot serve them would leave the scope bound to an account
     // it has no login for.
@@ -541,6 +569,7 @@ if (engine === ENGINE_KIMI) {
       accountId: target,
       generation,
       credentialsReady: !!ready && !!runnerValidation.canonicalAuthFromPayload(ready),
+      pauseRound,
     });
     if (payload.credential_write === 'unfinished')
       await switches

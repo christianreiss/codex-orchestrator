@@ -10,15 +10,17 @@ import { createRunnerValidationService } from '../../../src/services/runner-vali
 import { createPooledAuthStoreService } from '../../../src/services/pooled-auth-store.js';
 import { ProviderAccountsService } from '../../../src/services/provider-accounts.js';
 import { AccountSwitchService } from '../../../src/services/account-switch.js';
+import { writeAccountPolicy } from '../../../src/services/account-policy.js';
+import { ownerPresence } from '../../../src/control-plane/presence.js';
 import { setClaudeIdentityFetch } from '../../../src/services/claude-identity.js';
 import type { RunnerClient } from '../../../src/services/runner-client.js';
 
-const handle = await getTestDb();
-describe.skipIf(!handle)('live Claude account switching under the owner runtime', () => {
 // A fixed date here made every test in this file fail once that day had passed:
 // the store refuses to verify a login whose access token has expired.
 const TOKEN_EXPIRES_AT = Date.now() + 7 * 86_400_000;
 
+const handle = await getTestDb();
+describe.skipIf(!handle)('live Claude account switching under the owner runtime', () => {
   afterAll(async () => {
     setClaudeIdentityFetch(null);
     await handle?.pool.end();
@@ -35,6 +37,8 @@ const TOKEN_EXPIRES_AT = Date.now() + 7 * 86_400_000;
     const accountIds: number[] = [];
     let hostId = 0;
     let owner: Awaited<ReturnType<typeof createOwnedControlPlane>> | undefined;
+    let policyBefore: string | null = null;
+    let policyTouched = false;
     const ownerDb = drizzle(handle!.pool, { schema, mode: 'default' });
     setClaudeIdentityFetch((async (_url: unknown, init?: { headers?: Record<string, string> }) => {
       const who = String(init?.headers?.Authorization ?? '').split('-').at(-1);
@@ -144,8 +148,77 @@ const TOKEN_EXPIRES_AT = Date.now() + 7 * 86_400_000;
       const [agent] = await seedDb.select().from(schema.agentSessions).where(eq(schema.agentSessions.id, agentSessionId));
       expect(agent?.providerAccountId).toBe(b);
       expect((await switches.scopes('claude')).find((s) => s.scope_id === scope)).toMatchObject({ account_id: b, sessions: 3 });
+
+      // Pause, switch, resume: the scope's three sessions never go idle together,
+      // so the server asks them to hold, and the switch happens inside that round.
+      const view = async () => (await switches.scopes('claude')).find((s) => s.scope_id === scope)!;
+      expect((await view()).pause).toMatchObject({ pausable: false, round: null });
+      for (const id of leaseIds) {
+        ownerPresence(owner.runtime).attach({
+          connectionId: randomUUID(),
+          hostId,
+          username: 'tester',
+          scope: { topic: 'provider', provider_session_id: id, engine: 'claude' } as never,
+        });
+        expect(await switches.reportPause({ hostId, engine: 'claude', sessionId: id, state: 'capable' })).toEqual({ pause_capable: true });
+      }
+      expect(await switches.sessionBinding(hostId, 'claude', leaseIds[0]!)).toMatchObject({ pause_capable: true });
+      expect((await view()).pause).toMatchObject({ pausable: true, blocked_by: [] });
+      policyBefore = (await seedDb.select().from(schema.versions).where(eq(schema.versions.name, 'account_policy_claude')))[0]?.version ?? null;
+      policyTouched = true;
+      await writeAccountPolicy(ownerDb, 'claude', { mode: 'manual', pause: 'on', pause_after_seconds: 0, pause_hold_seconds: 90 });
+      const back = await switches.requestSwitch({ hostId, engine: 'claude', scopeId: scope, target: a, reason: 'admin' });
+      expect(rows().every((r) => r.pauseRound === null)).toBe(true);
+      await switches.evaluate('claude');
+      const round = rows()[0]!.pauseRound!;
+      expect(round).toMatch(/^[0-9a-f-]{36}$/);
+      expect(rows().every((r) => r.pauseRound === round && r.pauseState === 'requested' && r.pauseDeadline)).toBe(true);
+      expect(switches.pauseNextAt('claude')).toBe(Date.parse(rows()[0]!.pauseDeadline!));
+      // The round is on disk: an owner that restarts mid-round finds it, and the sessions report again.
+      const stored = await seedDb.select().from(schema.providerAccountSessions).where(inArray(schema.providerAccountSessions.id, leaseIds));
+      expect(stored.every((r) => r.pauseRound === round && r.pauseCapable === 1)).toBe(true);
+      expect((await view()).pause?.round).toMatchObject({ id: round, ready_at: null });
+
+      await switches.reportPause({ hostId, engine: 'claude', sessionId: leaseIds[0]!, state: 'paused', round });
+      await switches.reportPause({ hostId, engine: 'claude', sessionId: leaseIds[1]!, state: 'paused', round });
+      expect(rows().every((r) => r.pauseReadyAt === null)).toBe(true);
+      await switches.reportPause({ hostId, engine: 'claude', sessionId: leaseIds[2]!, state: 'paused', round });
+      expect(rows().every((r) => r.pauseReadyAt !== null)).toBe(true);
+
+      // The commit belongs to this round or is refused; the request itself stays for the next attempt.
+      const commit = (pauseRound: string) =>
+        switches.commitSwitch({ hostId, engine: 'claude', sessionId: leaseIds[2]!, scopeId: scope, accountId: a, generation: back.binding_generation, pauseRound });
+      await expect(commit(randomUUID())).rejects.toMatchObject({ code: 'account_switch_pause_expired' });
+      expect(rows().every((r) => r.accountId === b && r.desiredAccountId === a)).toBe(true);
+      expect(await commit(round)).toMatchObject({ previous_account_id: b, account_id: a, binding_generation: back.binding_generation + 1 });
+      // Committed, not yet written: the sessions stay held until the wrapper says so.
+      expect(rows().every((r) => r.accountId === a && r.pauseRound === round)).toBe(true);
+      await switches.reportPause({ hostId, engine: 'claude', sessionId: leaseIds[2]!, state: 'done', round });
+      expect(rows().every((r) => r.pauseRound === null && r.pauseState === null && r.pauseDeadline === null && r.pauseReadyAt === null && r.pauseCapable === 1)).toBe(true);
+      const released = await seedDb.select().from(schema.providerAccountSessions).where(inArray(schema.providerAccountSessions.id, leaseIds));
+      expect(released.every((r) => r.pauseRound === null && r.accountId === a)).toBe(true);
+      await expect(switches.reportPause({ hostId, engine: 'claude', sessionId: leaseIds[0]!, state: 'paused', round })).rejects.toMatchObject({ code: 'account_pause_stale' });
+      expect((await view()).pause).toMatchObject({ round: null, last: { round, outcome: 'switched', asked: 3 } });
+
+      const trail = (await seedDb.select().from(schema.logs).where(eq(schema.logs.hostId, hostId)))
+        .map((row) => ({ action: row.action, details: JSON.parse(row.details ?? '{}') as Record<string, unknown> }))
+        .filter((row) => (row.details.round ?? (row.details.pause as { round?: string } | undefined)?.round) === round);
+      expect(trail.map((row) => row.action)).toEqual([
+        'provider_account.switch_pause_started',
+        'provider_account.switched',
+        'provider_account.switch_pause_finished',
+      ]);
+      expect(trail[0]!.details).toMatchObject({ asked: leaseIds, from_account_id: b, to_account_id: a, reason: 'admin', hold_seconds: 90 });
+      expect(trail[1]!.details.pause).toMatchObject({ round, asked: 3 });
+      expect(trail[2]!.details).toMatchObject({ session_id: leaseIds[2], asked: 3 });
     } finally {
       await owner?.close();
+      if (policyTouched) {
+        await seedDb.delete(schema.versions).where(eq(schema.versions.name, 'account_policy_claude'));
+        if (policyBefore !== null)
+          await seedDb.insert(schema.versions).values({ name: 'account_policy_claude', version: policyBefore, updatedAt: now });
+      }
+      if (hostId) await seedDb.delete(schema.logs).where(eq(schema.logs.hostId, hostId));
       await seedDb.delete(schema.agentSessions).where(eq(schema.agentSessions.id, agentSessionId));
       await seedDb.delete(schema.providerAccountSessions).where(eq(schema.providerAccountSessions.scopeId, scope));
       if (accountIds.length) {

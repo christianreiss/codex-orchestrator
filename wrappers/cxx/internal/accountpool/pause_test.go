@@ -2,6 +2,7 @@ package accountpool
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,6 +66,32 @@ func TestObservePauseFixesTheDeadlineWhenARoundIsFirstSeen(t *testing.T) {
 	c.observePause(&PauseCommand{Round: "r2", HoldMS: int64(time.Hour / time.Millisecond)}, start)
 	if _, deadline, _ := c.Pause(start); !deadline.Equal(start.Add(accountgate.MaxHold)) {
 		t.Fatalf("deadline %v exceeds the gate maximum", deadline.Sub(start))
+	}
+}
+
+func TestProviderPauseIsMeasuredOnTheServerClock(t *testing.T) {
+	var state providerState
+	raw := `{"provider_session_id":"x","engine":"claude","account_id":8,"pause":{"round":"r1","deadline":"2026-11-27T10:01:30.000Z","ready":true}}`
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		t.Fatal(err)
+	}
+	// The local clock may be anywhere; only the server's "now" counts.
+	serverNow := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	command := state.Pause.command(serverNow)
+	if command == nil || command.Round != "r1" || !command.Ready || command.HoldMS != 90_000 {
+		t.Fatalf("command %+v", command)
+	}
+	if late := state.Pause.command(serverNow.Add(time.Hour)); late == nil || late.HoldMS != 0 {
+		t.Fatalf("a round past its deadline: %+v", late)
+	}
+	// No pause, and a pause that cannot be read, hold nothing.
+	state = providerState{}
+	_ = json.Unmarshal([]byte(`{"pause":null}`), &state)
+	if state.Pause.command(serverNow) != nil {
+		t.Fatal("null pause became a command")
+	}
+	if (&providerPause{Round: "r1", Deadline: "soon"}).command(serverNow) != nil {
+		t.Fatal("an unreadable deadline became a command")
 	}
 }
 

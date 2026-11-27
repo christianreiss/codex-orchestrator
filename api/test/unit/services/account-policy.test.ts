@@ -129,7 +129,10 @@ describe('reset-aware strategy (use expiring quota first)', () => {
   it('stores and reads back; earlier stored policies parse unchanged', () => {
     expect(parseStoredPolicy(JSON.stringify({ strategy: 'reset_aware' }))).toMatchObject({ mode: 'auto', strategy: 'reset_aware', soft_ceiling: 90, hard_ceiling: 99 });
     const stored = { mode: 'auto', strategy: 'exhaust', spread: 'eng', soft_ceiling: 80, hard_ceiling: 95, min_dwell_minutes: 30 } as const;
-    expect(parseStoredPolicy(JSON.stringify(stored))).toEqual({ ...stored, spread_points: 10 });
+    // A policy stored before pause rounds existed reads with pausing off.
+    expect(parseStoredPolicy(JSON.stringify(stored))).toEqual({ ...stored, pause: 'off', pause_after_seconds: 120, pause_hold_seconds: 90, spread_points: 10 });
+    expect(parseStoredPolicy(JSON.stringify({ ...stored, pause: 'on', pause_hold_seconds: 301 })).pause).toBe('off');
+    expect(parseStoredPolicy(JSON.stringify({ ...stored, pause: 'on', pause_after_seconds: 0, pause_hold_seconds: 30 }))).toMatchObject({ pause: 'on', pause_after_seconds: 0, pause_hold_seconds: 30, strategy: 'exhaust' });
     expect(parseStoredPolicy(JSON.stringify({ ...DEFAULT_ACCOUNT_POLICY }))).toEqual({ ...DEFAULT_ACCOUNT_POLICY, spread_points: 20 });
     expect(parseStoredPolicy(JSON.stringify({ strategy: 'soonest' })).strategy).toBe('balanced');
   });

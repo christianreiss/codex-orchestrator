@@ -33,6 +33,26 @@ export function freshBindingGeneration(now: number = Date.now()): number {
   return Math.floor(now / 1000);
 }
 
+/** A lease outside any pause round that has not proven its hooks (services/account-switch/pause.ts). */
+export const NO_PAUSE = {
+  pauseCapable: 0,
+  pauseRound: null,
+  pauseDeadline: null,
+  pauseState: null,
+  pauseReportedAt: null,
+  pauseReadyAt: null,
+} as const;
+
+/** The pause of a lease as its provider stream carries it to the session (null: run). */
+export function providerPause(lease: {
+  pauseRound?: string | null;
+  pauseDeadline?: string | null;
+  pauseReadyAt?: string | null;
+}): Json {
+  if (!lease.pauseRound || !lease.pauseDeadline) return null;
+  return { round: lease.pauseRound, deadline: lease.pauseDeadline, ready: !!lease.pauseReadyAt };
+}
+
 /** How long a connection-owned lease outlives its provider attachment. */
 export const DETACHED_LEASE_GRACE_MS = 5 * 60_000;
 /** When each attachment was first seen missing. In memory only: absence counts from this owner's boot. */
@@ -287,6 +307,15 @@ export async function acquireOwnedProvider(
         desiredReason: scope?.desiredReason ?? null,
         desiredAt: scope?.desiredAt ?? null,
         boundAt: scope?.boundAt ?? now,
+        // That its hooks run is this lease's own proof and is never taken
+        // from another row. A running pause round is the scope's: a lease
+        // that joins is asked like the others and has not answered yet.
+        pauseCapable: previous?.pauseCapable ?? 0,
+        pauseRound: scope?.pauseRound ?? null,
+        pauseDeadline: scope?.pauseDeadline ?? null,
+        pauseState: previous?.pauseState ?? (scope?.pauseRound ? ('requested' as const) : null),
+        pauseReportedAt: previous?.pauseReportedAt ?? null,
+        pauseReadyAt: previous ? (previous.pauseReadyAt ?? null) : null,
       };
       draft.upsert('providerAccountSessions', lease);
       draft.upsert('providerAccounts', { ...account, lastSelectedAt: now });

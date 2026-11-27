@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { createOwnedControlPlane } from '../../../src/control-plane/bootstrap.js';
 import { acquireStorageOwnership } from '../../../src/control-plane/storage-owner.js';
 import { mutateOwnerState } from '../../../src/control-plane/state/runtime.js';
-import { drainOwnedProviders } from '../../../src/control-plane/streams/provider-leases.js';
+import { NO_PAUSE, drainOwnedProviders } from '../../../src/control-plane/streams/provider-leases.js';
 import * as schema from '../../../src/db/schema.js';
 import { readDbConfig } from '../../helpers/test-db.js';
 import { loadTestEnv, testKeyring } from '../../helpers/test-keyring.js';
@@ -86,6 +86,7 @@ describe.skipIf(!config)('internal provider tasks after owner restart', () => {
                       desiredReason: null,
                       desiredAt: null,
                       boundAt: now,
+                      ...NO_PAUSE,
                     };
                     leases.push(lease);
                     await tx.insert(schema.providerAccountSessions).values(lease);

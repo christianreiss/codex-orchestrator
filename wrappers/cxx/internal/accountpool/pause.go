@@ -16,16 +16,42 @@ import (
 // snapshot of the lease's provider stream, so it reaches exactly this session.
 type PauseCommand struct {
 	// Round identifies one pause of the scope.
-	Round string `json:"round"`
+	Round string
 	// HoldMS is how much longer the server lets the round run.
-	HoldMS int64 `json:"hold_ms"`
+	HoldMS int64
 	// Ready: every session of the scope reported that it is paused.
-	Ready bool `json:"ready"`
+	Ready bool
 }
 
 // providerState is the part of the provider stream snapshot read here.
 type providerState struct {
-	Pause *PauseCommand `json:"pause"`
+	Pause *providerPause `json:"pause"`
+}
+
+// providerPause is the pause as the server sends it. The deadline is the
+// server's clock, so that the snapshot only changes when the round does.
+type providerPause struct {
+	Round    string `json:"round"`
+	Deadline string `json:"deadline"`
+	Ready    bool   `json:"ready"`
+}
+
+// command turns the server's deadline into the time left, measured on the
+// server's clock as the stream last reported it. A pause this wrapper cannot
+// read is no pause: nothing is held on a guess.
+func (p *providerPause) command(serverNow time.Time) *PauseCommand {
+	if p == nil || p.Round == "" {
+		return nil
+	}
+	deadline, err := time.Parse(time.RFC3339, p.Deadline)
+	if err != nil {
+		return nil
+	}
+	left := deadline.Sub(serverNow)
+	if left < 0 {
+		left = 0
+	}
+	return &PauseCommand{Round: p.Round, HoldMS: left.Milliseconds(), Ready: p.Ready}
 }
 
 // observePause takes the pause of a provider snapshot (nil: none). The local

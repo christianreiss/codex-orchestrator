@@ -451,6 +451,27 @@ describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
       expect(await audits('provider_account.switch_write_unfinished')).toBe(1);
     });
 
+    it('takes pause reports over the route and promises nothing to a lease that cannot pause', async () => {
+      const runs = await host();
+      const { generation } = await pending(runs.id);
+      // A timed lease has no stream a pause could travel on: the answer carries
+      // the binding, as a heartbeat does, and says nothing about pausing.
+      const announced = await post(runs.key, '/auth/sessions/pause', { session_id: session, state: 'capable' });
+      expect(announced).toMatchObject({ status: 200, body: { binding_generation: generation } });
+      expect(announced.body.account_switch).toMatchObject({ binding_generation: generation });
+      expect(announced.body).not.toHaveProperty('pause_capable');
+      expect((await post(runs.key, '/auth/sessions/pause', { session_id: session, state: 'napping' })).status).toBe(422);
+      expect((await post(runs.key, '/auth/sessions/pause', { session_id: session, state: 'paused' })).status).toBe(422);
+      expect((await post(runs.key, '/auth/sessions/pause', { session_id: session, state: 'paused', round: 'short' })).status).toBe(422);
+      expect((await post(runs.key, '/auth/sessions/pause', { session_id: session, state: 'failed', round: randomUUID(), reason: 7 })).status).toBe(422);
+      // Without the owner runtime there are no rounds, so no report can be stale or wrong.
+      expect((await post(runs.key, '/auth/sessions/pause', { session_id: session, state: 'paused', round: randomUUID() })).status).toBe(200);
+      // The commit accepts the field and judges it: this scope is in no round.
+      const refused = await post(runs.key, '/auth/sessions/switch', { session_id: session, scope_id: scope, account_id: (await switches.sessionBinding(runs.id, 'claude', session)).account_switch!.account_id, binding_generation: generation, pause_round: randomUUID() });
+      expect(refused).toMatchObject({ status: 409, body: { code: 'account_switch_pause_expired' } });
+      expect((await switches.sessionBinding(runs.id, 'claude', session)).binding_generation).toBe(generation);
+    });
+
     it('serves the bound account to a scope that still holds the previous account\'s login', async () => {
       const runs = await host();
       const { a, b, generation } = await pending(runs.id);

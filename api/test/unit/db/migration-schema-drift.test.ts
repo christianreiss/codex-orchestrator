@@ -451,6 +451,12 @@ describe('migrations against the test baseline', () => {
       'provider_account_sessions.desired_at',
       'provider_account_sessions.bound_at',
       'openai_api_keys.source',
+      'provider_account_sessions.pause_capable',
+      'provider_account_sessions.pause_round',
+      'provider_account_sessions.pause_deadline',
+      'provider_account_sessions.pause_state',
+      'provider_account_sessions.pause_reported_at',
+      'provider_account_sessions.pause_ready_at',
     ]);
   });
 

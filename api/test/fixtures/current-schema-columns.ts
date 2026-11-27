@@ -159,6 +159,12 @@ export function currentSchemaColumns(): Map<string, Set<string>> {
   if (scopeColumns.join() !== 'binding_generation,desired_account_id,desired_reason,desired_at,bound_at')
     throw new Error('Migration 0150 scope switch inventory changed; cannot project the bootstrap schema');
   for (const column of scopeColumns) tables.get('provider_account_sessions')!.add(column);
+  // Migration 0152 adds the pause round columns of a scope's leases.
+  const scopePause = readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0152_provider_scope_pause.sql'), 'utf8');
+  const pauseColumns = [...scopePause.matchAll(/ALTER TABLE provider_account_sessions ADD COLUMN ([a-z_]+)/g)].map((m) => m[1]!);
+  if (pauseColumns.join() !== 'pause_capable,pause_round,pause_deadline,pause_state,pause_reported_at,pause_ready_at')
+    throw new Error('Migration 0152 scope pause inventory changed; cannot project the bootstrap schema');
+  for (const column of pauseColumns) tables.get('provider_account_sessions')!.add(column);
   // Migration 0151 adds the server-side provider API keys and the per-key gateway source.
   const providerKeys = splitSqlStatements(
     readFileSync(resolve(import.meta.dirname, '../../src/db/migrations/0151_provider_api_keys.sql'), 'utf8'),

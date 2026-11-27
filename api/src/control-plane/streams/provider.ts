@@ -9,6 +9,7 @@ import type { StateFrame, StateProjection, StateProvider, StateScope } from '../
 import { canonicalCommand, type Json } from '../commands.js';
 import { sessionAttachmentTransition } from '../state/owner-liveness.js';
 import { ownerPresence } from '../presence.js';
+import { providerPause } from './provider-leases.js';
 import { StreamAuthorization } from './authorization.js';
 import { schedulePolicy, watchdogPolicy } from './policies.js';
 import { receiverState, RECEIVER_CLAIM_GATES } from '../../services/agent-receiver-state.js';
@@ -218,6 +219,9 @@ export class OwnerStateProvider implements StateProvider {
           provider_session_id: current.lease.id,
           engine: current.lease.engine,
           account_id: current.lease.accountId,
+          // The server's pause for this session (null: run). The deadline is
+          // absolute, so the snapshot only changes when the round does.
+          pause: providerPause(current.lease),
         };
       } else {
         value = {

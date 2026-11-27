@@ -8,6 +8,8 @@ import { requireOwnerRuntime } from '../control-plane/state/runtime.js';
 import { reapAbandonedProviders } from '../control-plane/streams/provider-leases.js';
 
 const EVALUATE_EVERY_MS = 60_000;
+/** Never sooner than this, however close a pause deadline is. */
+const PAUSE_LOOK_AGAIN_MIN_MS = 1_000;
 
 /**
  * Applies the automatic account distribution policy to running scopes. Usage
@@ -38,7 +40,14 @@ export function startAccountPolicyWorker(app: FastifyInstance, db: Database, key
         app.log.warn({ err }, 'abandoned provider leases not removed');
       }
       for (const engine of LIVE_SWITCH_ENGINES) await switches.evaluate(engine);
-      return { retryAt: Date.now() + EVALUATE_EVERY_MS };
+      // A pause round ends at its deadline and a waiting switch becomes due
+      // for one at a known time: look again then, not a minute later.
+      let retryAt = Date.now() + EVALUATE_EVERY_MS;
+      for (const engine of LIVE_SWITCH_ENGINES) {
+        const next = switches.pauseNextAt(engine);
+        if (next > 0) retryAt = Math.min(retryAt, Math.max(next, Date.now() + PAUSE_LOOK_AGAIN_MIN_MS));
+      }
+      return { retryAt };
     },
     error: (error) => app.log.warn({ err: error }, 'account policy evaluation failed'),
   });

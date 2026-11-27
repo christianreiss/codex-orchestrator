@@ -194,6 +194,24 @@ type statusErr int
 func (e statusErr) Error() string   { return "http" }
 func (e statusErr) HTTPStatus() int { return int(e) }
 
+// A timed lease, or a server without the owner runtime, never says whether
+// the lease is capable. One announcement is enough for it.
+func TestPauseAgentAnnouncesOnceToAServerThatSaysNothing(t *testing.T) {
+	pool, reports := startPauseAgent(t)
+	accountgate.Hook(pool.dir, hookInput("UserPromptSubmit", ""))
+	eventually(t, "the announcement", func() bool { return reports.all() == ":capable" })
+	time.Sleep(40 * time.Millisecond)
+	if got := reports.all(); got != ":capable" {
+		t.Fatalf("announced again although the server said nothing: %s", got)
+	}
+	// The server re-reserved the lease: it now says "not capable".
+	no := false
+	pool.mu.Lock()
+	pool.capable = &no
+	pool.mu.Unlock()
+	eventually(t, "the second announcement", func() bool { return strings.HasPrefix(reports.all(), ":capable,:capable") })
+}
+
 func TestPauseAgentStopsAskingAServerWithoutPauseRounds(t *testing.T) {
 	pool, reports := startPauseAgent(t)
 	reports.mu.Lock()

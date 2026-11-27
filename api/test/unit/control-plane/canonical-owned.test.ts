@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { NO_PAUSE } from '../../../src/control-plane/streams/provider-leases.js';
 import { describe, it, expect, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import type { Database } from '../../../src/db/client.js';
@@ -370,7 +371,7 @@ describe('canonical credentials under one owner', () => {
   it('returns initial Grok auth before its provider stream exists, without relaxing later renewals', async () => {
     const h = fixture({
       providerAccounts: [{ id: 1, engine: 'grok', label: 'fixture', state: 'enabled', payloadId: null, generation: 0 } as never],
-      providerAccountSessions: [{ id: 'bootstrap', hostId: 7, engine: 'grok', accountId: 1, scopeId: 'fixture', ownershipMode: 'connection', expiresAt: new Date(Date.now() + 300000).toISOString(), createdAt: new Date().toISOString(), bindingGeneration: 1, desiredAccountId: null, desiredReason: null, desiredAt: null, boundAt: null }],
+      providerAccountSessions: [{ id: 'bootstrap', hostId: 7, engine: 'grok', accountId: 1, scopeId: 'fixture', ownershipMode: 'connection', expiresAt: new Date(Date.now() + 300000).toISOString(), createdAt: new Date().toISOString(), bindingGeneration: 1, desiredAccountId: null, desiredReason: null, desiredAt: null, boundAt: null, ...NO_PAUSE }],
     });
     try {
       const keyring = testKeyring();
