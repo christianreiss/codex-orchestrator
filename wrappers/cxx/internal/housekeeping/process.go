@@ -8,7 +8,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 func nativeBusy(engine string) (bool, error) {
@@ -47,7 +48,7 @@ func nativeBusy(engine string) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		info, ok := st.Sys().(*syscall.Stat_t)
+		info, ok := st.Sys().(*posix.Stat_t)
 		if !ok {
 			return false, fmt.Errorf("cannot determine native process owner")
 		}

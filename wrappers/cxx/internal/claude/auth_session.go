@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 type logoutIntent struct {
@@ -114,11 +116,11 @@ func startAuthSessionContext(ctx context.Context, purgeOnLastExit, exclusive boo
 	if err != nil {
 		return nil, err
 	}
-	mode := syscall.LOCK_SH | syscall.LOCK_NB
+	mode := posix.LOCK_SH | posix.LOCK_NB
 	if exclusive {
-		mode = syscall.LOCK_EX | syscall.LOCK_NB
+		mode = posix.LOCK_EX | posix.LOCK_NB
 	}
-	if err := syscall.Flock(int(f.Fd()), mode); err != nil {
+	if err := posix.Flock(int(f.Fd()), mode); err != nil {
 		_ = f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 			if exclusive {
@@ -130,7 +132,7 @@ func startAuthSessionContext(ctx context.Context, purgeOnLastExit, exclusive boo
 	}
 	id, err := newSessionID()
 	if err != nil {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = posix.Flock(int(f.Fd()), posix.LOCK_UN)
 		_ = f.Close()
 		return nil, err
 	}
@@ -238,17 +240,17 @@ func (s *AuthSession) CloseAndPurgeIfLastContext(ctx context.Context) (purged bo
 	s.f = nil
 	defer f.Close()
 	if !s.exclusive {
-		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+		if err := posix.Flock(int(f.Fd()), posix.LOCK_UN); err != nil {
 			return false, err
 		}
-		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if err := posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB); err != nil {
 			if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 				return false, nil
 			}
 			return false, err
 		}
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN) //nolint:errcheck
+	defer posix.Flock(int(f.Fd()), posix.LOCK_UN) //nolint:errcheck
 	paths, unlock, err := lockAuthFilesContext(ctx)
 	if err != nil {
 		return false, err
@@ -309,7 +311,7 @@ func (s *AuthSession) Close() error {
 	}
 	f := s.f
 	s.f = nil
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	_ = posix.Flock(int(f.Fd()), posix.LOCK_UN)
 	return f.Close()
 }
 
@@ -348,7 +350,7 @@ func AcquireAuthMaintenance() (*AuthMaintenance, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB); err != nil {
 		_ = f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 			return nil, ErrAuthSessionsActive
@@ -357,7 +359,7 @@ func AcquireAuthMaintenance() (*AuthMaintenance, error) {
 	}
 	childLease, err := tryAcquireAuthChildWriter()
 	if err != nil {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = posix.Flock(int(f.Fd()), posix.LOCK_UN)
 		_ = f.Close()
 		return nil, err
 	}
@@ -375,7 +377,7 @@ func (m *AuthMaintenance) Close() error {
 	if childLease != nil {
 		_ = childLease.Close()
 	}
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	_ = posix.Flock(int(f.Fd()), posix.LOCK_UN)
 	return f.Close()
 }
 

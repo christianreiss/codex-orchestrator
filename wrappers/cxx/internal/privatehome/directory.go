@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 // LeaseName is the shared lease file inside every private directory.
@@ -85,7 +86,7 @@ func (s *Spec) Guard(dir string, lifetimeLeases ...*ipc.Lock) (*Directory, error
 	}
 	// A separate open-file description must wait for the shared holders. A dup
 	// of lease would silently upgrade that same description instead of waiting.
-	waiter, err := os.OpenFile(filepath.Join(dir, LeaseName), os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	waiter, err := posix.OpenFile(filepath.Join(dir, LeaseName), os.O_RDWR|posix.O_NOFOLLOW, 0600)
 	if err != nil {
 		return fail(err)
 	}
@@ -101,7 +102,7 @@ func (s *Spec) Guard(dir string, lifetimeLeases ...*ipc.Lock) (*Directory, error
 		return fail(err)
 	}
 	cmd := exec.Command(exe, s.ReaperCommand, dir)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = posix.NewSessionAttr()
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
 	cmd.ExtraFiles = []*os.File{waiter, ackWrite}
 	var duplicates []*ipc.ExecLease
@@ -182,7 +183,7 @@ func (s *Spec) RunReaper(args []string) int {
 	if err != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
 		return 2
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
+	stat, ok := info.Sys().(*posix.Stat_t)
 	if !ok || stat.Uid != uint32(os.Getuid()) {
 		return 2
 	}
@@ -208,7 +209,7 @@ func (s *Spec) RunReaper(args []string) int {
 	}
 	_ = ack.Close()
 	for {
-		err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX)
+		err = posix.Flock(int(lock.Fd()), posix.LOCK_EX)
 		if !errors.Is(err, syscall.EINTR) {
 			break
 		}
@@ -279,7 +280,7 @@ func (s *Spec) RemoveIdle(dir string) (bool, error) {
 	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
 		return false, nil
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
+	stat, ok := info.Sys().(*posix.Stat_t)
 	if !ok || stat.Uid != uint32(os.Getuid()) {
 		return false, nil
 	}

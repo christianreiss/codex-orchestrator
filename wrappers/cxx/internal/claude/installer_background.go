@@ -7,6 +7,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/enginestore"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/libcselect"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/updateprogress"
 	"log/slog"
 	"os"
@@ -340,7 +341,7 @@ func lockClaudeInstall(ctx context.Context, path string) (func(), error) {
 			_ = f.Close()
 			return nil, err
 		}
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err := posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB)
 		if err == nil {
 			return func() { _ = f.Close() }, nil
 		}

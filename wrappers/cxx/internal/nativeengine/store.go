@@ -115,7 +115,7 @@ func (s *Store) FindCLI() (string, error) {
 		}
 	}
 	if home, err := s.Home(); err == nil {
-		candidates = append(candidates, filepath.Join(home, "bin", s.Binary))
+		candidates = append(candidates, filepath.Join(home, "bin", s.Binary+exeSuffix))
 	}
 	currentExe, _ := os.Executable()
 	if path, err := nativeentry.ResolveVendor(s.Binary, currentExe); err == nil {

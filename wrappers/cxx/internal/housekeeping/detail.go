@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 // Skip details name who defers housekeeping, so a cron.log "skipped" line is
@@ -32,7 +33,7 @@ func nativeBusyDetail(engine string) string {
 		if err != nil {
 			continue
 		}
-		if info, ok := st.Sys().(*syscall.Stat_t); !ok || info.Uid != uint32(os.Getuid()) {
+		if info, ok := st.Sys().(*posix.Stat_t); !ok || info.Uid != uint32(os.Getuid()) {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join(dir, "cmdline"))
@@ -111,7 +112,7 @@ func lockHolders(path string) string {
 	if err != nil {
 		return ""
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
+	st, ok := info.Sys().(*posix.Stat_t)
 	if !ok {
 		return ""
 	}

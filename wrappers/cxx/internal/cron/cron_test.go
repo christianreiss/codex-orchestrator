@@ -24,6 +24,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 func stubCoordinator(t *testing.T) {
@@ -1555,4 +1556,4 @@ type ownedFileInfo struct {
 	uid uint32
 }
 
-func (f ownedFileInfo) Sys() any { return &syscall.Stat_t{Uid: f.uid} }
+func (f ownedFileInfo) Sys() any { return &posix.Stat_t{Uid: f.uid} }

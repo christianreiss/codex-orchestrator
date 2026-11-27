@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 	"io"
 	"net/http"
 	"os"
@@ -17,7 +18,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
@@ -113,7 +113,7 @@ func Prepare(ctx context.Context, cfg *config.Config, args, env []string, home s
 	if err != nil {
 		return s, err
 	}
-	if err = syscall.Flock(int(s.lease.Fd()), syscall.LOCK_SH); err != nil {
+	if err = posix.Flock(int(s.lease.Fd()), posix.LOCK_SH); err != nil {
 		return s, err
 	}
 	common, err := os.Executable()
@@ -179,7 +179,7 @@ func (s *Session) Close() {
 	if s.Dir != "" {
 		if f, e := os.OpenFile(filepath.Join(s.Dir, ".lease"), os.O_RDWR, 0600); e == nil {
 			defer f.Close()
-			if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+			if posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB) == nil {
 				os.RemoveAll(s.Dir)
 			}
 		}
@@ -200,7 +200,7 @@ func cleanupAbandoned(root string) {
 		if err != nil {
 			continue
 		}
-		if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+		if posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB) == nil {
 			os.RemoveAll(p)
 		}
 		f.Close()

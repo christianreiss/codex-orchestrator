@@ -18,7 +18,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
@@ -428,7 +427,11 @@ func rebootInternal(args []string, stdin io.Reader, stdout, stderr io.Writer) (r
 			gids = append(gids, uint32(n))
 		}
 		cmd.Env = append(cmd.Env, "USER="+u.Username, "LOGNAME="+u.Username)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: r.UID, Gid: r.GID, Groups: gids}}
+		attr, err := rebootCredentialAttr(r.UID, r.GID, gids)
+		if err != nil {
+			return err
+		}
+		cmd.SysProcAttr = attr
 		// Probe as the original user, with the restored PATH, not root's PATH.
 		probe := exec.Command(r.Executable, "reboot", "_transport")
 		probe.Dir, probe.Env, probe.SysProcAttr = cmd.Dir, cmd.Env, cmd.SysProcAttr
@@ -593,7 +596,11 @@ func runRebootContinuation(r rebootresume.Record, readiness map[string]any, stdo
 	if interactive {
 		// Pipes/tee hide the TTY from provider CLIs. tmux pipe-pane owns logging.
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-		cmd.SysProcAttr = &syscall.SysProcAttr{Foreground: true, Ctty: int(os.Stdin.Fd())}
+		attr, err := rebootForegroundAttr(os.Stdin)
+		if err != nil {
+			return err
+		}
+		cmd.SysProcAttr = attr
 	}
 	cmd.Env = append(os.Environ(), "CXX_REBOOT_REQUEST_ID="+r.ID, "CXX_REBOOT_BOOT_ID="+r.ResumeBootID, "CXX_REBOOT_WRITER_ID="+r.NativeID, "CXX_AGENT_MESSAGING_UPSTREAM_SESSION_ID="+r.NativeID)
 

@@ -33,8 +33,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 // EnvDir names the gate directory of the launch for its hook processes.
@@ -173,14 +174,6 @@ func read(dir string) (Pause, bool) {
 	return p, true
 }
 
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
-}
-
 // Active returns the pause that holds hooks right now: the file exists, its
 // deadline has not passed and its owner is alive.
 func Active(dir string, now time.Time) (Pause, bool) {
@@ -236,8 +229,8 @@ func locked(dir string, fn func()) {
 		return
 	}
 	defer f.Close()
-	if syscall.Flock(int(f.Fd()), syscall.LOCK_EX) == nil {
-		defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if posix.Flock(int(f.Fd()), posix.LOCK_EX) == nil {
+		defer posix.Flock(int(f.Fd()), posix.LOCK_UN)
 	}
 	fn()
 }

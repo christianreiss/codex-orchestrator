@@ -12,6 +12,7 @@ import (
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/sessionguard"
 )
 
@@ -22,17 +23,6 @@ var ErrAuthChildActive = errors.New("active Claude child is using native credent
 
 type authChildLease struct {
 	f *os.File
-}
-
-func duplicateLeaseFile(f *os.File, name string) (*os.File, error) {
-	if f == nil {
-		return nil, fmt.Errorf("%s lease is closed", name)
-	}
-	fd, err := syscall.Dup(int(f.Fd()))
-	if err != nil {
-		return nil, fmt.Errorf("duplicate %s lease: %w", name, err)
-	}
-	return os.NewFile(uintptr(fd), name), nil
 }
 
 // attachAuthLeaseFiles gives the native CLI duplicate descriptors for both
@@ -174,7 +164,7 @@ func acquireAuthChildShared() (*authChildLease, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH); err != nil {
+	if err := posix.Flock(int(f.Fd()), posix.LOCK_SH); err != nil {
 		_ = f.Close()
 		return nil, err
 	}
@@ -186,7 +176,7 @@ func tryAcquireAuthChildWriter() (*authChildLease, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB); err != nil {
 		_ = f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 			return nil, ErrAuthChildActive
@@ -211,13 +201,13 @@ func HasActiveAuthChild() (bool, error) {
 		return false, err
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB); err != nil {
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 			return true, nil
 		}
 		return false, err
 	}
-	return false, syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false, posix.Flock(int(f.Fd()), posix.LOCK_UN)
 }
 
 func (l *authChildLease) Close() error {
@@ -226,6 +216,6 @@ func (l *authChildLease) Close() error {
 	}
 	f := l.f
 	l.f = nil
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	_ = posix.Flock(int(f.Fd()), posix.LOCK_UN)
 	return f.Close()
 }

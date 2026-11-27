@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 const (
@@ -988,7 +990,7 @@ func lockAuthFilesContext(ctx context.Context) (authFileSet, func(), error) {
 			_ = f.Close()
 			return authFileSet{}, nil, err
 		}
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err := posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB)
 		if err == nil {
 			break
 		}
@@ -1006,7 +1008,7 @@ func lockAuthFilesContext(ctx context.Context) (authFileSet, func(), error) {
 		}
 	}
 	return paths, func() {
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = posix.Flock(int(f.Fd()), posix.LOCK_UN)
 		_ = f.Close()
 	}, nil
 }

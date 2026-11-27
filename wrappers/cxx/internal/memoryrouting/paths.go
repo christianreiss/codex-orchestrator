@@ -12,9 +12,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 	"unicode/utf16"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 func targets(engine, home string, enabled bool, args []string) ([]string, error) {
@@ -295,7 +296,7 @@ func claudeLocalSettingsRoot(cwd, root, userHome string) string {
 		if err != nil {
 			return cwd
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
+		stat, ok := info.Sys().(*posix.Stat_t)
 		if !ok || stat.Uid != uint32(os.Geteuid()) {
 			return cwd
 		}

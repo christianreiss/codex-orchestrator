@@ -11,10 +11,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
 )
 
@@ -41,7 +41,7 @@ func privateOwnedDirectoryFor(path string, uid int) error {
 	if err != nil {
 		return err
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
+	stat, ok := info.Sys().(*posix.Stat_t)
 	if !ok || int(stat.Uid) != uid || !info.IsDir() || info.Mode().Perm() != 0700 {
 		return errors.New("unsafe runtime namespace directory")
 	}
@@ -69,11 +69,11 @@ func readResidentOwnerAt(base, dir, namespace string, uid int) (residentOwnerRec
 	if err != nil {
 		return record, err
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
+	stat, ok := info.Sys().(*posix.Stat_t)
 	if !ok || int(stat.Uid) != uid || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
 		return record, errors.New("unsafe runtime ownership record")
 	}
-	file, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	file, err := posix.OpenFile(path, os.O_RDONLY|posix.O_NOFOLLOW, 0)
 	if err != nil {
 		return record, err
 	}
@@ -108,7 +108,7 @@ func discoverResidentOwner(ctx context.Context, base string) (string, error) {
 	}
 	info, statErr := os.Lstat(record.Socket)
 	if statErr == nil {
-		stat, ok := info.Sys().(*syscall.Stat_t)
+		stat, ok := info.Sys().(*posix.Stat_t)
 		if !ok || int(stat.Uid) != os.Getuid() || info.Mode()&os.ModeSocket == 0 || info.Mode().Perm() != 0600 {
 			return "", errors.New("unsafe runtime socket")
 		}
@@ -134,7 +134,7 @@ func discoverResidentOwner(ctx context.Context, base string) (string, error) {
 		if coordErr != nil {
 			return "", coordErr
 		}
-		file, lockErr := os.OpenFile(filepath.Join(dir, "owner.lock"), os.O_RDWR|syscall.O_NOFOLLOW, 0)
+		file, lockErr := posix.OpenFile(filepath.Join(dir, "owner.lock"), os.O_RDWR|posix.O_NOFOLLOW, 0)
 		if lockErr != nil {
 			return "", errors.New("runtime ownership lock is missing or unreadable")
 		}
@@ -143,14 +143,14 @@ func discoverResidentOwner(ctx context.Context, base string) (string, error) {
 		if lockErr != nil {
 			return "", lockErr
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
+		stat, ok := info.Sys().(*posix.Stat_t)
 		if !ok || int(stat.Uid) != os.Getuid() || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
 			return "", errors.New("unsafe runtime ownership lock")
 		}
-		if syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		if posix.Flock(int(file.Fd()), posix.LOCK_EX|posix.LOCK_NB) != nil {
 			return "", errors.New("runtime owner unavailable while namespace remains occupied")
 		}
-		defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		defer posix.Flock(int(file.Fd()), posix.LOCK_UN)
 		return "", nil
 	}
 	defer response.Body.Close()

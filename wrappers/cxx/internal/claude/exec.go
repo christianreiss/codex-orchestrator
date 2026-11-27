@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 
 	"golang.org/x/term"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/modelpolicy"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeentry"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativeprocess"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaadvice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/rtk"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/schedulewatch"
@@ -69,7 +69,7 @@ func cacheDiscoveredClaude(path string) string {
 		return path
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB); err != nil {
 		return path
 	}
 	if current := cachedClaudeBin(); current != "" && !isWrapperSelf(current) {

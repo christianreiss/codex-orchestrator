@@ -2,12 +2,10 @@ package accountpool
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -137,14 +135,6 @@ func (c *Context) SiblingTurns() (busy, unknown bool) {
 		}
 	}
 	return busy, unknown
-}
-
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	err := syscall.Kill(pid, 0)
-	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // LiveSessions returns the lease IDs of live wrapper processes in this scope,

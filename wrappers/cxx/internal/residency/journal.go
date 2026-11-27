@@ -10,9 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"syscall"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 	"github.com/google/uuid"
 )
 
@@ -34,7 +34,7 @@ type Journal struct {
 var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func owned(info os.FileInfo) bool {
-	stat, ok := info.Sys().(*syscall.Stat_t)
+	stat, ok := info.Sys().(*posix.Stat_t)
 	return ok && int(stat.Uid) == os.Getuid()
 }
 
@@ -81,7 +81,7 @@ func ReadJournal(path string) (Journal, error) {
 	if !owned(info) || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
 		return j, errors.New("unsafe migration journal")
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := posix.OpenFile(path, os.O_RDONLY|posix.O_NOFOLLOW, 0)
 	if err != nil {
 		return j, err
 	}
@@ -126,7 +126,7 @@ func saveJournal(path string, next Journal, expected *Journal) error {
 	if err != nil || !owned(info) || !info.IsDir() || info.Mode().Perm() != 0700 {
 		return errors.New("unsafe migration directory")
 	}
-	lockFile, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	lockFile, err := posix.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR|posix.O_NOFOLLOW, 0600)
 	if err != nil {
 		return err
 	}
