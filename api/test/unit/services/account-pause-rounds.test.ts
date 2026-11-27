@@ -176,6 +176,8 @@ describe('pause rounds', () => {
     expect(() => h.rounds.assertCommit(h.lease(A), undefined, t0 + 999_000)).not.toThrow();
     expect(h.rounds.commitDetails(h.lease(A), round, t0 + 140_000)).toEqual({ round, asked: 2, paused_after_ms: 11_000, committed_after_ms: 20_000 });
 
+    // The commit moves the binding and clears the request; then the write.
+    await h.patchScope({ accountId: 2, desiredAccountId: null, desiredReason: null, desiredAt: null });
     // Written: everyone goes on, and the record says how long they were held.
     await h.rounds.report({ hostId: 1, engine: 'claude', sessionId: B, state: 'done', round, now: t0 + 142_000 });
     expect(h.lease(A).pauseRound).toBeNull();
@@ -350,6 +352,29 @@ describe('pause rounds', () => {
     expect(await h.rounds.tick('claude', input(), t0 + 4000)).toEqual({ started: 0, aborted: 0 });
     h.rounds.noteUnfinishedWrite(1, 'claude', SCOPE, generation, t0);
     expect(await h.rounds.tick('claude', input(), t0 + WRITE_PENDING_FRESH_MS + 1000)).toEqual({ started: 0, aborted: 0 });
+  });
+
+  it('does not end a round on "done" while its switch is still pending', async () => {
+    const h = harness();
+    await h.session(A);
+    await h.session(B);
+    const t0 = Date.now();
+    await h.patchScope(requested(t0 - 600_000));
+    await h.rounds.tick('claude', input(), t0);
+    const round = h.lease(A).pauseRound!;
+    await h.rounds.report({ hostId: 1, engine: 'claude', sessionId: A, state: 'paused', round, now: t0 + 1000 });
+    await h.rounds.report({ hostId: 1, engine: 'claude', sessionId: B, state: 'paused', round, now: t0 + 2000 });
+    // A session that had not heard of the request checked its credentials,
+    // found them in place for the account being left, and says so.
+    await h.rounds.report({ hostId: 1, engine: 'claude', sessionId: A, state: 'done', round, now: t0 + 3000 });
+    expect(h.lease(A).pauseRound).toBe(round);
+    expect(h.lease(B).pauseReadyAt).not.toBeNull();
+    expect(h.audits().some((row) => row.action === 'provider_account.switch_pause_finished')).toBe(false);
+    // The commit goes through (the request is gone); now "done" means it.
+    await h.patchScope({ accountId: 2, desiredAccountId: null, desiredReason: null, desiredAt: null });
+    await h.rounds.report({ hostId: 1, engine: 'claude', sessionId: B, state: 'done', round, now: t0 + 4000 });
+    expect(h.lease(A).pauseRound).toBeNull();
+    expect(h.audits().at(-1)).toMatchObject({ action: 'provider_account.switch_pause_finished', details: { round, session_id: B, asked: 2 } });
   });
 
   it('ends a running round when pausing is switched off', async () => {

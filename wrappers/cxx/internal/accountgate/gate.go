@@ -262,12 +262,20 @@ func hold(dir string, in HookInput, clock func() time.Time) time.Duration {
 // Hook applies one hook event: it records the thread's phase and, before a
 // model request, waits while a pause is active.
 //
-// The order inside a holding event matters. The phase is first written as
-// "model" and only then is the gate looked at. A wrapper that activates a
-// pause and then reads this thread either sees "model" and waits, or it read
-// before that write, in which case its pause file was already there when the
-// gate is looked at here and the hook holds. Either way no thread is counted
-// as paused while it walks on to a model request.
+// The order inside a holding event matters, in both directions.
+//
+// Without a pause the phase is written as "model" before the gate is looked
+// at a second time (in hold). A wrapper that activates a pause and then reads
+// this thread either sees "model" and waits, or it read before that write, in
+// which case its pause file was already there for the second look and the
+// hook holds. So no thread is counted as paused while it walks on to a model
+// request.
+//
+// With a pause already active the hook goes straight to "held" and never
+// writes "model" first. A session that has reported itself paused has its
+// tools finish one after another during the round; if each of them passed
+// through "model" on its way into the gate, the wrapper would sooner or later
+// read that instant and take its report back.
 func Hook(dir string, in HookInput) time.Duration {
 	return hook(dir, in, time.Now)
 }
@@ -294,8 +302,13 @@ func hook(dir string, in HookInput, clock func() time.Time) time.Duration {
 		_ = os.Remove(continuePath(dir, in.SessionID, in.AgentID))
 		fallthrough
 	case "PostToolBatch", "PreCompact", "SubagentStart":
-		setPhase(dir, in, PhaseModel, clock())
-		if held = hold(dir, in, clock); held > 0 {
+		_, pausing := Active(dir, clock())
+		if !pausing {
+			setPhase(dir, in, PhaseModel, clock())
+		}
+		// Released, or the pause ended between the two looks: the thread
+		// goes on to its model request either way, and says so.
+		if held = hold(dir, in, clock); held > 0 || pausing {
 			setPhase(dir, in, PhaseModel, clock())
 		}
 	case "PreToolUse":

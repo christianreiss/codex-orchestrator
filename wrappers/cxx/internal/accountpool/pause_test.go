@@ -248,3 +248,29 @@ func TestCommitCarriesTheReadyRoundAndReportsCarryTheSession(t *testing.T) {
 		t.Fatalf("repair report: %v", last)
 	}
 }
+
+func TestRepairSinceIsWhenTheFlagWasFirstSet(t *testing.T) {
+	c := pauseContext(t)
+	if !c.RepairSince().IsZero() {
+		t.Fatal("a flag that is not set has an age")
+	}
+	c.MarkRepair()
+	first := c.RepairSince()
+	if first.IsZero() || time.Since(first) > time.Minute {
+		t.Fatalf("flag time %v", first)
+	}
+	// Setting it again (the next commit attempt, the next adoption) must not
+	// make an old flag look young.
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(c.repairPath(), old, old); err != nil {
+		t.Fatal(err)
+	}
+	c.MarkRepair()
+	if got := c.RepairSince(); time.Since(got) < 59*time.Minute {
+		t.Fatalf("marking again reset the flag's age to %v", got)
+	}
+	c.ClearRepair()
+	if !c.RepairSince().IsZero() {
+		t.Fatal("a cleared flag still has an age")
+	}
+}

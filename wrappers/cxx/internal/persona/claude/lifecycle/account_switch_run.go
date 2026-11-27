@@ -181,6 +181,7 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 				logger.Warn("account pause: outcome not reported", "state", state, "err", err)
 			}
 		},
+		repairSince: pool.RepairSince,
 		reportRepair: func(c context.Context) error {
 			rctx, cancel := context.WithTimeout(c, 20*time.Second)
 			defer cancel()

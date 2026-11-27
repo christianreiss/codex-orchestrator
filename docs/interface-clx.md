@@ -2210,7 +2210,9 @@ without that variable it does nothing.
   run), `idle` (the turn ended) and `held` (a hook waits in the gate).
 - While the wrapper's pause file is there, the hooks that can be followed by a model request wait:
   `UserPromptSubmit`, `PostToolBatch`, `PreCompact`, `SubagentStart`, `Stop` and `SubagentStop`.
-  Tools that are already running finish undisturbed. A hold ends when the wrapper removes the file,
+  Tools that are already running finish undisturbed. A hook that arrives during a pause goes
+  straight to `held` and never shows `model` on the way in, so a session that reported `paused`
+  does not take that back while its tools finish. A hold ends when the wrapper removes the file,
   at the file's local deadline, when the wrapper that wrote it is gone, and after 300 s at the latest.
 - `cxx agent poll --hook Stop` tells the gate when it answers `block`, so a turn that continues is
   recorded as `model` and not as ended.
@@ -2221,7 +2223,8 @@ without that variable it does nothing.
 
 1. The first hook of a launch proves that it is gated. The wrapper reports `capable` once with
    `POST /auth/sessions/pause`, and again when a heartbeat says the lease lost the flag (the server
-   re-reserved it). A server without the route answers 404 and is not asked again by that launch.
+   re-reserved it). A server without the route (404 `Route not found`, or 405) is not asked again
+   by that launch; a 404 for a lease the server does not know is.
 2. The server's pause arrives in the snapshot of the lease's provider stream
    (`pause: {round, deadline, ready}`). The wrapper measures the time left on the server's clock,
    writes the pause file with a local deadline and watches its own phase files. When no thread is in
@@ -2243,8 +2246,12 @@ the quiet moment occurs.
 **Committed but not written.** Inside a round the sessions are mid-turn, so a write that misses
 leaves a busy scope behind. The wait for a turn that started between commit and write now ends after
 60 s and counts as an attempt (it was unbounded, so the unfinished report never fired). While the
-repair flag is set and the scope is busy, the wrapper repeats `credential_write: "unfinished"` at
-every poll; the server then pauses the scope for the write.
+scope is busy and the repair flag has been set for five minutes or longer, the wrapper repeats
+`credential_write: "unfinished"` at every poll; the server then pauses the scope for the write. The
+age matters: the flag is also set before every commit and on every adopted sibling switch and
+normally clears within seconds, so a young flag on a busy scope says nothing. In a ready round
+without a directive the repair check ends the round whatever it finds: `done` when the file already
+belongs to the bound account or once it has written it, `failed` when it cannot check.
 
 **Who is not paused.** A session started with a wrapper before 0.9.216, a launch without the plugin
 (agent messaging off), and a timed lease have no gate or no stream. Their scope gets no round and

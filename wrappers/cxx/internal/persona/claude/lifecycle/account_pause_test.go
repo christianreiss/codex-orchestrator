@@ -189,10 +189,38 @@ func TestPauseAgentReleasesAtTheLocalDeadline(t *testing.T) {
 	eventually(t, "the gate to go", func() bool { _, ok := accountgate.Active(pool.dir, time.Now()); return !ok })
 }
 
-type statusErr int
+type statusErr struct {
+	status  int
+	message string
+}
 
-func (e statusErr) Error() string   { return "http" }
-func (e statusErr) HTTPStatus() int { return int(e) }
+func (e statusErr) Error() string         { return e.message }
+func (e statusErr) HTTPStatus() int       { return e.status }
+func (e statusErr) ServerMessage() string { return e.message }
+
+func TestRouteMissingTellsAMissingRouteFromAMissingSession(t *testing.T) {
+	if !routeMissing(statusErr{404, "Route not found"}) || !routeMissing(statusErr{405, "Method not allowed"}) {
+		t.Fatal("a server without the route was not recognised")
+	}
+	// The lease is gone (a host that slept); the heartbeat takes it back and
+	// the launch must then announce itself again.
+	if routeMissing(statusErr{404, "Account session not found"}) || routeMissing(statusErr{503, "Route not found"}) || routeMissing(errors.New("dial tcp: refused")) {
+		t.Fatal("an error that passes was taken for a server without pause rounds")
+	}
+}
+
+func TestPauseAgentAsksAgainAfterALeaseTheServerDidNotKnow(t *testing.T) {
+	pool, reports := startPauseAgent(t)
+	reports.mu.Lock()
+	reports.err = statusErr{404, "Account session not found"}
+	reports.mu.Unlock()
+	accountgate.Hook(pool.dir, hookInput("UserPromptSubmit", ""))
+	time.Sleep(30 * time.Millisecond)
+	reports.mu.Lock()
+	reports.err = nil
+	reports.mu.Unlock()
+	eventually(t, "the announcement after the lease came back", func() bool { return reports.all() == ":capable" })
+}
 
 // A timed lease, or a server without the owner runtime, never says whether
 // the lease is capable. One announcement is enough for it.
@@ -215,7 +243,7 @@ func TestPauseAgentAnnouncesOnceToAServerThatSaysNothing(t *testing.T) {
 func TestPauseAgentStopsAskingAServerWithoutPauseRounds(t *testing.T) {
 	pool, reports := startPauseAgent(t)
 	reports.mu.Lock()
-	reports.err = statusErr(404)
+	reports.err = statusErr{404, "Route not found"}
 	reports.mu.Unlock()
 	accountgate.Hook(pool.dir, hookInput("UserPromptSubmit", ""))
 	time.Sleep(30 * time.Millisecond)
@@ -379,8 +407,82 @@ func TestSwitcherKeepsReportingABindingTheFileDoesNotFollow(t *testing.T) {
 	var mu sync.Mutex
 	reported := 0
 	deps.reportRepair = func(context.Context) error { mu.Lock(); reported++; mu.Unlock(); return nil }
+	// The flag has been there for an hour: the write is really outstanding.
+	deps.repairSince = func() time.Time { return time.Now().Add(-time.Hour) }
 	runSwitcherUntil(t, deps, func() bool { mu.Lock(); defer mu.Unlock(); return reported >= 3 })
 	if strings.Contains(filterSteps(r.steps), "flush") {
 		t.Fatalf("flushed next to running turns: %v", r.steps)
+	}
+}
+
+// The flag is also set before every commit and whenever a sibling's switch is
+// adopted, and the check that clears it waits for a quiet scope. A young flag
+// on a busy scope is the normal state after any switch and must not tell the
+// server that a write is missing: that wrote a false audit row and, with
+// pausing on, froze the scope for a round nobody would end.
+func TestSwitcherDoesNotReportAFlagThatWasJustSet(t *testing.T) {
+	r := &switchRecorder{flag: true}
+	pool := &fakeSwitchPool{wake: make(chan struct{}, 1)}
+	deps := r.deps(pool)
+	deps.pollEvery = 2 * time.Millisecond
+	var polls, reported atomic.Int32
+	deps.idle = func() bool { polls.Add(1); return false }
+	deps.reportRepair = func(context.Context) error { reported.Add(1); return nil }
+	set := time.Now()
+	deps.repairSince = func() time.Time { return set }
+	deps.repairReportAfter = time.Hour
+	ctx, cancel := context.WithCancel(context.Background())
+	finished := make(chan struct{})
+	go func() { runAccountSwitcher(ctx, deps); close(finished) }()
+	time.Sleep(60 * time.Millisecond)
+	cancel()
+	<-finished
+	if polls.Load() < 3 {
+		t.Fatalf("the supervisor only looked %d times", polls.Load())
+	}
+	if reported.Load() != 0 {
+		t.Fatalf("a flag set a moment ago was reported %d times", reported.Load())
+	}
+	// No way to tell how old the flag is: say nothing.
+	deps.repairSince = nil
+	if deps.repairOverdue() {
+		t.Fatal("a flag of unknown age counts as overdue")
+	}
+}
+
+// A ready round with no directive is a round for a write that was reported
+// as missing. When the check finds the file in place, or cannot check, the
+// sessions are released at once instead of waiting out the whole budget.
+func TestRepairEndsItsPauseRoundWhateverItFinds(t *testing.T) {
+	run := func(r *switchRecorder) string {
+		pool := &fakeSwitchPool{wake: make(chan struct{}, 1)}
+		pool.wake <- struct{}{}
+		deps := r.deps(pool)
+		reports := &roundReports{}
+		deps.pauseRound = func() (string, bool) { return "r1", true }
+		deps.pauseReport = reports.add
+		runSwitcherUntil(t, deps, func() bool { return reports.all() != "" })
+		return reports.all()
+	}
+	// The file already belongs to the bound account.
+	r := &switchRecorder{flag: true}
+	if got := run(r); got != "r1:done:" {
+		t.Fatalf("nothing to write: %s", got)
+	}
+	if r.flag {
+		t.Fatal("the repair flag outlived a file that is in place")
+	}
+	// The check itself fails.
+	r = &switchRecorder{flag: true, flushErr: errors.New("server says no")}
+	if got := run(r); !strings.HasPrefix(got, "r1:failed:flush: server says no") {
+		t.Fatalf("flush error: %s", got)
+	}
+	// The file is another account's login: it is written, then the round ends.
+	r = &switchRecorder{flag: true, flushSeq: []flushResult{{Bound: &accountpool.LeaseResponse{AccountID: 7, Auth: []byte(`{}`), VerificationState: "verified"}}}}
+	if got := run(r); got != "r1:done:" {
+		t.Fatalf("a real repair: %s", got)
+	}
+	if got := filterSteps(r.steps); !strings.Contains(got, "write:ok") {
+		t.Fatalf("the repair did not write: %s", got)
 	}
 }

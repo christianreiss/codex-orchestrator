@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountgate"
@@ -137,9 +138,10 @@ func runPauseAgent(ctx context.Context, d *pauseAgentDeps) {
 					told = true
 				} else {
 					// A server without pause rounds has no such route. It is
-					// not asked again by this launch.
-					var status interface{ HTTPStatus() int }
-					if errors.As(err, &status) && (status.HTTPStatus() == 404 || status.HTTPStatus() == 405) {
+					// not asked again by this launch. A lease the server no
+					// longer knows is a 404 too, and is asked again once the
+					// heartbeat has taken it back.
+					if routeMissing(err) {
 						unsupported = true
 					}
 					d.logger.Debug("account pause: capability not announced", "err", err)
@@ -160,4 +162,18 @@ func runPauseAgent(ctx context.Context, d *pauseAgentDeps) {
 		case <-timer.C:
 		}
 	}
+}
+
+// routeMissing reports that the server has no such route at all, as opposed
+// to a route that answered "not found" for what was asked.
+func routeMissing(err error) bool {
+	var status interface{ HTTPStatus() int }
+	if !errors.As(err, &status) {
+		return false
+	}
+	if status.HTTPStatus() == 405 {
+		return true
+	}
+	var message interface{ ServerMessage() string }
+	return status.HTTPStatus() == 404 && errors.As(err, &message) && strings.Contains(message.ServerMessage(), "Route not found")
 }

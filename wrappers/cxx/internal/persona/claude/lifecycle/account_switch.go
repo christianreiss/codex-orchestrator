@@ -38,6 +38,13 @@ const (
 	// switch (about five minutes at the retry interval).
 	accountSwitchFinishTries = 20
 	accountAdoptSettle       = 10 * time.Second
+	// accountRepairReportAfter is how old the repair flag has to be before the
+	// server is told that the credentials are not written. The flag is set
+	// before every commit and on every adopted sibling switch and is normally
+	// gone within seconds; a busy scope only delays the check that clears it.
+	// Reporting a young flag told the server of a missing write after every
+	// ordinary switch of a scope with several sessions.
+	accountRepairReportAfter = 5 * time.Minute
 	// accountSwitchBusyWait bounds one wait for a turn that started between
 	// the commit and the write. Without a bound the supervisor sat in that
 	// wait for as long as the scope stayed busy, never counted an attempt and
@@ -112,12 +119,16 @@ type accountSwitchDeps struct {
 	// pauseReport tells the server how the switch of a round ended.
 	pauseReport func(ctx context.Context, round, state, reason string)
 	// reportRepair repeats the unfinished report for a binding the file does
-	// not follow, so the server can pause the scope for it.
+	// not follow, so the server can pause the scope for it. repairSince is
+	// when the repair flag was set (zero: unknown, never reported).
 	reportRepair func(context.Context) error
-	logger       *slog.Logger
-	pollEvery    time.Duration
-	gateEvery    time.Duration
-	retryEvery   time.Duration
+	repairSince  func() time.Time
+	// repairReportAfter overrides accountRepairReportAfter (tests).
+	repairReportAfter time.Duration
+	logger            *slog.Logger
+	pollEvery         time.Duration
+	gateEvery         time.Duration
+	retryEvery        time.Duration
 	// busyWait overrides accountSwitchBusyWait (tests).
 	busyWait time.Duration
 }
@@ -294,6 +305,23 @@ func (c *committedSwitch) reflushed(flushed flushResult) bool {
 	return c.repair
 }
 
+// repairOverdue reports that the repair flag is old enough to mean a write
+// that is really outstanding.
+func (d *accountSwitchDeps) repairOverdue() bool {
+	if d.repairSince == nil {
+		return false
+	}
+	since := d.repairSince()
+	if since.IsZero() {
+		return false
+	}
+	after := d.repairReportAfter
+	if after <= 0 {
+		after = accountRepairReportAfter
+	}
+	return time.Since(since) >= after
+}
+
 func (d *accountSwitchDeps) currentPauseRound() (string, bool) {
 	if d.pauseRound == nil {
 		return "", false
@@ -339,10 +367,11 @@ func runAccountSwitcher(ctx context.Context, d *accountSwitchDeps) {
 			return nil
 		}
 		if !d.idle() {
-			// The scope is busy and the file still belongs to another
-			// account. The server learns that at every poll and can pause
-			// the scope for the write.
-			if d.reportRepair != nil && time.Since(lastRepairReport) >= d.pollEvery {
+			// The scope is busy, so nothing can be checked. A flag that has
+			// been there for minutes means the file has not followed its
+			// binding for that long: the server hears it at every poll and
+			// can pause the scope for the write. A young flag says nothing.
+			if d.reportRepair != nil && d.repairOverdue() && time.Since(lastRepairReport) >= d.pollEvery {
 				lastRepairReport = time.Now()
 				if err := d.reportRepair(ctx); err != nil {
 					d.logger.Debug("unfinished account repair not reported", "err", err)
@@ -350,13 +379,24 @@ func runAccountSwitcher(ctx context.Context, d *accountSwitchDeps) {
 			}
 			return nil
 		}
+		// Inside a ready pause round every session is held until somebody
+		// says how it ended. This check is that somebody when there is no
+		// directive: whatever it finds, the round must not run to its
+		// deadline for nothing.
+		round, ready := d.currentPauseRound()
+		if !ready {
+			round = ""
+		}
 		flushed, err := d.flush(ctx, false)
 		if err != nil {
 			d.logger.Debug("account repair check failed", "err", err)
+			d.reportPause(ctx, round, accountpool.PauseStateFailed, "flush: "+err.Error())
 			return nil
 		}
 		if flushed.Bound == nil {
+			// The file already belongs to the bound account.
 			d.clearRepair()
+			d.reportPause(ctx, round, accountpool.PauseStateDone, "")
 			return nil
 		}
 		d.pauseSync()

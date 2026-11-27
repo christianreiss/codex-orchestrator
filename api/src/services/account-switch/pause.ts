@@ -330,6 +330,12 @@ export class AccountPauseRounds {
       let asked = 0;
       const ended = await this.change(owner, 'provider.scope.pause.finish', scope, (rows) => {
         if (!rows.some((r) => r.pauseRound === round)) return null;
+        // "Done" means the credentials file belongs to the bound account. With
+        // a switch still pending that is the account being left: a session
+        // that had not heard of the request found nothing to write. The round
+        // goes on for the wrapper that will switch.
+        const head = rows[0]!;
+        if (head.desiredAccountId && head.desiredAccountId !== head.accountId) return null;
         generation = generationOf(rows[0]!);
         asked = rows.filter((r) => r.pauseRound === round).length;
         return {

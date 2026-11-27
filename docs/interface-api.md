@@ -2872,8 +2872,10 @@ binding file and ignores every answer below it).
     session; when every lease of the scope has reported for the round, `pause_ready_at` is set on all rows
     and each stream says `ready: true`. `running` (the session can no longer vouch for itself) and
     `failed` (flush, commit or write did not go through; `reason` at most 300 characters) end the round at
-    once. `done` (the credentials are written) ends it and releases everyone. A report for a round that is
-    over is 409 `account_pause_stale`.
+    once. `done` (the credentials file belongs to the bound account) ends it and releases everyone,
+    but only once no switch is pending for the scope: before the commit that file is the account
+    being left, and a `done` then is accepted and ignored. A report for a round that is over is 409
+    `account_pause_stale`.
   - **Commit.** `POST /auth/sessions/switch` takes `pause_round` when the wrapper commits inside a round.
     The server refuses it with 409 `account_switch_pause_expired` unless that round is the scope's own
     and has more than 10 seconds left. A commit without `pause_round` is judged as before.

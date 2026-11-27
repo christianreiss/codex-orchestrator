@@ -398,6 +398,21 @@ func (c *Context) RepairPending() bool {
 	return err == nil
 }
 
+// RepairSince is when the repair flag was set (zero: not set). The flag is
+// also set for moments that pass by themselves, before every commit and on
+// every adoption of a sibling's switch, so its age tells a write that is
+// really outstanding from one that is merely not confirmed yet.
+func (c *Context) RepairSince() time.Time {
+	if c == nil || c.path == "" {
+		return time.Time{}
+	}
+	info, err := os.Stat(c.repairPath())
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
 func (c *Context) ClearRepair() {
 	if c == nil || c.path == "" {
 		return

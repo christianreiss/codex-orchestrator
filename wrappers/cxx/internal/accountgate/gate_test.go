@@ -160,6 +160,94 @@ func TestHoldEndsOnReleaseDeadlineAndDeadOwner(t *testing.T) {
 	})
 }
 
+// A paused session's tools finish during the round and their hooks arrive at
+// the gate one after another. None of them may show "model" on the way in.
+func TestHookEnteringAnActivePauseNeverLooksLikeAModelRequest(t *testing.T) {
+	dir := gateDir(t)
+	Hook(dir, in("UserPromptSubmit", ""))
+	Hook(dir, in("PreToolUse", ""))
+	Hook(dir, in("SubagentStart", "a1"))
+	Hook(dir, in("PreToolUse", "a1"))
+	_ = Activate(dir, Pause{Round: "r1", Deadline: time.Now().Add(time.Minute)})
+	if safe, why := Safe(dir, "r1", time.Now()); !safe {
+		t.Fatalf("both threads run tools: %s", why)
+	}
+	stop := make(chan struct{})
+	unsafe := make(chan string, 1)
+	watching := make(chan struct{})
+	go func() {
+		defer close(watching)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if safe, why := Safe(dir, "r1", time.Now()); !safe {
+				select {
+				case unsafe <- why:
+				default:
+				}
+				return
+			}
+		}
+	}()
+	var wg sync.WaitGroup
+	for _, agent := range []string{"", "a1"} {
+		for _, event := range []string{"PostToolBatch", "PreCompact"} {
+			wg.Add(1)
+			go func() { defer wg.Done(); Hook(dir, in(event, agent)) }()
+		}
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for phase(t, dir, "s1", "") != PhaseHeld || phase(t, dir, "s1", "a1") != PhaseHeld {
+		if time.Now().After(deadline) {
+			t.Fatal("the hooks never reached the gate")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(30 * time.Millisecond)
+	close(stop)
+	<-watching
+	select {
+	case why := <-unsafe:
+		t.Fatalf("a thread entering the gate looked unsafe: %s", why)
+	default:
+	}
+	Release(dir)
+	wg.Wait()
+	// Released, each thread goes on to its model request and says so.
+	if phase(t, dir, "s1", "") != PhaseModel || phase(t, dir, "s1", "a1") != PhaseModel {
+		t.Fatalf("after release: root=%s subagent=%s", phase(t, dir, "s1", ""), phase(t, dir, "s1", "a1"))
+	}
+}
+
+// The pause ends between the hook's two looks at the gate: it is not held,
+// and it must still record that the thread went on.
+func TestHookRecordsModelWhenThePauseEndsUnderIt(t *testing.T) {
+	dir := gateDir(t)
+	Hook(dir, in("UserPromptSubmit", ""))
+	Hook(dir, in("PreToolUse", ""))
+	// An active pause whose deadline passes at once.
+	_ = Activate(dir, Pause{Round: "r1", Deadline: time.Now().Add(time.Millisecond)})
+	clockCalls := 0
+	start := time.Now()
+	// The first look sees the pause; every later one is past its deadline.
+	clock := func() time.Time {
+		clockCalls++
+		if clockCalls == 1 {
+			return start
+		}
+		return start.Add(time.Second)
+	}
+	if held := hook(dir, in("PostToolBatch", ""), clock); held != 0 {
+		t.Fatalf("held %v for a pause that was over", held)
+	}
+	if got := phase(t, dir, "s1", ""); got != PhaseModel {
+		t.Fatalf("phase %q: the thread went on without saying so", got)
+	}
+}
+
 func TestActivateNeverExtendsARound(t *testing.T) {
 	dir := gateDir(t)
 	first := time.Now().Add(30 * time.Second).Truncate(time.Millisecond)

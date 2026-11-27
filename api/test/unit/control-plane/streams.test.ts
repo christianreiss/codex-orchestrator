@@ -442,6 +442,46 @@ describe('owner state projections', () => {
     expect(() => p.authorize()).toThrow('authorization changed');
     await p.detach();
   });
+  it('carries the scope pause to exactly the lease it is for, and wakes that stream when the round changes', async () => {
+    const id = 'c'.repeat(32);
+    const other = 'd'.repeat(32);
+    const lease = (leaseId: string) => ({ id: leaseId, hostId: 1, engine: 'claude', scopeId: 's'.repeat(32), accountId: 1, ownershipMode: 'connection', expiresAt: '2000-01-01T00:00:00Z' });
+    const h = harness({
+      providerAccounts: [{ id: 1, engine: 'claude', state: 'enabled' }] as never,
+      providerAccountSessions: [lease(id), lease(other)] as never,
+    });
+    const p = await h.provider.open({ topic: 'provider', provider_session_id: id, engine: 'claude' }, {});
+    // What the wrapper reads: `pause` at the top level of the snapshot, null outside a round.
+    expect(p.snapshot()).toEqual({ provider_session_id: id, engine: 'claude', account_id: 1, pause: null });
+    let woken = 0;
+    const unsubscribe = p.subscribe(() => {
+      woken += 1;
+    });
+    const change = (leaseId: string, patch: Record<string, unknown>) => {
+      const draft = h.state.begin();
+      draft.upsert('providerAccountSessions', { ...h.state.snapshot().table('providerAccountSessions').get(leaseId)!, ...patch } as never);
+      h.state.publish(draft.seal({ ...h.state.revision(), sequence: h.state.revision().sequence + 1n }));
+    };
+    const deadline = '2026-11-27T12:01:30.000Z';
+    change(id, { pauseRound: 'r'.repeat(36), pauseDeadline: deadline, pauseState: 'requested' });
+    expect(woken).toBe(1);
+    expect((p.snapshot() as { pause: unknown }).pause).toEqual({ round: 'r'.repeat(36), deadline, ready: false });
+    // The session's own report does not change what it is told; ready does.
+    change(id, { pauseState: 'paused', pauseReportedAt: '2026-11-27T12:00:05.000Z' });
+    expect((p.snapshot() as { pause: unknown }).pause).toEqual({ round: 'r'.repeat(36), deadline, ready: false });
+    change(id, { pauseReadyAt: '2026-11-27T12:00:09.000Z' });
+    expect((p.snapshot() as { pause: unknown }).pause).toEqual({ round: 'r'.repeat(36), deadline, ready: true });
+    // A sibling's row is not this stream's business.
+    const before = woken;
+    change(other, { pauseState: 'paused' });
+    expect(woken).toBe(before);
+    // Resume.
+    change(id, { pauseRound: null, pauseDeadline: null, pauseState: null, pauseReportedAt: null, pauseReadyAt: null });
+    expect(woken).toBeGreaterThan(before);
+    expect((p.snapshot() as { pause: unknown }).pause).toBeNull();
+    unsubscribe();
+    await p.detach();
+  });
   it('suppresses schedule and watchdog timeouts for open prompts and excludes watchdog schedules', () => {
     const h = harness();
     const draft = h.state.begin();
