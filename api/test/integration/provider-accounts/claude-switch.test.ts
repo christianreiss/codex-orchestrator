@@ -26,6 +26,10 @@ import { setClaudeIdentityFetch } from '../../../src/services/claude-identity.js
 import { ClaudeUsageService } from '../../../src/services/claude-usage.js';
 import type { RunnerClient } from '../../../src/services/runner-client.js';
 
+// A fixed date here made every test in this file fail once that day had passed:
+// the store refuses to verify a login whose access token has expired.
+const TOKEN_EXPIRES_AT = Date.now() + 7 * 86_400_000;
+
 const handle = await getTestDb();
 describe.skipIf(!handle)('Claude account identity and live switching on MySQL', () => {
   const db = handle?.db as NonNullable<typeof handle>['db'];
@@ -47,7 +51,7 @@ describe.skipIf(!handle)('Claude account identity and live switching on MySQL', 
   };
   const claude = (tag: string, minute = 0) => ({
     last_refresh: `2026-11-25T09:${String(minute).padStart(2, '0')}:00Z`,
-    claudeAiOauth: { accessToken: `sk-ant-oat01-${tag}`, refreshToken: `sk-ant-ort01-${tag}`, expiresAt: Date.parse('2026-11-27T00:00:00Z') },
+    claudeAiOauth: { accessToken: `sk-ant-oat01-${tag}`, refreshToken: `sk-ant-ort01-${tag}`, expiresAt: TOKEN_EXPIRES_AT },
   });
   const put = (tag: string, extra: Record<string, unknown> = {}, minute = 0) =>
     store.storeCandidate({

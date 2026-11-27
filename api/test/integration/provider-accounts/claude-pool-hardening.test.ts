@@ -26,6 +26,10 @@ import { AccountSwitchService, SWITCH_STALE_READING_MS } from '../../../src/serv
 import { CLAUDE_READING_HOLD_MS, ClaudeUsageService, forgetClaudeReadingConfirmations } from '../../../src/services/claude-usage.js';
 import type { RunnerClient } from '../../../src/services/runner-client.js';
 
+// A fixed date here made every test in this file fail once that day had passed:
+// the store refuses to verify a login whose access token has expired.
+const TOKEN_EXPIRES_AT = Date.now() + 7 * 86_400_000;
+
 const handle = await getTestDb();
 describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
   const db = handle?.db as NonNullable<typeof handle>['db'];
@@ -46,7 +50,7 @@ describe.skipIf(!handle)('Claude account pool hardening on MySQL', () => {
     claudeAiOauth: {
       accessToken: `sk-ant-oat01-${tag}-h${run}`,
       refreshToken: `sk-ant-ort01-${tag}-h${run}`,
-      expiresAt: Date.parse('2026-11-27T00:00:00Z'),
+      expiresAt: TOKEN_EXPIRES_AT,
     },
   });
   const put = (tag: string, extra: Record<string, unknown> = {}, minute = 0) =>

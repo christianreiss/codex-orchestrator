@@ -18,6 +18,10 @@ import { ProviderAccountsService } from '../../../src/services/provider-accounts
 import { setClaudeIdentityFetch } from '../../../src/services/claude-identity.js';
 import type { RunnerClient } from '../../../src/services/runner-client.js';
 
+// A fixed date here made every test in this file fail once that day had passed:
+// the store refuses to verify a login whose access token has expired.
+const TOKEN_EXPIRES_AT = Date.now() + 7 * 86_400_000;
+
 const AUDIT = 'provider_account.identity_unresolved';
 const handle = await getTestDb();
 describe.skipIf(!handle)('Claude logins nobody could attribute', () => {
@@ -41,7 +45,7 @@ describe.skipIf(!handle)('Claude logins nobody could attribute', () => {
     claudeAiOauth: {
       accessToken: `sk-ant-oat01-${tag}-r${run}`,
       refreshToken: `sk-ant-ort01-${tag}-r${run}`,
-      expiresAt: Date.parse('2026-11-27T00:00:00Z'),
+      expiresAt: TOKEN_EXPIRES_AT,
     },
   });
   const put = (tag: string, extra: Record<string, unknown> = {}, minute = 0) =>

@@ -15,6 +15,10 @@ import type { RunnerClient } from '../../../src/services/runner-client.js';
 
 const handle = await getTestDb();
 describe.skipIf(!handle)('live Claude account switching under the owner runtime', () => {
+// A fixed date here made every test in this file fail once that day had passed:
+// the store refuses to verify a login whose access token has expired.
+const TOKEN_EXPIRES_AT = Date.now() + 7 * 86_400_000;
+
   afterAll(async () => {
     setClaudeIdentityFetch(null);
     await handle?.pool.end();
@@ -63,7 +67,7 @@ describe.skipIf(!handle)('live Claude account switching under the owner runtime'
           engine: 'claude',
           auth: {
             last_refresh: '2026-11-25T09:00:00Z',
-            claudeAiOauth: { accessToken: `sk-ant-oat01-${suffix}-${who}`, refreshToken: `sk-ant-ort01-${suffix}-${who}`, expiresAt: Date.parse('2026-11-27T00:00:00Z') },
+            claudeAiOauth: { accessToken: `sk-ant-oat01-${suffix}-${who}`, refreshToken: `sk-ant-ort01-${suffix}-${who}`, expiresAt: TOKEN_EXPIRES_AT },
           },
           sourceHostId: hostId,
           requireLastRefresh: false,
