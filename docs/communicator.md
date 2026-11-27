@@ -768,8 +768,12 @@ username and cxx version. UUID-correlated `request`/response frames preserve HTT
 method, relative path, permitted headers, status and base64 body. Account lease
 acquisition and heartbeat/release (`/auth/sessions` and its two lifecycle routes),
 the account pool read `GET /auth/accounts` and the live switch routes
-`/auth/sessions/switch-request` and `/auth/sessions/switch` use the same transport
-and retain their engine/session identities. The wrapper's managed route inventory
+`/auth/sessions/switch-request`, `/auth/sessions/switch` and (cxx 0.9.216)
+`/auth/sessions/pause` use the same transport and retain their engine/session
+identities. The snapshot of a lease's `provider` state stream carries
+`pause: {round, deadline, ready}` (`null` outside a pause round): the server's
+request to that one session to hold itself for an account switch
+(`docs/interface-clx.md` → Pause, switch, resume). The wrapper's managed route inventory
 (`routes.go`) and `communicatorPathAllowed` must stay identical; a unit test
 compares them. The dispatcher
 runs requests through the existing Fastify routes and hooks with the verified

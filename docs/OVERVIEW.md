@@ -323,7 +323,8 @@ Claude account pools hold several subscriptions: the server identifies each logi
 through Anthropic's OAuth profile, `clx accounts add` enrolls another subscription
 from the same PC, and a per-engine policy (automatic balanced within a 10/20/30-point
 band, automatic exhaust or expiring-first to 90 then 99 %, or manual) distributes sessions. Claude
-sessions switch accounts live at the next turn boundary; quota warnings and
+sessions switch accounts live at the next turn boundary, which the server can make
+by pausing a scope's sessions at their hooks (policy `pause`, off by default; cxx 0.9.216); quota warnings and
 `quota_get` name the other accounts and only advise pausing when the whole pool is at
 its limit. See `docs/interface-api.md` → *Claude multiple accounts and live switching*.
 A new `clx run` can repair a stale local account ID while another session is open by

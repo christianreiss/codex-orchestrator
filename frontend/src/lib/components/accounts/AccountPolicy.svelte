@@ -13,6 +13,7 @@
   import { Input } from "$lib/components/ui/input";
   import { FormField } from "$lib/components/ui/form-field";
   import { ChoiceCard } from "$lib/components/ui/choice-card";
+  import { Switch } from "$lib/components/ui/switch";
   import { RangeSlider } from "$lib/components/ui/slider";
   import { Section, StateBlock, DraftGuard, SaveState } from "$lib/components/page";
   import SegmentedControl from "$lib/components/page/SegmentedControl.svelte";
@@ -34,6 +35,8 @@
   let baseline = $state("");
   let saved = $state(false);
   const dirty = $derived(draft !== null && JSON.stringify(draft) !== baseline);
+  // Shown for engines that switch live, once the server knows pause rounds.
+  const pausable = $derived(live && draft?.pause !== undefined);
 
   // Adopt the server value, but never over unsaved edits. Never read `draft` here: the effect
   // would depend on the object it just wrote and rerun forever (effect_update_depth_exceeded),
@@ -53,8 +56,11 @@
     mutationFn: () => {
       const d = draft!;
       // Only what the chosen mode shows: a hidden, half-edited field must not fail the save.
-      if (d.mode === "manual") return accountsApi.setPolicy(engine, { mode: "manual" });
+      // Pausing is its own choice and applies in both modes; its durations are sent only while it is on.
+      const pausing = !pausable ? {} : d.pause === "on" ? { pause: "on" as const, pause_after_seconds: d.pause_after_seconds, pause_hold_seconds: d.pause_hold_seconds } : { pause: "off" as const };
+      if (d.mode === "manual") return accountsApi.setPolicy(engine, { mode: "manual", ...pausing });
       return accountsApi.setPolicy(engine, {
+        ...pausing,
         mode: "auto",
         strategy: d.strategy,
         min_dwell_minutes: d.min_dwell_minutes,
@@ -156,11 +162,46 @@
             {/snippet}
           </FormField>
         {/if}
+
+        {#if pausable}
+          <!-- Its own choice, in both modes: an operator's own switch request is paused for as well. -->
+          <div class="grid gap-3 border-t pt-4">
+            <div class="flex items-start justify-between gap-4">
+              <div class="grid gap-1">
+                <span id={`${prefix}-pause-label`} class="text-body-sm font-medium">Pause sessions for a switch</span>
+                <p id={`${prefix}-pause-hint`} class="text-body-sm text-muted-foreground">
+                  A switch needs a moment when no session of that user on that host is talking to the model. With several busy sessions that moment may not come for hours. When this is on, the server asks every session to wait at its next step, switches, and lets them continue. Sessions started before this was available cannot be paused, and their scope keeps waiting.
+                </p>
+              </div>
+              <Switch
+                checked={draft.pause === "on"}
+                onCheckedChange={(on) => edit({ pause: on ? "on" : "off" })}
+                disabled={!canManage || $save.isPending}
+                aria-labelledby={`${prefix}-pause-label`}
+                aria-describedby={`${prefix}-pause-hint`}
+              />
+            </div>
+            {#if draft.pause === "on"}
+              <div class="grid gap-4 sm:grid-cols-2">
+                <FormField id={`${prefix}-pause-after`} label="Wait for a natural gap first (seconds)" hint="How long a pending switch waits for a gap between turns before sessions are paused, 0 to 3600. An account at its limit is not waited for." error={issues.pause_after_seconds}>
+                  {#snippet children(f)}
+                    <Input id={`${prefix}-pause-after`} class="sm:max-w-48" type="number" min={0} max={3600} step={1} required value={draft!.pause_after_seconds} oninput={(e) => edit({ pause_after_seconds: e.currentTarget.valueAsNumber })} aria-describedby={f.describedBy} aria-invalid={f.invalid} />
+                  {/snippet}
+                </FormField>
+                <FormField id={`${prefix}-pause-hold`} label="Hold a session at most (seconds)" hint="The longest any session waits, 30 to 300. If not every session has paused by then, all continue and the switch is tried again later." error={issues.pause_hold_seconds}>
+                  {#snippet children(f)}
+                    <Input id={`${prefix}-pause-hold`} class="sm:max-w-48" type="number" min={30} max={300} step={1} required value={draft!.pause_hold_seconds} oninput={(e) => edit({ pause_hold_seconds: e.currentTarget.valueAsNumber })} aria-describedby={f.describedBy} aria-invalid={f.invalid} />
+                  {/snippet}
+                </FormField>
+              </div>
+            {/if}
+          </div>
+        {/if}
       </fieldset>
 
       <p class="text-body-sm text-muted-foreground">
         {#if live}
-          Running {label} sessions switch live: the change applies at the next turn boundary, without a restart.
+          Running {label} sessions switch live, without a restart: at the next gap between turns{draft.pause === "on" ? ", or while the sessions are paused for it" : ""}.
         {:else}
           Live switching in running sessions currently works only for Claude. For {label} the policy decides which account a new launch picks.
         {/if}

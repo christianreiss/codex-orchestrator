@@ -44,13 +44,26 @@ export interface PolicyDraft {
   soft_ceiling: number;
   hard_ceiling: number;
   min_dwell_minutes: number;
+  /** Absent on engines without live switching, and on a server before pause rounds. */
+  pause?: "off" | "on";
+  pause_after_seconds?: number;
+  pause_hold_seconds?: number;
 }
+
+type PolicyField = "soft_ceiling" | "hard_ceiling" | "min_dwell_minutes" | "pause_after_seconds" | "pause_hold_seconds";
 
 const whole = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value);
 
 /** Field problems keyed by field name; empty when the draft can be sent. Only the visible fields are judged. */
-export function policyIssues(policy: PolicyDraft): Partial<Record<"soft_ceiling" | "hard_ceiling" | "min_dwell_minutes", string>> {
-  const issues: Partial<Record<"soft_ceiling" | "hard_ceiling" | "min_dwell_minutes", string>> = {};
+export function policyIssues(policy: PolicyDraft): Partial<Record<PolicyField, string>> {
+  const issues: Partial<Record<PolicyField, string>> = {};
+  // Pausing does not depend on the mode: an operator's own switch request is paused for as well.
+  if (policy.pause === "on") {
+    if (!whole(policy.pause_after_seconds) || policy.pause_after_seconds < 0 || policy.pause_after_seconds > 3600)
+      issues.pause_after_seconds = "Enter a whole number of seconds from 0 to 3600.";
+    if (!whole(policy.pause_hold_seconds) || policy.pause_hold_seconds < 30 || policy.pause_hold_seconds > 300)
+      issues.pause_hold_seconds = "Enter a whole number of seconds from 30 to 300.";
+  }
   if (policy.mode !== "auto") return issues;
   if (usesCeilings(policy.strategy)) {
     if (!whole(policy.soft_ceiling) || policy.soft_ceiling < 50 || policy.soft_ceiling > 99) issues.soft_ceiling = "Enter a whole number from 50 to 99.";
@@ -81,4 +94,64 @@ export function switchTargets(
   return accounts
     .filter((account) => account.engine === engine && account.state === "enabled" && account.verification_state === "verified" && account.id !== currentId)
     .map((account) => ({ value: String(account.id), label: account.email && account.email !== account.label ? `${account.label} (${account.email})` : account.label }));
+}
+
+/** Why a session cannot be held for a switch, in the operator's terms. */
+const PAUSE_OBSTACLES: Record<string, string> = {
+  timed_lease: "runs without a live connection to the server",
+  no_hooks: "was started before pausing was available, or its hooks have not run yet",
+  detached: "is not connected right now",
+};
+
+export interface ScopePauseInput {
+  pending: boolean;
+  sessions: number;
+  pause?: {
+    pausable: boolean;
+    blocked_by: ReadonlyArray<{ session_id: string; reason: string }>;
+    round: { ready_at: string | null; sessions: ReadonlyArray<{ state: string }> } | null;
+    last: { outcome: string; paused: number; asked: number; detail: string | null } | null;
+    retry_at: string | null;
+  } | null;
+}
+
+/**
+ * What the scopes table says about pausing for one scope, or null when there is nothing to say.
+ * `tone` is "active" while sessions are being held, "blocked" when a pending switch cannot be
+ * paused for, and "info" otherwise. `retryAt` is shown as a time by the caller.
+ */
+export function scopePauseStatus(scope: ScopePauseInput): { tone: "active" | "blocked" | "info"; text: string; retryAt: string | null } | null {
+  const pause = scope.pause;
+  if (!pause) return null;
+  if (pause.round) {
+    const paused = pause.round.sessions.filter((session) => session.state === "paused").length;
+    const total = pause.round.sessions.length;
+    return {
+      tone: "active",
+      text: pause.round.ready_at ? `All ${total} ${total === 1 ? "session is" : "sessions are"} paused. Switching now.` : `Pausing sessions: ${paused} of ${total} paused.`,
+      retryAt: null,
+    };
+  }
+  if (!scope.pending) return null;
+  if (!pause.pausable) {
+    const first = pause.blocked_by[0];
+    const count = pause.blocked_by.length;
+    const why = first ? (PAUSE_OBSTACLES[first.reason] ?? "cannot be paused") : "cannot be paused";
+    return {
+      tone: "blocked",
+      text: `Cannot pause for this switch: ${count === 1 ? "1 session" : `${count} sessions`} of ${scope.sessions} ${why}. It waits for a gap between turns.`,
+      retryAt: null,
+    };
+  }
+  if (pause.last && pause.last.outcome !== "switched") {
+    const ended: Record<string, string> = {
+      deadline: `ran out of time with ${pause.last.paused} of ${pause.last.asked} sessions paused`,
+      running: "was ended by a session that went on working",
+      detached: "ended because a session lost its connection",
+      failed: `failed${pause.last.detail ? ` (${pause.last.detail})` : ""}`,
+      disabled: "was ended because pausing was switched off",
+    };
+    return { tone: "info", text: `The last pause ${ended[pause.last.outcome] ?? "ended without a switch"}.`, retryAt: pause.retry_at };
+  }
+  return null;
 }

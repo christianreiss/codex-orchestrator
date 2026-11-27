@@ -68,6 +68,26 @@ export interface AccountSwitchDirective {
   requested_at: string;
 }
 
+/** How the last pause round of a scope ended. */
+export interface AccountPauseOutcome {
+  round: string;
+  outcome: "switched" | "deadline" | "running" | "detached" | "failed" | "disabled";
+  at: string;
+  asked: number;
+  paused: number;
+  blocker: string | null;
+  detail: string | null;
+}
+
+/** The pause side of a scope: whether its sessions can be held for a switch, and the running round. */
+export interface AccountScopePause {
+  pausable: boolean;
+  blocked_by: Array<{ session_id: string; reason: "timed_lease" | "no_hooks" | "detached" | string }>;
+  round: { id: string; deadline: string; ready_at: string | null; sessions: Array<{ session_id: string; state: string; reported_at: string | null }> } | null;
+  last: AccountPauseOutcome | null;
+  retry_at: string | null;
+}
+
 export type PolicyMode = "auto" | "manual";
 export type PolicyStrategy = "balanced" | "exhaust" | "reset_aware";
 export type PolicySpread = "eng" | "normal" | "locker";
@@ -81,8 +101,14 @@ export interface AccountPolicy {
   soft_ceiling: number;
   hard_ceiling: number;
   min_dwell_minutes: number;
+  /** Pause rounds: hold a scope's sessions at their hooks so a pending switch does not wait for a gap between turns. */
+  pause: "off" | "on";
+  pause_after_seconds: number;
+  pause_hold_seconds: number;
 }
-export type AccountPolicyChanges = Partial<Pick<AccountPolicy, "mode" | "strategy" | "spread" | "soft_ceiling" | "hard_ceiling" | "min_dwell_minutes">>;
+export type AccountPolicyChanges = Partial<
+  Pick<AccountPolicy, "mode" | "strategy" | "spread" | "soft_ceiling" | "hard_ceiling" | "min_dwell_minutes" | "pause" | "pause_after_seconds" | "pause_hold_seconds">
+>;
 
 /** One live scope: every session of one user on one host shares this binding. */
 export interface AccountScope {
@@ -95,6 +121,8 @@ export interface AccountScope {
   sessions: number;
   bound_at: string | null;
   account_switch: AccountSwitchDirective | null;
+  /** Null when the server cannot pause at all (no owner runtime) or predates pause rounds. */
+  pause?: AccountScopePause | null;
 }
 
 // policy/scopes sit under the "accounts" root, so every accounts.updated invalidation reaches them too.

@@ -16,7 +16,7 @@
   import { Label } from "$lib/components/ui/label";
   import { SimpleSelect } from "$lib/components/ui/select";
   import { Section, DataTable, Timestamp } from "$lib/components/page";
-  import { switchTargets } from "./account-policy";
+  import { scopePauseStatus, switchTargets } from "./account-policy";
 
   type Props = { engine: Engine; accounts: readonly ProviderAccount[]; canManage: boolean };
   let { engine, accounts, canManage }: Props = $props();
@@ -33,7 +33,7 @@
   const rowKey = (scope: AccountScope) => `${scope.host_id}:${scope.scope_id}`;
   const change = createMutation({
     mutationFn: (input: { scope: AccountScope; account_id: number }) => accountsApi.switchScope({ engine, host_id: input.scope.host_id, scope_id: input.scope.scope_id, account_id: input.account_id }),
-    onSuccess: () => { target = null; toast.success("Switch requested. It applies at the next turn boundary."); },
+    onSuccess: () => { target = null; toast.success("Switch requested. It applies at the next gap between turns, or when the sessions are paused for it."); },
     onError: (error) => toast.error(error.message),
     onSettled: () => { void qc.invalidateQueries({ queryKey: accountsKeys.scopes(engine) }); void qc.invalidateQueries({ queryKey: accountsKeys.all() }); },
   });
@@ -68,14 +68,23 @@
         </Table.Cell>
         <Table.Cell class="whitespace-nowrap text-body-sm"><span class="text-muted-foreground sm:hidden">Sessions:&nbsp;</span>{scope.sessions}</Table.Cell>
         <Table.Cell class="text-body-sm">
+          {@const pausing = scopePauseStatus({ pending: scope.account_switch !== null, sessions: scope.sessions, pause: scope.pause })}
           {#if scope.account_switch}
             <Badge variant="warning">To {scope.account_switch.account_label}</Badge>
-            <div class="text-caption text-muted-foreground">Requested by {reasons[scope.account_switch.reason] ?? scope.account_switch.reason}, waiting for a turn boundary</div>
-          {:else}
+            <div class="text-caption text-muted-foreground">
+              Requested by {reasons[scope.account_switch.reason] ?? scope.account_switch.reason}{#if scope.account_switch.requested_at}{" "}<Timestamp value={scope.account_switch.requested_at} />{/if}{#if !scope.pause?.round}, waiting for a gap between turns{/if}
+            </div>
+          {:else if !pausing}
             <span class="text-muted-foreground">None</span>
           {/if}
+          {#if pausing}
+            <!-- Said in words; the tone only adds emphasis (VIS-4). -->
+            <div class={pausing.tone === "blocked" ? "text-caption text-foreground" : "text-caption text-muted-foreground"} data-testid="scope-pause-status">
+              {pausing.text}{#if pausing.retryAt}{" "}Next attempt <Timestamp value={pausing.retryAt} />.{/if}
+            </div>
+          {/if}
         </Table.Cell>
-        <Table.Cell class="text-right max-sm:text-left">
+        <Table.Cell class="whitespace-nowrap text-right max-sm:text-left">
           {#if canManage}<Button variant="outline" size="sm" onclick={() => (target = scope)}>Switch to…</Button>{/if}
         </Table.Cell>
       </Table.Row>
@@ -89,7 +98,7 @@
       <Dialog.Header>
         <Dialog.Title>Switch {target?.host_fqdn ?? "scope"} to another account</Dialog.Title>
         <Dialog.Description>
-          Now on {target?.account_label}. The switch applies at the next turn boundary, never mid-turn, and moves all {target?.sessions ?? 0} {target?.sessions === 1 ? "session" : "sessions"} of this user on this host. Each session rebuilds its prompt cache once.
+          Now on {target?.account_label}. The switch applies when no session is talking to the model: at the next gap between turns, or while the sessions are paused for it. It moves all {target?.sessions ?? 0} {target?.sessions === 1 ? "session" : "sessions"} of this user on this host. Each session rebuilds its prompt cache once.
         </Dialog.Description>
       </Dialog.Header>
       <div class="my-4 grid gap-1.5">

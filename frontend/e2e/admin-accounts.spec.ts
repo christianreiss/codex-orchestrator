@@ -295,3 +295,92 @@ test("the distribution policy is chosen on cards and limited on one two-thumb sl
   await expect.poll(() => posts.length).toBe(2);
   expect(posts[1]).toEqual({ mode: "manual" });
 });
+
+for (const mobile of [false, true]) {
+  test(`pausing sessions for a switch is its own choice and each scope says where it stands (${mobile ? "mobile" : "desktop"})`, async ({ page }, testInfo) => {
+    if (mobile) await page.setViewportSize({ width: 320, height: 900 });
+    await fixtures(page);
+    let policy = { mode: "manual", strategy: "balanced", spread: "normal", spread_points: 20, soft_ceiling: 90, hard_ceiling: 96, min_dwell_minutes: 15, pause: "off", pause_after_seconds: 120, pause_hold_seconds: 90 };
+    const posts: unknown[] = [];
+    await page.route("**/admin/accounts/policy/claude", async (route) => {
+      if (route.request().method() === "POST") {
+        const changes = route.request().postDataJSON();
+        posts.push(changes);
+        policy = { ...policy, ...changes };
+      }
+      await route.fulfill({ json: { status: "ok", data: policy } });
+    });
+    const directive = (reason: string) => ({ account_id: 3, account_label: "Claude Gamma", binding_generation: 7, reason, requested_at: new Date(Date.now() - 4 * 60_000).toISOString() });
+    const quiet = { pausable: true, blocked_by: [], round: null, last: null, retry_at: null };
+    const scope = (host_id: number, host_fqdn: string, sessions: number, extra: Record<string, unknown>) => ({
+      host_id, host_fqdn, scope_id: `scope-${host_id}`, account_id: 1, account_label: "Claude Alpha", binding_generation: 7, sessions, bound_at: reset, account_switch: null, pause: quiet, ...extra,
+    });
+    await page.route("**/admin/accounts/scopes?engine=claude", (route) =>
+      route.fulfill({
+        json: {
+          status: "ok",
+          data: [
+            scope(1, "resting.test", 1, {}),
+            scope(2, "pausing.test", 3, {
+              account_switch: directive("policy"),
+              pause: { ...quiet, round: { id: "r1", deadline: new Date(Date.now() + 60_000).toISOString(), ready_at: null, sessions: [{ session_id: "a", state: "paused", reported_at: reset }, { session_id: "b", state: "paused", reported_at: reset }, { session_id: "c", state: "requested", reported_at: null }] } },
+            }),
+            scope(3, "old-session.test", 3, { account_switch: directive("admin"), pause: { ...quiet, pausable: false, blocked_by: [{ session_id: "x", reason: "no_hooks" }] } }),
+            scope(4, "straggler.test", 2, {
+              account_switch: directive("agent"),
+              pause: { ...quiet, last: { round: "r0", outcome: "deadline", at: reset, asked: 2, paused: 1, blocker: "y", detail: null }, retry_at: new Date(Date.now() + 5 * 60_000).toISOString() },
+            }),
+            // A server before pause rounds says nothing about pausing.
+            scope(5, "plain.test", 1, { account_switch: directive("host"), pause: undefined }),
+          ],
+        },
+      }),
+    );
+    await page.goto("/admin/accounts");
+
+    // Off: one switch, no durations, and nothing about pausing in the summary line.
+    const toggle = page.getByRole("switch", { name: "Pause sessions for a switch" });
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(page.getByLabel("Hold a session at most (seconds)")).toHaveCount(0);
+    await toggle.click();
+    const wait = page.getByLabel("Wait for a natural gap first (seconds)");
+    const hold = page.getByLabel("Hold a session at most (seconds)");
+    await expect(wait).toHaveValue("120");
+    await expect(hold).toHaveValue("90");
+    await expect(page.getByText("or while the sessions are paused for it")).toBeVisible();
+    // The bounds are the server's, said next to the field, and block the save.
+    await hold.fill("10");
+    await expect(page.getByText("Enter a whole number of seconds from 30 to 300.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save policy" })).toBeDisabled();
+    await hold.fill("60");
+    await wait.fill("30");
+    await page.getByRole("button", { name: "Save policy" }).click();
+    await expect.poll(() => posts.length).toBe(1);
+    // Manual mode sends the pause choice too: an operator's own switch is paused for as well.
+    expect(posts[0]).toEqual({ mode: "manual", pause: "on", pause_after_seconds: 30, pause_hold_seconds: 60 });
+    await toggle.click();
+    await page.getByRole("button", { name: "Save policy" }).click();
+    await expect.poll(() => posts.length).toBe(2);
+    expect(posts[1]).toEqual({ mode: "manual", pause: "off" });
+
+    const row = (host: string) => page.getByRole("row", { name: new RegExp(host.replace(".", "\\.")) });
+    await expect(row("resting.test")).toContainText("None");
+    await expect(row("resting.test").getByTestId("scope-pause-status")).toHaveCount(0);
+    await expect(row("pausing.test")).toContainText("To Claude Gamma");
+    await expect(row("pausing.test").getByTestId("scope-pause-status")).toHaveText("Pausing sessions: 2 of 3 paused.");
+    await expect(row("pausing.test")).not.toContainText("waiting for a gap between turns");
+    await expect(row("old-session.test").getByTestId("scope-pause-status")).toContainText("Cannot pause for this switch: 1 session of 3 was started before pausing was available");
+    await expect(row("old-session.test")).toContainText("Requested by an admin");
+    await expect(row("straggler.test").getByTestId("scope-pause-status")).toContainText("The last pause ran out of time with 1 of 2 sessions paused. Next attempt");
+    await expect(row("plain.test")).toContainText("waiting for a gap between turns");
+    await expect(row("plain.test").getByTestId("scope-pause-status")).toHaveCount(0);
+
+    // Nothing may force the page sideways at 320 px.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await toggle.click();
+    await toggle.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`accounts-pause-${mobile ? "mobile" : "desktop"}.png`), fullPage: true });
+    await row("pausing.test").scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`accounts-pause-scopes-${mobile ? "mobile" : "desktop"}.png`), fullPage: true });
+  });
+}

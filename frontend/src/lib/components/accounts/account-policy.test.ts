@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 const mod: string = "./account-policy.ts";
-const { ceilingsFrom, policyIssues, policySummary, switchTargets, usesCeilings, SPREAD_POINTS, STRATEGY_OPTIONS } = (await import(mod)) as typeof import("./account-policy");
+const { ceilingsFrom, policyIssues, policySummary, scopePauseStatus, switchTargets, usesCeilings, SPREAD_POINTS, STRATEGY_OPTIONS } = (await import(mod)) as typeof import("./account-policy");
 
 const base = { mode: "auto", strategy: "exhaust", soft_ceiling: 90, hard_ceiling: 99, min_dwell_minutes: 15 } as const;
 
@@ -71,5 +71,53 @@ describe("policy summary for group headers", () => {
   it("says Manual, and nothing before the policy has loaded", () => {
     assert.equal(policySummary({ mode: "manual", strategy: "exhaust" }), "Manual");
     assert.equal(policySummary(undefined), "");
+  });
+});
+
+describe("pausing sessions for a switch", () => {
+  it("judges the two durations only while pausing is on, in either mode", () => {
+    assert.deepEqual(policyIssues({ ...base, pause: "off", pause_after_seconds: -1, pause_hold_seconds: 9999 }), {});
+    assert.deepEqual(policyIssues({ ...base, pause: "on", pause_after_seconds: 120, pause_hold_seconds: 90 }), {});
+    assert.ok(policyIssues({ ...base, pause: "on", pause_after_seconds: 3601, pause_hold_seconds: 90 }).pause_after_seconds);
+    assert.ok(policyIssues({ ...base, pause: "on", pause_after_seconds: 0, pause_hold_seconds: 29 }).pause_hold_seconds);
+    assert.ok(policyIssues({ ...base, pause: "on", pause_after_seconds: 0, pause_hold_seconds: 301 }).pause_hold_seconds);
+    // An operator's own switch is paused for as well, so manual mode judges them too.
+    assert.ok(policyIssues({ ...base, mode: "manual", pause: "on", pause_after_seconds: Number.NaN, pause_hold_seconds: 90 }).pause_after_seconds);
+    // A server before pause rounds sends none of the fields.
+    assert.deepEqual(policyIssues(base), {});
+  });
+
+  const idle = { pausable: true, blocked_by: [], round: null, last: null, retry_at: null };
+  it("says nothing when there is nothing to say", () => {
+    assert.equal(scopePauseStatus({ pending: false, sessions: 3, pause: idle }), null);
+    assert.equal(scopePauseStatus({ pending: true, sessions: 3, pause: idle }), null);
+    assert.equal(scopePauseStatus({ pending: true, sessions: 3, pause: null }), null);
+    assert.equal(scopePauseStatus({ pending: true, sessions: 3 }), null);
+  });
+  it("counts the sessions of a running round", () => {
+    const round = { ready_at: null, sessions: [{ state: "paused" }, { state: "requested" }, { state: "paused" }] };
+    assert.deepEqual(scopePauseStatus({ pending: true, sessions: 3, pause: { ...idle, round } }), { tone: "active", text: "Pausing sessions: 2 of 3 paused.", retryAt: null });
+    const ready = { ready_at: "2026-11-27T10:00:00Z", sessions: [{ state: "paused" }] };
+    assert.equal(scopePauseStatus({ pending: true, sessions: 1, pause: { ...idle, round: ready } })?.text, "All 1 session is paused. Switching now.");
+  });
+  it("names why a pending switch cannot be paused for", () => {
+    const status = scopePauseStatus({ pending: true, sessions: 3, pause: { ...idle, pausable: false, blocked_by: [{ session_id: "a", reason: "no_hooks" }] } });
+    assert.equal(status?.tone, "blocked");
+    assert.match(status?.text ?? "", /^Cannot pause for this switch: 1 session of 3 was started before pausing was available/);
+    assert.match(status?.text ?? "", /waits for a gap between turns\.$/);
+    const two = scopePauseStatus({ pending: true, sessions: 4, pause: { ...idle, pausable: false, blocked_by: [{ session_id: "a", reason: "detached" }, { session_id: "b", reason: "timed_lease" }] } });
+    assert.match(two?.text ?? "", /2 sessions of 4 is not connected right now/);
+    // Without a pending switch it is not the operator's problem yet.
+    assert.equal(scopePauseStatus({ pending: false, sessions: 3, pause: { ...idle, pausable: false, blocked_by: [{ session_id: "a", reason: "no_hooks" }] } }), null);
+  });
+  it("reports how the last round ended and when the next may start", () => {
+    const last = { outcome: "deadline", paused: 2, asked: 3, detail: null };
+    assert.deepEqual(scopePauseStatus({ pending: true, sessions: 3, pause: { ...idle, last, retry_at: "2026-11-27T10:05:00Z" } }), {
+      tone: "info",
+      text: "The last pause ran out of time with 2 of 3 sessions paused.",
+      retryAt: "2026-11-27T10:05:00Z",
+    });
+    assert.equal(scopePauseStatus({ pending: true, sessions: 3, pause: { ...idle, last: { outcome: "failed", paused: 3, asked: 3, detail: "flush: server says no" } } })?.text, "The last pause failed (flush: server says no).");
+    assert.equal(scopePauseStatus({ pending: true, sessions: 3, pause: { ...idle, last: { outcome: "switched", paused: 3, asked: 3, detail: null } } }), null);
   });
 });

@@ -2064,7 +2064,7 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   responses; a communicator `account_switch` frame triggers an immediate heartbeat. The wrapper waits for a
   turn boundary: the receiver hooks report no running turn (a `UserPromptSubmit` waits while the switch is
   written), no sibling launch reports one, and every transcript of the scope written in the last 15 minutes
-  has ended its turn and been quiet for 20 s, so launches without a receiver are covered. It then flushes a pending rotation of the old account, commits with `POST /auth/sessions/switch`
+  has ended its turn and been quiet for 20 s, so launches without a receiver are covered. With the policy's `pause` on, the server can make that moment instead of waiting for it (see *Pause, switch, resume* below). It then flushes a pending rotation of the old account, commits with `POST /auth/sessions/switch`
   (generation-fenced), writes the new account's credentials through `WriteSwitchedAccountIfCurrent`
   (strict CAS, active child allowed, logout intent respected). The wrapper does not write `oauthAccount`
   in `~/.claude.json`; Claude Code refetches the profile itself. Claude Code reloads credentials when the file's mtime changes, so the next prompt runs on the new account
@@ -2169,6 +2169,87 @@ Older wrappers: without `quota_limit` the server writes no marker. A turn whose 
 100 % still continues elsewhere; one whose reading lags behaves as before 0.9.213. A server without
 this feature accepts both fields, writes no marker and treats `retry_not_before` as it always did: a
 watchdog's next attempt is not before it.
+
+### Pause, switch, resume (cxx 0.9.216)
+
+Claude only. The turn boundary a live switch waits for (above) needs every session of the scope to
+be between turns at the same moment, and nothing made that moment happen. Replayed over one host's
+transcripts with three sessions in a scope, it existed 11 % of 24 hours, with 6 h 35 min as the
+longest gap. With the policy's `pause` on, the server asks the sessions to hold themselves for the
+switch. Server contract: `docs/interface-api.md` → *Pause rounds*.
+
+**What a session can be held at.** Claude Code runs a hook before every model request of its agent
+loop and waits for it. Measured against Claude Code 2.1.332 with a hook that sleeps and then hands
+the model a token it could not have seen earlier:
+
+| Question | Answer |
+| --- | --- |
+| Does the next model request wait for a held `UserPromptSubmit`, `PostToolBatch`, `SubagentStart`, `Stop`? | Yes. The model answered with tokens the hook only produced after its delay. |
+| Does `PostToolBatch` fire after every tool round? | Yes: after one tool, after a parallel batch (once), and after a tool call that was rejected. |
+| Do subagents fire the same hooks? | Yes, with `agent_id` and `agent_type`; `SubagentStart` precedes the subagent's first request. |
+| What happens to a hook past its `timeout`? | It is killed and the action proceeds. |
+| Does an explicit `timeout` above 30 hold `UserPromptSubmit`? | Yes (35 s held with `timeout: 60`). |
+| How does a turn continue after a Stop hook answers `block`? | With another model request and no `UserPromptSubmit`. A held `Stop` delays it. |
+| Does a finished background task start its turn through `UserPromptSubmit`? | Yes. |
+| Does Esc fire a hook? | No. The transcript gets a user entry `[Request interrupted by user]`. |
+| Not measured | `PreCompact` before compaction, a channel-delivered peer message arriving in an idle session, a scheduled wakeup. |
+
+An interactive session also runs a side request one or two seconds after each `Stop` (prompt
+suggestion; it fires `SubagentStop` without `SubagentStart`). Side requests have no hook and are not
+held; they finish on the token they started with.
+
+**The gate.** Every Claude launch with the wrapper's plugin, headless ones included, runs
+`cxx agent account-gate` on `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolBatch`,
+`PreCompact`, `SubagentStart`, `SubagentStop`, `Stop`, `StopFailure` and `SessionEnd` (`timeout` 330).
+The hook uses no network and no broker. It works on files in one directory per lease,
+`.cxx-account-<server-hash>.sessions/<lease>.gate/`, which it finds through `CXX_ACCOUNT_GATE_DIR`;
+without that variable it does nothing.
+
+- One phase file per thread (the hook's `session_id` plus `agent_id`, so a nested session cannot
+  overwrite its parent): `model` (a request may be in flight), `tool` (the model answered, its tools
+  run), `idle` (the turn ended) and `held` (a hook waits in the gate).
+- While the wrapper's pause file is there, the hooks that can be followed by a model request wait:
+  `UserPromptSubmit`, `PostToolBatch`, `PreCompact`, `SubagentStart`, `Stop` and `SubagentStop`.
+  Tools that are already running finish undisturbed. A hold ends when the wrapper removes the file,
+  at the file's local deadline, when the wrapper that wrote it is gone, and after 300 s at the latest.
+- `cxx agent poll --hook Stop` tells the gate when it answers `block`, so a turn that continues is
+  recorded as `model` and not as ended.
+- A `model` phase no hook has touched for 10 minutes no longer counts, and neither does one whose
+  transcript ends with the interrupt entry: an interrupted turn must not block every round.
+
+**The round, from the session's side.**
+
+1. The first hook of a launch proves that it is gated. The wrapper reports `capable` once with
+   `POST /auth/sessions/pause`, and again when a heartbeat says the lease lost the flag (the server
+   re-reserved it). A server without the route answers 404 and is not asked again by that launch.
+2. The server's pause arrives in the snapshot of the lease's provider stream
+   (`pause: {round, deadline, ready}`). The wrapper measures the time left on the server's clock,
+   writes the pause file with a local deadline and watches its own phase files. When no thread is in
+   `model` it reports `paused`. If a thread goes on after that, it reports `running`.
+3. The switch supervisor flushes the old account's credentials as soon as its session is asked to
+   pause. A flush that fails is reported as `failed` at once, so nobody is held for the whole budget.
+4. When the stream says `ready` and the gates of every live session of the scope agree, the
+   supervisor treats that as a turn boundary: flush (skipped when the credentials file has not
+   changed since step 3), commit with `pause_round`, write. A commit or flush error ends the round
+   with `failed`; a commit another session of the scope won is not reported.
+5. After the write the supervisor reports `done`, the server clears the pause on every lease, and
+   each wrapper removes its pause file. The held hooks return and the next request of every session
+   runs on the new account.
+
+**What does not change.** The commit is generation-fenced and repeatable, the credential write is a
+strict CAS, and the repair flag covers a commit whose write is outstanding. A pause only changes when
+the quiet moment occurs.
+
+**Committed but not written.** Inside a round the sessions are mid-turn, so a write that misses
+leaves a busy scope behind. The wait for a turn that started between commit and write now ends after
+60 s and counts as an attempt (it was unbounded, so the unfinished report never fired). While the
+repair flag is set and the scope is busy, the wrapper repeats `credential_write: "unfinished"` at
+every poll; the server then pauses the scope for the write.
+
+**Who is not paused.** A session started with a wrapper before 0.9.216, a launch without the plugin
+(agent messaging off), and a timed lease have no gate or no stream. Their scope gets no round and
+waits for a turn boundary as before; the Accounts page names the session. Requests that go through
+the communicator need its owner process at 0.9.216 too: an older owner refuses the new route.
 
 ### Pools on the card, `status`, `doctor` and the statusline (cxx 0.9.209)
 

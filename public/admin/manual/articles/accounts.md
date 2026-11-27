@@ -1,8 +1,8 @@
 ---
 title: Provider accounts
 section: Fleet operations
-verified: 2026-11-26
-sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/(providers)/accounts/+page.svelte, frontend/src/lib/components/accounts/AccountPolicy.svelte, frontend/src/lib/components/accounts/AccountScopes.svelte, frontend/src/lib/components/accounts/AccountGroupRow.svelte, frontend/src/lib/components/accounts/account-state.ts, api/src/services/account-switch.ts
+verified: 2026-11-27
+sources: api/src/routes/admin/accounts/index.ts, api/src/routes/auth/index.ts, api/src/services/provider-accounts.ts, api/src/services/account-selection.ts, api/src/services/pooled-auth-store.ts, wrappers/cxx/internal/accountpool/context.go, frontend/src/routes/(providers)/accounts/+page.svelte, frontend/src/lib/components/accounts/AccountPolicy.svelte, frontend/src/lib/components/accounts/AccountScopes.svelte, frontend/src/lib/components/accounts/AccountGroupRow.svelte, frontend/src/lib/components/accounts/account-state.ts, api/src/services/account-switch.ts, api/src/services/account-switch/pause.ts, wrappers/cxx/internal/accountgate/gate.go
 ---
 
 Grok Build (`cgx`) is supported alongside Codex, Claude and Kimi Code; see [Grok Build](cgx) for
@@ -48,7 +48,22 @@ The **distribution policy** card sits under the account list and follows the eng
 
 Usage per account is the higher of its short and weekly window. Live switching of running sessions currently works only for Claude; for Codex, Grok and Kimi Code the policy decides which account a new launch picks.
 
-**Active Claude scopes** lists every host and user with a live Claude session: the host, the bound account, the number of sessions and a pending switch with its target. Sessions of one user on one host share a single credential file, so they always run on the same account and a switch moves them all. **Switch to…** offers the enabled, verified Claude accounts; the switch applies at the next turn boundary (never during a turn), with a prompt-cache rebuild per session. Agents can ask for the same through the account-switch skill; in automatic mode the minimum dwell still applies.
+**Active Claude scopes** lists every host and user with a live Claude session: the host, the bound account, the number of sessions and a pending switch with its target. Sessions of one user on one host share a single credential file, so they always run on the same account and a switch moves them all. **Switch to…** offers the enabled, verified Claude accounts; the switch applies when no session of the scope is talking to the model, with a prompt-cache rebuild per session. Agents can ask for the same through the account-switch skill; in automatic mode the minimum dwell still applies.
+
+### Pause sessions for a switch
+
+A switch needs a moment when no session of that user on that host is talking to the model. Normally that is a gap between turns, and all sessions must have one at the same time. With several busy sessions it can take hours, and the switch then only happens when the account hits its limit and the turns fail.
+
+**Pause sessions for a switch** (Claude, off by default, in both modes) lets the server make that moment:
+
+1. A pending switch first waits **Wait for a natural gap first** (0 to 3600 seconds, default 120). An account at its limit, refused by the provider, paused or no longer verified is not waited for.
+2. The server asks every session of the scope to pause. A session pauses at its next step: before it sends its next request to the model. A tool that is already running finishes first; a model answer that is being written finishes first.
+3. When all sessions have paused, the account is switched and they continue. This usually takes as long as the slowest model answer in progress.
+4. No session waits longer than **Hold a session at most** (30 to 300 seconds, default 90). If not every session has paused by then, all continue, the switch stays pending, and the server tries again after 2, then 5, then 10 minutes.
+
+The **Pending switch** column says where a scope stands: how many sessions have paused, why a scope cannot be paused, or how the last attempt ended and when the next one starts. A scope cannot be paused while one of its sessions was started before this was available (wrapper before 0.9.216), runs without a live connection to the server, or is not connected right now. Restart that session, or wait for a gap between turns as before.
+
+Each attempt is recorded in the audit log: `provider_account.switch_pause_started` names the sessions that were asked, `provider_account.switch_pause_finished` how long they were held, and `provider_account.switch_pause_aborted` the reason and the session that blocked it.
 
 ### When Claude hits a usage limit mid-turn
 
