@@ -376,8 +376,22 @@ func Run(ctx context.Context, opts Options) (exitCode int, retErr error) {
 			if err != nil {
 				return 1, err
 			}
-			stopAccount, lease, poolErr := client.Pool.Start(ctx, client, active, func(raw json.RawMessage, digest string, switching bool) (bool, error) {
-				return claude.WriteAssignedAccountIfCurrent(raw, digest, snapshot.Generation, switching)
+			stopAccount, lease, poolErr := client.Pool.StartWithCredentialCheck(ctx, client, active, func(raw json.RawMessage, digest string, switching bool) (bool, error) {
+				// The local binding may agree with the lease even when bootstrap
+				// identified the native file as another account's login.
+				requireIdle := switching || (authResp.PresentedOtherAccount() && !claude.SameCredentialPair(snapshot.Raw, raw))
+				return claude.WriteAssignedAccountIfCurrent(raw, digest, snapshot.Generation, requireIdle)
+			}, func(raw json.RawMessage, digest string) (bool, error) {
+				if !snapshot.Usable || !claude.SameCredentialPair(snapshot.Raw, raw) {
+					return false, nil
+				}
+				// Fence the pre-acquire comparison against a concurrent login,
+				// rotation or logout. Only generation metadata is acknowledged.
+				confirmed, err := claude.AcknowledgeAuthGeneration(ctx, snapshot.Generation, digest)
+				if !confirmed && err == nil {
+					err = errors.New("could not confirm the native credential generation after account assignment; retry the launch")
+				}
+				return confirmed, err
 			})
 			if poolErr != nil {
 				return 1, fmt.Errorf("assign provider account: %w", poolErr)
@@ -1185,13 +1199,20 @@ func bootstrapWithProgress(
 		authResp.VerificationState,
 		authResp.CandidateRejectedDefinitive,
 	) {
-		applied, err := claude.WriteVerifiedServerAuthIfCurrentWithDigest(
-			authResp.Auth,
-			authResp.CanonicalDigest,
-			authResp.VerificationState,
-			authSnapshot.Generation,
-		)
-		if err != nil {
+		var applied bool
+		var err error
+		if authResp.PresentedOtherAccount() {
+			// A newer timestamp on another account is not a rotation. Hold
+			// the idle-child lock for the write or leave it to the live scope.
+			applied, err = claude.WriteAssignedAccountIfCurrent(authResp.Auth, authResp.CanonicalDigest, authSnapshot.Generation, true)
+		} else {
+			applied, err = claude.WriteVerifiedServerAuthIfCurrentWithDigest(
+				authResp.Auth, authResp.CanonicalDigest, authResp.VerificationState, authSnapshot.Generation,
+			)
+		}
+		if errors.Is(err, claude.ErrAuthChildActive) && authResp.PresentedOtherAccount() {
+			client.Pool.MarkRepair()
+		} else if err != nil {
 			logger.Warn("credentials.json write from bundle failed", "err", err)
 			return authResp, err, false, summary.ResourceSync{}, summary.ResourceSync{}, summary.ResourceSync{}, resp.Sessions
 		} else if applied {

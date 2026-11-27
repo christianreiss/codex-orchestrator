@@ -15,6 +15,8 @@ import (
 
 // BundleRequest is the POST body for /sync/bootstrap.
 type BundleRequest struct {
+	AccountID int64  `json:"account_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 	// VersionProbe is local-only and runs only after a reachable server rejects
 	// an unreported CLI version. Hidden/warm healthy boots never spawn a probe.
 	VersionProbe  func(context.Context) string `json:"-"`

@@ -43,6 +43,41 @@ func TestSyncBootstrap_TypedRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSyncBootstrapSendsBindingOnlyForAuth(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var sent map[string]any
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		sent = nil
+		if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+			t.Error(err)
+		}
+		_, _ = io.WriteString(w, `{"status":"ok"}`)
+	})
+	bound := c.loadAccountPool()
+	bound.Observe("/auth", []byte(`{"account_id":8,"verification_state":"verified"}`))
+	for _, leased := range []bool{false, true} {
+		if leased {
+			c.Pool = bound
+			c.Pool.SessionID = "live-session"
+		}
+		for _, includeAuth := range []bool{false, true} {
+			if _, err := c.SyncBootstrap(context.Background(), BundleRequest{IncludeAuth: includeAuth}); err != nil {
+				t.Fatal(err)
+			}
+			var account, session any
+			if includeAuth {
+				account = float64(8)
+				if leased {
+					session = "live-session"
+				}
+			}
+			if sent["account_id"] != account || sent["session_id"] != session {
+				t.Fatalf("leased=%v includeAuth=%v: account=%v session=%v", leased, includeAuth, sent["account_id"], sent["session_id"])
+			}
+		}
+	}
+}
+
 func TestSyncBootstrap_UnwrapsResourceObjects(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

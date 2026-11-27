@@ -267,6 +267,13 @@ func acquireLease(ctx context.Context, client Client, body map[string]any, lease
 // Start reserves a choice before writing the native auth file. A local CAS
 // failure aborts the launch instead of overwriting a login made during the call.
 func (c *Context) Start(ctx context.Context, client Client, localActive bool, apply func(json.RawMessage, string, bool) (bool, error)) (func(), *LeaseResponse, error) {
+	return c.StartWithCredentialCheck(ctx, client, localActive, apply, nil)
+}
+
+// StartWithCredentialCheck lets a launch join a live scope whose binding hint
+// is stale. confirm must prove that the verified lease already matches the
+// current native credentials, without replacing them. Other engines use Start.
+func (c *Context) StartWithCredentialCheck(ctx context.Context, client Client, localActive bool, apply func(json.RawMessage, string, bool) (bool, error), confirm func(json.RawMessage, string) (bool, error)) (func(), *LeaseResponse, error) {
 	if c == nil {
 		return func() {}, nil, nil
 	}
@@ -276,7 +283,7 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 	if !capable {
 		return func() {}, nil, nil
 	}
-	if localActive && current <= 0 {
+	if localActive && current <= 0 && confirm == nil {
 		return nil, nil, errors.New("cannot identify the account used by active native sessions")
 	}
 	rawID := make([]byte, 16)
@@ -317,12 +324,20 @@ func (c *Context) Start(ctx context.Context, client Client, localActive bool, ap
 		release()
 		return nil, nil, errors.New("account assignment did not contain verified credentials")
 	}
-	if localActive && current > 0 && lease.AccountID != current {
-		release()
-		return nil, nil, errors.New("account assignment would switch active local sessions")
+	switching := lease.AccountID != current
+	var applied bool
+	var err error
+	if localActive && switching {
+		if confirm != nil {
+			applied, err = confirm(lease.Auth, lease.CanonicalDigest)
+		}
+		if !applied && err == nil {
+			err = fmt.Errorf("account assignment would switch active local sessions: local binding #%d, lease #%d", current, lease.AccountID)
+		}
+	} else {
+		applied, err = apply(lease.Auth, lease.CanonicalDigest, switching)
 	}
-	written, err := apply(lease.Auth, lease.CanonicalDigest, lease.AccountID != current)
-	if err != nil || !written {
+	if err != nil || !applied {
 		release()
 		if err == nil {
 			err = errors.New("local credentials changed during account assignment")

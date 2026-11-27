@@ -61,6 +61,12 @@ type AuthRetrieveResponse struct {
 	CandidateMatchesFailedHead  *bool                `json:"candidate_matches_failed_canonical,omitempty"`
 }
 
+// PresentedOtherAccount reports a server-identified login from a different
+// account than the canonical credentials in this response.
+func (r *AuthRetrieveResponse) PresentedOtherAccount() bool {
+	return r != nil && r.PresentedAccountID > 0 && r.AccountID > 0 && r.PresentedAccountID != r.AccountID
+}
+
 // HostSecurity reports API-authoritative host security when present. Insecure
 // approval statuses are themselves authoritative even when the compact error
 // response omits the host object.

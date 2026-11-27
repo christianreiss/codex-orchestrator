@@ -326,6 +326,8 @@ band, automatic exhaust or expiring-first to 90 then 99 %, or manual) distribute
 sessions switch accounts live at the next turn boundary; quota warnings and
 `quota_get` name the other accounts and only advise pausing when the whole pool is at
 its limit. See `docs/interface-api.md` → *Claude multiple accounts and live switching*.
+A new `clx run` can repair a stale local account ID while another session is open by
+confirming that Claude already holds the exact credentials for the assigned account.
 A Claude turn that dies on its account's usage limit (cxx 0.9.213) marks that account
 exhausted, whatever its last reading said, and under the automatic policy continues in the
 same session on the next account with room; a recovery waits for the earliest reset in the

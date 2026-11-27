@@ -132,7 +132,12 @@ func (c *Client) JSON(ctx context.Context, method, path string, in any, out any,
 	if pool == nil {
 		pool = c.loadAccountPool()
 	}
-	in = pool.Inject(path, in)
+	if bundle, ok := in.(BundleRequest); ok && bundle.IncludeAuth {
+		bundle.AccountID, bundle.SessionID = pool.Binding()
+		in = bundle
+	} else {
+		in = pool.Inject(path, in)
+	}
 	var body io.Reader
 	if in != nil {
 		buf, err := json.Marshal(in)

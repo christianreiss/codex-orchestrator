@@ -1,3 +1,7 @@
+# 2026-11-27
+
+- Fixed concurrent `clx run` launches in cxx 0.9.214. The startup sync omitted its account binding and could restore an older local account ID after a live switch. As a result, a new launch could refuse to start even though Claude already held the credentials for the server's assigned account. The wrapper now verifies the match and repairs the local binding while the existing session keeps running.
+
 # 2026-11-26
 
 - Gateway, provider API keys: each exposed API (`/v1`, `/anthropic/v1`, `/grok/v1`, `/kimi/v1`) can forward requests 1:1 to the real provider (OpenAI, Anthropic, xAI, Moonshot) with API keys stored only on the server, instead of answering through a subscription. The "upstream" source is chosen per API, and a gateway key can pin either source. Every path is forwarded unchanged, including streaming, multipart uploads, status codes and provider errors. Several keys per provider are tried in order: a connection failure, 401, 403 or 429 moves to the next key before the first response byte, and a 401 re-checks the key in the background. Token usage is not recorded. The default stays the subscription source, so nothing changes until an administrator switches an API or a key.

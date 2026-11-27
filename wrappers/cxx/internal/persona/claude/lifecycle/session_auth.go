@@ -63,7 +63,7 @@ func boundAccountMismatch(boundBefore int64, resp *orchestrator.AuthRetrieveResp
 	if boundBefore <= 0 {
 		return nil
 	}
-	if resp.PresentedAccountID <= 0 || resp.AccountID <= 0 || resp.PresentedAccountID == resp.AccountID || len(resp.Auth) == 0 {
+	if !resp.PresentedOtherAccount() || len(resp.Auth) == 0 {
 		return nil
 	}
 	return &BoundAccountMismatch{

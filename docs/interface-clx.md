@@ -2119,6 +2119,11 @@ On hosts whose requests go through the communicator, the live switch and `accoun
   without a lease never rebinds the file while a session marker of the scope is live; only a committed
   switch or a generation-fenced adoption moves it. Communicator auth watches registered before a switch
   send the current binding, because the server resolves a leased request from its session.
+- cxx 0.9.214 also sends the binding on the typed startup bundle when it requests auth. A launch can join an active scope when its local account ID is stale or
+  missing. If the server assigns a different ID, the wrapper compares the verified lease with
+  Claude's native credential pair and checks that the file generation still matches the one read
+  before assignment. On a match it records the binding without rewriting the native file. A
+  different pair, concurrent native edit or explicit logout prevents adoption.
 
 ### Continuing a quota-failed turn on another account (cxx 0.9.213)
 
