@@ -104,7 +104,7 @@ func CommunicatorWork(ctx context.Context, cfg *config.Config, req communicator.
 		client.Pool.AccountID = req.Job.AccountID
 	}
 	client.Pool.SessionID = req.Job.SessionID
-	out := communicator.SyncResult{Resources: map[string]communicator.ResourceResult{}}
+	out := communicator.SyncResult{Resources: map[string]communicator.ResourceResult{}, AccountID: req.Job.AccountID}
 	var reconciled *communicator.SyncResult
 	if req.ReconcileOnly {
 		result := reconcileUnknownAuth(ctx, client, path, req.Operation == "bootstrap")

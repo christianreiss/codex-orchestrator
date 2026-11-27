@@ -142,7 +142,10 @@ func runAuthUploadWatcher(ctx context.Context, deps authWatchDeps, before claude
 		} else {
 			snap, err = deps.snapshot()
 		}
-		if err != nil || !snap.Usable {
+		// Claude Code's dead-token clear (a refresh lost to another host) is
+		// not a logout: pull the canonical that won the race over it.
+		deadToken := err == nil && !snap.Usable && deps.pull != nil && claude.IsDeadTokenClear(snap.Raw)
+		if err != nil || (!snap.Usable && !deadToken) {
 			// Absent, unreadable, or logged-out credentials are the post-run
 			// handler's business (logout tracking), never the watcher's.
 			continue
@@ -151,7 +154,12 @@ func runAuthUploadWatcher(ctx context.Context, deps authWatchDeps, before claude
 			continue
 		}
 		operation := deps.upload
-		if snap.Generation == lastHandled {
+		if deadToken {
+			if snap.Generation == lastHandled && time.Since(lastPull) < deps.pullInterval {
+				continue
+			}
+			operation = deps.pull
+		} else if snap.Generation == lastHandled {
 			if deps.pull == nil || time.Since(lastPull) < deps.pullInterval {
 				continue
 			}

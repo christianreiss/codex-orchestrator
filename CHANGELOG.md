@@ -1,5 +1,7 @@
 # 2026-11-27
 
+- Claude, several accounts (cxx 0.9.215): a host that loses a refresh race to another host of the same account heals during the running session. Both hosts reach the account's refresh window together. One wins, and Claude Code on the other answers `invalid_grant` by blanking both tokens in `.credentials.json`, which shows up as an expired login. The sync then waited forever, and only a new `clx` launch picked up the winning generation. Now a running session's sync replaces that dead-token record with the fresh verified canonical of the same Claude account as soon as it arrives, without uploading anything. An explicit logout is never undone.
+- Communicator (cxx 0.9.215): a pushed credential change for an account now reaches every Claude scope one of whose sessions uses that account. A session started before a live switch could leave the scope labelled with the previous account and the push was dropped. `cxx communicator status` shows the account that was actually synchronized.
 - Fixed concurrent `clx run` launches in cxx 0.9.214. The startup sync omitted its account binding and could restore an older local account ID after a live switch. As a result, a new launch could refuse to start even though Claude already held the credentials for the server's assigned account. The wrapper now verifies the match and repairs the local binding while the existing session keeps running.
 
 # 2026-11-26

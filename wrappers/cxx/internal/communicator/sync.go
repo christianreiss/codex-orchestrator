@@ -475,6 +475,9 @@ func (s *server) executeSync(ctx context.Context, in SyncRequest) (out SyncResul
 	}
 	if in.Operation == "auth" {
 		state.auth.AccountID = in.Job.AccountID
+		if out.AccountID > 0 {
+			state.auth.AccountID = out.AccountID
+		}
 		state.auth.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		if out.Generation != "" {
 			state.auth.Generation = out.Generation
@@ -844,8 +847,20 @@ func (s *server) wake() {
 func (s *server) invalidateAuth(engine string, account int64) {
 	s.validatedCache.invalidateLocal()
 	s.mu.Lock()
-	for _, state := range s.scopes {
-		if (engine == "" || state.auth.Engine == engine) && (account == 0 || state.auth.AccountID == account) {
+	// One native home holds one credential file for every lease attached to
+	// it, and the elected job may name an account from before a live switch.
+	// A scope is affected when any of its jobs names the changed account, or
+	// when it has not reported an account yet.
+	named := map[string]bool{}
+	if account != 0 {
+		for _, job := range s.jobs {
+			if job.Auth && job.AccountID == account {
+				named[stateID(job)] = true
+			}
+		}
+	}
+	for id, state := range s.scopes {
+		if (engine == "" || state.auth.Engine == engine) && (account == 0 || state.auth.AccountID == account || state.auth.AccountID == 0 || named[id]) {
 			state.nextAuth = time.Time{}
 		}
 	}

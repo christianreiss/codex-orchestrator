@@ -100,6 +100,33 @@ func TestAuthPushDoesNotInvalidateContentOrOtherAccounts(t *testing.T) {
 		t.Fatal("push did not wake scheduler")
 	}
 }
+// A native home holds one credential file for all of its leases. A lease
+// registered before a live switch keeps the previous account and may be the
+// elected job, so a targeted push for the account every session is bound to
+// now must still reach the scope.
+func TestAuthPushReachesScopeWhoseElectedJobNamesAStaleAccount(t *testing.T) {
+	s := &server{jobs: map[string]syncJob{}, jobRefs: map[string]int{}, authDirty: make(chan struct{}, 1)}
+	stale := fixtureJob(t, "claude")
+	stale.Auth, stale.AccountID, stale.SessionID = true, 1, "old-session"
+	current := stale
+	current.AccountID, current.SessionID = 8, "new-session"
+	s.jobs[jobID(stale)], s.jobs[jobID(current)] = stale, current
+	state := s.stateLocked(stale)
+	if s.stateLocked(current) != state {
+		t.Fatal("jobs of one native home must share one scope")
+	}
+	future := time.Now().Add(time.Hour)
+	state.auth.AccountID = 1
+	state.nextAuth = future
+	s.invalidateAuth("claude", 9)
+	if state.nextAuth != future {
+		t.Fatal("a push for an account no job names invalidated the scope")
+	}
+	s.invalidateAuth("claude", 8)
+	if !state.nextAuth.IsZero() {
+		t.Fatal("push for the bound account was dropped by the stale elected job")
+	}
+}
 func TestPendingAuthStoresOnlyDigestAndSurvivesRestart(t *testing.T) {
 	job := fixtureJob(t, "codex")
 	generation := strings.Repeat("a", 64)

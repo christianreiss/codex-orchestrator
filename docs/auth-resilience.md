@@ -114,7 +114,20 @@ projection; Codex retains its required empty refresh-token field.
 Native refresh spends across separate hosts are not serialized. Two hosts can
 still race before the first rotation reaches canonical storage. Faster uploads,
 active retrieval, guarded adoption, and background continuity reduce this window;
-they do not constitute a distributed refresh lease. Verification uses synthetic
+they do not constitute a distributed refresh lease.
+
+The host that loses such a race heals itself from cxx 0.9.215 on. Claude Code
+answers `invalid_grant` by keeping the `claudeAiOauth` block and blanking both
+tokens (`accessToken: ""`, `refreshToken: ""`, `expiresAt: 0`). That record is
+not a logout, because `/logout` removes the block or the file. A session sync
+that finds it does a digest-less retrieve, never a store, and replaces it,
+fenced on the exact dead generation, with the bound account's verified canonical.
+The canonical must be an OAuth login of the same Claude account whose access
+token outlives ten minutes. If it is still the spent pair inside Claude's
+refresh window, the sync reports an error and retries with backoff (5 s to 1 min)
+until the winning generation arrives. That generation's `auth_changed` push
+starts the next pass at once. An explicit logout intent still blocks the write.
+Verification uses synthetic
 generations and controlled failure/concurrency tests, without deliberately
 replaying live fleet refresh tokens.
 

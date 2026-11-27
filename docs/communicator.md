@@ -1159,6 +1159,16 @@ authorized auth routes. Auth events do not schedule unrelated content synchroniz
 The event bus remains process-local; reconnect and periodic reconciliation repair
 missed events.
 
+An account-targeted `auth_changed` frame resynchronizes every auth scope of the
+engine that a registered job names with that account, or that has not reported an
+account yet. A native home shares one credentials file and one scope across all of
+its leases. A lease registered before a live switch still names the previous
+account and may be the job the scheduler elected. Before cxx 0.9.215 that stale job
+alone decided the match, so the push for the account every session was now bound to
+was dropped. The worker now reports the account it actually synchronized
+(`account_id` in the sync result, resolved from the current binding) and the scope
+shows that account.
+
 Worker auth transactions keep a mode-0600 digest-only pending marker in the native
 home. A crashed worker or unknown write outcome requires verified readback before
 reoffering that generation. An exact verified credential pair can be acknowledged

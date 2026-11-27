@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/claude"
@@ -111,6 +112,9 @@ func SyncSessionAuth(ctx context.Context, client *orchestrator.Client, logger *s
 	result := SessionAuthSyncResult{Generation: snap.Generation}
 	boundBefore, _ := client.Pool.Binding()
 	if !snap.Usable {
+		if claude.IsDeadTokenClear(snap.Raw) {
+			return healDeadTokenClear(ctx, client, logger, snap, boundBefore, result)
+		}
 		result.Deferred = true
 		return result, nil
 	}
@@ -204,5 +208,61 @@ func SyncSessionAuth(ctx context.Context, client *orchestrator.Client, logger *s
 	if attemptedUpload || strings.EqualFold(strings.TrimSpace(resp.Status), "outdated") {
 		return result, errors.New("session auth arbitration did not converge; local credentials retained")
 	}
+	return result, nil
+}
+
+// ErrDeadTokenAwaitingCanonical: the local credentials are Claude Code's
+// dead-token clear and the server has no verified canonical yet that may
+// replace them. It is an error, not a defer, so the scheduler keeps retrying
+// with backoff until the generation that won the refresh race arrives.
+var ErrDeadTokenAwaitingCanonical = errors.New("local Claude credentials were cleared after a failed refresh; waiting for a newer verified canonical")
+
+// healDeadTokenClear replaces Claude Code's dead-token clear with the bound
+// account's verified canonical. That record is what a host writes after it
+// lost a refresh race to another host holding the same login: its refresh
+// token was already spent. Nothing local is left to upload or arbitrate, so
+// this is a retrieve-only exchange (a digest-less store would offer the blank
+// record), fenced on the exact dead generation. The native writer still
+// refuses over an explicit logout intent.
+func healDeadTokenClear(ctx context.Context, client *orchestrator.Client, logger *slog.Logger, snap claude.AuthSnapshot, boundBefore int64, result SessionAuthSyncResult) (SessionAuthSyncResult, error) {
+	resp, err := client.AuthRetrieve(ctx, "")
+	if err != nil {
+		return result, err
+	}
+	if resp == nil {
+		return result, ErrDeadTokenAwaitingCanonical
+	}
+	if resp.Engine != "" && !strings.EqualFold(strings.TrimSpace(resp.Engine), "claude") {
+		return result, errors.New("session auth response belongs to another engine")
+	}
+	if secure, known := resp.HostSecurity(); known {
+		result.HostSecure = &secure
+	}
+	if !strings.EqualFold(strings.TrimSpace(resp.VerificationState), "verified") {
+		return result, ErrSessionAuthUnverified
+	}
+	// A switch committed between the binding read and the answer belongs to
+	// the turn gate; the next pass reads the new binding.
+	if boundBefore > 0 && resp.AccountID > 0 && resp.AccountID != boundBefore {
+		return result, ErrDeadTokenAwaitingCanonical
+	}
+	if len(resp.Auth) == 0 || !claude.DeadTokenHealCandidate(snap.Raw, resp.Auth, time.Now()) {
+		return result, ErrDeadTokenAwaitingCanonical
+	}
+	generation, applied, err := claude.WriteSessionAuthIfCurrentWithDigest(ctx, resp.Auth, resp.CanonicalDigest, resp.VerificationState, snap.Generation)
+	if err != nil {
+		return result, fmt.Errorf("replace cleared Claude credentials: %w", err)
+	}
+	if !applied {
+		// The file changed under us (a native login, logout or another
+		// writer); its own change notification starts the next pass.
+		result.Deferred = true
+		return result, nil
+	}
+	result.Generation, result.Adopted = generation, true
+	if err := authnotice.Publish("claude", generation.Digest); err != nil {
+		logger.Warn("Claude auth change notice unavailable", "err", err)
+	}
+	logger.Info("Claude credentials cleared after a lost refresh replaced by the verified canonical", "account", resp.AccountID)
 	return result, nil
 }

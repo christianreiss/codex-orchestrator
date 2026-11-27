@@ -328,6 +328,9 @@ sessions switch accounts live at the next turn boundary; quota warnings and
 its limit. See `docs/interface-api.md` → *Claude multiple accounts and live switching*.
 A new `clx run` can repair a stale local account ID while another session is open by
 confirming that Claude already holds the exact credentials for the assigned account.
+A host that loses a refresh race to another host of the same account (Claude Code blanks
+both tokens after `invalid_grant`) adopts the winning verified generation in the running
+session from cxx 0.9.215; see `docs/auth-resilience.md`.
 A Claude turn that dies on its account's usage limit (cxx 0.9.213) marks that account
 exhausted, whatever its last reading said, and under the automatic policy continues in the
 same session on the next account with room; a recovery waits for the earliest reset in the

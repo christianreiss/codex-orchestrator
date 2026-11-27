@@ -69,6 +69,10 @@ type SyncResult struct {
 	Adopted    bool  `json:"adopted,omitempty"`
 	Deferred   bool  `json:"deferred,omitempty"`
 	HostSecure *bool `json:"host_secure,omitempty"`
+	// AccountID is the account the worker actually synchronized. A leased
+	// job registered before a live switch still names the previous account;
+	// the worker resolves the current binding, and this reports it back.
+	AccountID int64 `json:"account_id,omitempty"`
 }
 
 func (r SyncResult) Err() error {

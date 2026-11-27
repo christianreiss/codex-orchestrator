@@ -898,7 +898,11 @@ be lost, exponentially backs off a failed unchanged generation from five
 seconds to one minute, and handles a newer generation immediately. The
 foreground watcher checks native changes every two seconds and retrieves
 canonical state every 30 seconds during managed clx sessions. Verified store
-responses use the same exact-generation and logout guards as retrieval.
+responses use the same exact-generation and logout guards as retrieval. From cxx
+0.9.215, Claude Code's dead-token clear (both tokens blanked after `invalid_grant`,
+typically a refresh lost to another host) is the one unusable state that still
+retrieves: a fresh verified canonical of the same Claude account replaces it
+during the session (see [credential resilience](auth-resilience.md#canonical-verification-and-limits)).
 
 From cxx 0.9.82 the worker exists only on a persistent host
 ([host runtime policy](host-runtime-policy.md)); there the installer keeps it
