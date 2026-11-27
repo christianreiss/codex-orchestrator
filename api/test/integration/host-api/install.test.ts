@@ -150,6 +150,8 @@ describe('GET + POST /install/:token', () => {
       expect(launcher.payload).toContain(`INSTALL_URL='https://o.example${path}${installToken}'`);
       expect(launcher.payload).toContain('-X POST "$INSTALL_URL"');
       expect(launcher.payload).toContain('preflight_checks');
+      expect(launcher.payload).toContain('detect_truenas');
+      expect(launcher.payload).toContain('TrueNAS CORE is not supported');
       expect(launcher.payload).toContain('CODEX_INSTALL_CURL_INSECURE=${CODEX_INSTALL_CURL_INSECURE:-1}');
       expect(launcher.payload).not.toContain('sk-install-foo');
     }

@@ -1,6 +1,6 @@
 # Overview
 
-CXX 0.9.188 adds a Codex installer for pfSense CE 2.9.0 amd64. The [platform matrix and lab acceptance](pfsense-codex-pilot.md) cover Linux, macOS, pfSense and TrueNAS CORE.
+CXX 0.9.188 adds a Codex installer for pfSense CE 2.9.0 amd64. The [platform matrix and lab acceptance](pfsense-codex-pilot.md) cover Linux, macOS, pfSense and TrueNAS CORE. The host installer also has a pilot preflight for TrueNAS SCALE (Linux) that fails early on read-only or noexec install locations and reports TrueNAS CORE as unsupported; see [TrueNAS SCALE](truenas-scale.md).
 
 GPT-6.2 Sol is available in Codex pickers, gateway model lists and signed launch
 menus at Tier 3, with native default low and all six persistent efforts. The

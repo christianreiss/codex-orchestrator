@@ -15,6 +15,8 @@ running installation; custom launchers and other installations are preserved.
 The full engine doctor includes a Launchers row and suggests the local repair.
 Run `cxx codex|claude|grok|kimi doctor` for full engine diagnostics.
 
+The host installer preflight recognises TrueNAS SCALE / Community Edition (Linux with a `/data/manifest.json` carrying a `version` key) and verifies by an actual write-and-execute test that `BIN_DIR` and `~/.cxx` are writable and not on a read-only or `noexec` mount (`/usr` is read-only and `/home` is `noexec` there), failing early with the fix; it warns that cron and linger state does not survive a TrueNAS upgrade, and it reports TrueNAS CORE (FreeBSD) as unsupported. This is a pilot that has not been run on real TrueNAS hardware; see [TrueNAS SCALE](truenas-scale.md).
+
 From cxx 0.9.175, host bootstrap and shared installers check additional disk
 space and inodes on every write filesystem, try safe existing engine-store
 cleanup on shortage, then recheck. Large writes share a per-user installer lock;
