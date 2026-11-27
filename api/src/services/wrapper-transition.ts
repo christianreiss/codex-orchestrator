@@ -1162,6 +1162,98 @@ function preflightFunctions(): string {
   return 1
 }
 
+# TrueNAS detection. VERIFIED (source reading): the TrueNAS middleware itself
+# reads /data/manifest.json and its "version" key (middlewared/utils/__init__.py),
+# so a readable manifest with that key marks SCALE / Community Edition (Debian,
+# Linux). /etc/version is deliberately not used on SCALE (existence unverified).
+# ASSUMED, never run on hardware: TrueNAS CORE (FreeBSD) leaves a "TrueNAS-*" or
+# "FreeNAS-*" string in /etc/version and ships /usr/local/bin/midclt. pfSense is
+# excluded first, so its messages stay exactly as they were. TRUENAS_MANIFEST is
+# a test hook for the manifest location.
+detect_truenas() {
+  TRUENAS_KIND=
+  case "$PLATFORM_OS" in
+    linux)
+      if [ -r "$TRUENAS_MANIFEST" ] && grep '"version"' "$TRUENAS_MANIFEST" >/dev/null 2>&1; then
+        TRUENAS_KIND=scale
+      fi ;;
+    freebsd)
+      if [ "$(cat /etc/product_name 2>/dev/null || true)" = pfSense ]; then return 0; fi
+      case "$(cat /etc/version 2>/dev/null || true)" in
+        TrueNAS-*|FreeNAS-*) TRUENAS_KIND=core ;;
+        *) if [ -x /usr/local/bin/midclt ]; then TRUENAS_KIND=core; fi ;;
+      esac ;;
+  esac
+}
+
+# truenas_probe DIR [sudo]: write a throwaway script into DIR and run it.
+# Returns 0 when it ran, 1 when DIR is not writable (read-only mount or
+# permissions), 2 when the write worked but the script cannot execute (noexec
+# mount). Only a real write and exec is trusted: mkdir -p on an existing
+# directory succeeds even on a read-only filesystem.
+truenas_probe() {
+  probe_file="$1/.cxx-probe.$$"
+  if [ "\${2:-}" = sudo ]; then
+    sudo -n sh -c 'printf "#!/bin/sh\\nexit 0\\n" > "$1" && chmod 755 "$1"' sh "$probe_file" >/dev/null 2>&1 || return 1
+  else
+    { printf '#!/bin/sh\\nexit 0\\n' > "$probe_file" && chmod 755 "$probe_file"; } 2>/dev/null || { rm -f "$probe_file" 2>/dev/null || true; return 1; }
+  fi
+  probe_rc=0
+  "$probe_file" >/dev/null 2>&1 || probe_rc=2
+  if [ "\${2:-}" = sudo ]; then sudo -n rm -f "$probe_file" >/dev/null 2>&1 || true; else rm -f "$probe_file" 2>/dev/null || true; fi
+  return "$probe_rc"
+}
+
+# The nearest ancestor of PATH that exists, so a not-yet-created ~/.cxx is
+# judged by the mount it will be created on.
+truenas_existing_dir() {
+  tdir=$1
+  while [ ! -d "$tdir" ]; do
+    tparent=$(dirname "$tdir")
+    if [ "$tparent" = "$tdir" ]; then break; fi
+    tdir=$tparent
+  done
+  printf '%s\\n' "$tdir"
+}
+
+# TrueNAS SCALE keeps /usr and /opt read-only and mounts /home noexec, so the
+# default BIN_DIR and a ~/.cxx under /home fail late. Check both up front.
+truenas_preflight() {
+  truenas_ready=0
+  truenas_rc=1
+  truenas_sudo_rc=
+  TRUENAS_FIX="run as root with BIN_DIR=/root/.local/bin, or set BIN_DIR to a directory on a data-pool dataset with Exec enabled"
+  if mkdir -p "$BIN_ROOT" 2>/dev/null; then
+    truenas_rc=0
+    truenas_probe "$BIN_ROOT" || truenas_rc=$?
+    if [ "$truenas_rc" = 0 ]; then truenas_ready=1; fi
+  fi
+  if [ "$truenas_ready" = 0 ] && [ "$truenas_rc" = 1 ] && command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    if sudo -n mkdir -p "$BIN_ROOT" 2>/dev/null; then
+      truenas_sudo_rc=0
+      truenas_probe "$BIN_ROOT" sudo || truenas_sudo_rc=$?
+      if [ "$truenas_sudo_rc" = 0 ]; then truenas_ready=1; INSTALL_WITH_SUDO=1; fi
+    fi
+  fi
+  if [ "$truenas_ready" = 0 ]; then
+    if [ "\${truenas_sudo_rc:-$truenas_rc}" = 2 ]; then
+      ui_fail "cxx" "preflight" "$TRUENAS_FIX" "$BIN_ROOT is mounted noexec on TrueNAS SCALE"
+    else
+      ui_fail "cxx" "preflight" "$TRUENAS_FIX" "$BIN_ROOT is read-only or not writable on TrueNAS SCALE"
+    fi
+    PREFLIGHT_FAILED=1
+  fi
+  truenas_home_rc=0
+  truenas_probe "$(truenas_existing_dir "\${HOME:-/nonexistent}/.cxx")" || truenas_home_rc=$?
+  if [ "$truenas_home_rc" != 0 ]; then
+    ui_fail "cxx" "preflight" "run as root (HOME=/root allows exec), or use a home directory on a data-pool dataset with Exec enabled; /home is mounted noexec on SCALE" "engine binaries under \${HOME:-/nonexistent}/.cxx cannot run: the home is not writable or is on a noexec mount"
+    PREFLIGHT_FAILED=1
+  fi
+  if [ "$PREFLIGHT_FAILED" = "0" ] && command -v ui_warn >/dev/null 2>&1; then
+    ui_warn "cxx" "TrueNAS upgrade" "after an upgrade run: cxx cron install" "cron and linger state is recreated empty by a TrueNAS upgrade"
+  fi
+}
+
 # Everything the installer cannot work around, checked before the header card
 # so a doomed run stops on one line per problem instead of halfway through.
 preflight_checks() {
@@ -1182,7 +1274,14 @@ preflight_checks() {
   if [ "$PREFLIGHT_FAILED" = "1" ]; then return; fi
   WRAPPER_PLATFORM="$PLATFORM_OS-$PLATFORM_ARCH"
   PYTHON=python3
+  TRUENAS_MANIFEST=\${TRUENAS_MANIFEST:-/data/manifest.json}
+  detect_truenas
   if [ "$PLATFORM_OS" = freebsd ]; then
+    if [ "$TRUENAS_KIND" = core ]; then
+      ui_fail "cxx" "preflight" "Use TrueNAS SCALE (Linux) or another host; see docs/truenas-scale.md" "TrueNAS CORE is not supported (FreeBSD: no Claude build, release train closed)"
+      PREFLIGHT_FAILED=1
+      return
+    fi
     if [ "$WRAPPER_PLATFORM" != freebsd-amd64 ] || [ "$(cat /etc/product_name 2>/dev/null || true)" != pfSense ] || [ "$(cat /etc/version 2>/dev/null || true)" != 2.9.0-RELEASE ] || [ "$(sysctl -n kern.osreldate)" != 1600018 ]; then
       ui_fail "cxx" "preflight" "Tested on pfSense CE 2.9.0 amd64, OSVERSION 1600018" "Unsupported FreeBSD appliance or ABI"
       PREFLIGHT_FAILED=1
@@ -1203,9 +1302,13 @@ preflight_checks() {
     ui_fail "cxx" "preflight" "install it: apt-get install curl | dnf install curl | apk add curl | brew install curl" "curl is required"
     PREFLIGHT_FAILED=1
   fi
-  if ! ensure_bin_root; then
-    ui_fail "cxx" "preflight" "Cannot install $NAME into $BIN_ROOT: re-run the pipe into 'sudo sh', allow passwordless sudo, or set BIN_DIR=$HOME/.local/bin for a per-user install" "$BIN_ROOT is not writable and sudo -n is unavailable"
-    PREFLIGHT_FAILED=1
+  if [ "$TRUENAS_KIND" = scale ]; then
+    truenas_preflight
+  else
+    if ! ensure_bin_root; then
+      ui_fail "cxx" "preflight" "Cannot install $NAME into $BIN_ROOT: re-run the pipe into 'sudo sh', allow passwordless sudo, or set BIN_DIR=$HOME/.local/bin for a per-user install" "$BIN_ROOT is not writable and sudo -n is unavailable"
+      PREFLIGHT_FAILED=1
+    fi
   fi
 }`;
 }

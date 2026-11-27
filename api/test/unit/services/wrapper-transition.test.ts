@@ -53,6 +53,8 @@ function runDualInstallerFixture(
     wrapperVersion?: string;
     failNativeEntry?: boolean;
     unwritableBin?: boolean;
+    /** Fake /data/manifest.json; 'readonlyBin' also leaves the existing bin dir at mode 0555. */
+    truenas?: 'ok' | 'readonlyBin';
     capacityFault?: 'bytes' | 'inodes' | 'measurement' | 'recover';
   } = {},
 ): {
@@ -262,10 +264,14 @@ def simulated(path):
     return os.statvfs_result(values)
 os.statvfs = simulated
 `, 'utf8');
+    const truenasManifest = join(dir, 'manifest.json');
+    if (options.truenas) writeFileSync(truenasManifest, '{"version": "25.04.2"}', 'utf8');
+    if (options.truenas === 'readonlyBin') chmodSync(installBin, 0o555);
     const result = spawnSync('sh', [installer], {
       encoding: 'utf8',
       env: {
         ...fixtureEnvironment(home),
+        ...(options.truenas ? { TRUENAS_MANIFEST: truenasManifest } : {}),
         PYTHONPATH: pythonHooks,
         CAPACITY_FAULT: options.capacityFault ?? '',
         SPACE_RECOVER_MARKER: join(dir, 'space-recovery'),
@@ -293,6 +299,7 @@ os.statvfs = simulated
         REAL_MV: execFileSync('sh', ['-c', 'command -v mv'], { encoding: 'utf8' }).trim(),
       },
     });
+    if (options.truenas === 'readonlyBin') chmodSync(installBin, 0o755);
     const curlUrls = existsSync(curlLog)
       ? readFileSync(curlLog, 'utf8').split('\n').filter(Boolean)
       : [];
@@ -443,6 +450,28 @@ describe('wrapper transition helpers', () => {
     expect(output).toContain('cxx preflight: ');
     expect(output).toContain('is not writable and sudo -n is unavailable');
     expect(output).toContain('Cannot install cdx into');
+    expect(output).not.toContain('HOST SETUP');
+    expect(result.wrapperInvocations).toEqual([]);
+  });
+
+  it('runs the real installer through the TrueNAS SCALE preflight to READY and prints the upgrade notice', () => {
+    const result = runDualInstallerFixture({ truenas: 'ok' });
+    const output = result.stdout + result.stderr;
+    expect(result.status).toBe(0);
+    expect(output).toContain('READY');
+    expect(output).toContain('TrueNAS upgrade');
+    expect(output).toContain('cxx cron install');
+    expect(output).not.toContain('.cxx-probe');
+    expect(result.installTemps).toEqual([]);
+  });
+
+  it.skipIf(process.getuid?.() === 0)('stops the real installer on a TrueNAS SCALE read-only bin dir that already exists', () => {
+    // mkdir -p succeeds on the existing directory; only the write test notices.
+    const result = runDualInstallerFixture({ truenas: 'readonlyBin' });
+    const output = result.stdout + result.stderr;
+    expect(result.status).toBe(1);
+    expect(output).toContain('is read-only or not writable on TrueNAS SCALE');
+    expect(output).toContain('BIN_DIR=/root/.local/bin');
     expect(output).not.toContain('HOST SETUP');
     expect(result.wrapperInvocations).toEqual([]);
   });

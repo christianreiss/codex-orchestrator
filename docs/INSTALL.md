@@ -544,6 +544,10 @@ The wizard's credentials step is also reachable afterwards from Hosts → More �
    A `pending` or `failed` result is reported as such — the checklist counts only
    verified credentials, so a stored-but-unverified value keeps the step open.
 
+## Installing on a TrueNAS SCALE host
+
+The host installer recognises TrueNAS SCALE / Community Edition and, because `/usr` is read-only and `/home` is `noexec` there, checks the bin directory and `~/.cxx` with a real write-and-execute test before claiming the installer. The recommended setup is root with a per-user bin directory under `/root/.local/bin`. This is a pilot that has not been run on real TrueNAS hardware; TrueNAS CORE (FreeBSD) is not supported. See [TrueNAS SCALE](truenas-scale.md).
+
 ## Uninstalling a Host
 
 - Run `cdx --uninstall` on the host. It removes Codex bits and config and calls
