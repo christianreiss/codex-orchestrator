@@ -30,7 +30,7 @@ endif
 # Platform matrix kept in sync with .github/workflows/wrappers.yml.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 freebsd/amd64
 
-.PHONY: all build cxx cxx-traced cdx clx cgx ckx terminal-preview test-terminal test test-race test-traced vet lint clean release publish-release pubkey
+.PHONY: all build cxx cxx-traced cdx clx cgx ckx terminal-preview test-terminal test test-race test-traced vet windows-check lint clean release publish-release pubkey
 
 all: cxx
 
@@ -73,6 +73,17 @@ test-traced:
 
 vet:
 	cd cxx && $(GO) vet ./...
+
+# Build-only Windows foundation: compile and vet (tests included) for both
+# Windows architectures. Windows is deliberately absent from PLATFORMS and is
+# never staged, released or published.
+WINDOWS_CHECK_ARCHES := amd64 arm64
+
+windows-check:
+	@set -e; for arch in $(WINDOWS_CHECK_ARCHES); do \
+		echo "windows/$$arch: go build + go vet"; \
+		(cd cxx && GOOS=windows GOARCH=$$arch CGO_ENABLED=0 $(GO) build ./... && GOOS=windows GOARCH=$$arch CGO_ENABLED=0 $(GO) vet ./...); \
+	done
 
 clean:
 	rm -rf bin

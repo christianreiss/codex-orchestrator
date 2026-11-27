@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 // AuthGeneration identifies one exact on-disk auth.json generation. It is
@@ -1143,11 +1144,11 @@ func acquireAuthLockAt(authPath string) (*os.File, error) {
 		return nil, err
 	}
 	lockPath := filepath.Join(dir, ".cdx-auth.lock")
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	lock, err := posix.OpenFile(lockPath, os.O_CREATE|os.O_RDWR|posix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open auth lock: %w", err)
 	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+	if err := posix.Flock(int(lock.Fd()), posix.LOCK_EX); err != nil {
 		_ = lock.Close()
 		return nil, fmt.Errorf("lock auth state: %w", err)
 	}
@@ -1162,12 +1163,12 @@ func acquireAuthLockAtContext(ctx context.Context, authPath string) (*os.File, e
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	lock, err := os.OpenFile(filepath.Join(dir, ".cdx-auth.lock"), os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	lock, err := posix.OpenFile(filepath.Join(dir, ".cdx-auth.lock"), os.O_CREATE|os.O_RDWR|posix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open auth lock: %w", err)
 	}
 	for {
-		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err := posix.Flock(int(lock.Fd()), posix.LOCK_EX|posix.LOCK_NB)
 		if err == nil {
 			return lock, nil
 		}
@@ -1190,7 +1191,7 @@ func releaseAuthLock(lock *os.File) error {
 	if lock == nil {
 		return nil
 	}
-	unlockErr := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	unlockErr := posix.Flock(int(lock.Fd()), posix.LOCK_UN)
 	return errors.Join(unlockErr, lock.Close())
 }
 

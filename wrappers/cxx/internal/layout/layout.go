@@ -18,6 +18,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 const (
@@ -58,7 +60,7 @@ func AcquireForTarget(ctx context.Context, target string) (*Lock, error) {
 		return nil, fmt.Errorf("unsafe cxx layout lock %s", path)
 	}
 	for {
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err = posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB)
 		if err == nil {
 			return &Lock{f: f}, nil
 		}
@@ -76,14 +78,14 @@ func AcquireForTarget(ctx context.Context, target string) (*Lock, error) {
 }
 
 func openSharedLock(path string) (*os.File, bool, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o666)
+	f, err := posix.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDONLY|posix.O_NOFOLLOW|syscall.O_NONBLOCK, 0o666)
 	if err == nil {
 		return f, true, nil
 	}
 	if !errors.Is(err, os.ErrExist) {
 		return nil, false, err
 	}
-	f, err = os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, err = posix.OpenFile(path, os.O_RDONLY|posix.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	return f, false, err
 }
 
@@ -100,7 +102,7 @@ func (l *Lock) Release() error {
 	if l == nil || l.f == nil {
 		return nil
 	}
-	err := syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	err := posix.Flock(int(l.f.Fd()), posix.LOCK_UN)
 	err = errors.Join(err, l.f.Close())
 	l.f = nil
 	return err

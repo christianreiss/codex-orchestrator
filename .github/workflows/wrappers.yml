@@ -41,6 +41,11 @@ jobs:
       - name: go vet
         working-directory: wrappers/cxx
         run: go vet ./...
+      # Compile-only: Windows is not a release platform, so it stays out of
+      # the build matrix (whose artifacts the release job publishes).
+      - name: windows cross-build and vet
+        working-directory: wrappers
+        run: make windows-check
       - name: wrapper and release-metadata tests
         working-directory: wrappers
         run: make test

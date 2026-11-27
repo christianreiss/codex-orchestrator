@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 // Every server base (and, under the short /tmp fallback, every deep scope) gets
@@ -51,7 +53,7 @@ func sweepRuntimeRootIfDue(root string, now time.Time) int {
 	if info, err := os.Lstat(stamp); err == nil && info.Mode().IsRegular() && recent(info.ModTime(), now, runtimeSweepInterval) {
 		return 0
 	}
-	file, err := os.OpenFile(stamp, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0600)
+	file, err := posix.OpenFile(stamp, os.O_CREATE|os.O_RDWR|posix.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0600)
 	if err != nil {
 		return 0
 	}
@@ -59,7 +61,7 @@ func sweepRuntimeRootIfDue(root string, now time.Time) int {
 	if info, err := file.Stat(); err != nil || !info.Mode().IsRegular() || !ownedByUser(info) {
 		return 0
 	}
-	if syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+	if posix.Flock(int(file.Fd()), posix.LOCK_EX|posix.LOCK_NB) != nil {
 		return 0 // another process is sweeping this root
 	}
 	if os.Chtimes(stamp, now, now) != nil {
@@ -122,7 +124,7 @@ func reapRuntimeDir(root, name string, now time.Time) bool {
 	var held []*os.File
 	defer func() {
 		for _, file := range held {
-			_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+			_ = posix.Flock(int(file.Fd()), posix.LOCK_UN)
 			file.Close()
 		}
 	}()
@@ -135,11 +137,11 @@ func reapRuntimeDir(root, name string, now time.Time) bool {
 		mode := entryInfo.Mode()
 		switch {
 		case mode.IsRegular() && strings.HasSuffix(entry.Name(), ".lock"):
-			file, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+			file, err := posix.OpenFile(path, os.O_RDWR|posix.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
 			if err != nil {
 				return false
 			}
-			if syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+			if posix.Flock(int(file.Fd()), posix.LOCK_EX|posix.LOCK_NB) != nil {
 				file.Close()
 				return false // an owner, fence or worker is alive
 			}
@@ -180,7 +182,7 @@ func removeReaped(path string) {
 }
 
 func ownedByUser(info os.FileInfo) bool {
-	stat, ok := info.Sys().(*syscall.Stat_t)
+	stat, ok := info.Sys().(*posix.Stat_t)
 	return ok && int(stat.Uid) == os.Getuid()
 }
 

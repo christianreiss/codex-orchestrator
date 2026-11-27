@@ -45,7 +45,7 @@ var (
 		_, _, settings, err := daemonConfig(ctx)
 		return settings, err == nil
 	}
-	signalWorker = func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
+	signalWorker = terminateForeignWorker
 )
 
 // retireForeignWorkers is called by root's `agent service install`. It does

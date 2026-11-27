@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 	coreupdate "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
@@ -161,7 +161,7 @@ func applyResidentUpdate(running string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || strconv.FormatUint(uint64(stat.Uid), 10) != owner.Uid {
+	if stat, ok := info.Sys().(*posix.Stat_t); !ok || strconv.FormatUint(uint64(stat.Uid), 10) != owner.Uid {
 		return errors.New("resident update request is not owned by the service user")
 	}
 	raw, err := os.ReadFile(residentUpdateRequestFile())

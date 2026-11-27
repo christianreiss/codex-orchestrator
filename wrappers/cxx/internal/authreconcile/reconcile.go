@@ -16,7 +16,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountpool"
@@ -25,6 +24,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 type serverAuth struct {
@@ -337,7 +337,7 @@ func owned(info os.FileInfo) bool {
 	if info == nil {
 		return false
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
+	st, ok := info.Sys().(*posix.Stat_t)
 	return ok && int(st.Uid) == os.Geteuid()
 }
 

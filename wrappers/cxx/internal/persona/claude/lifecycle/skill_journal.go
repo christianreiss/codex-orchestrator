@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/atomicdir"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 type skillDirectoryID struct {
@@ -29,7 +29,7 @@ func identifySkillDirectory(path string) (skillDirectoryID, error) {
 	if err != nil {
 		return skillDirectoryID{}, err
 	}
-	sys, ok := st.Sys().(*syscall.Stat_t)
+	sys, ok := st.Sys().(*posix.Stat_t)
 	if !ok || !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
 		return skillDirectoryID{}, fmt.Errorf("not a real skill directory: %s", path)
 	}

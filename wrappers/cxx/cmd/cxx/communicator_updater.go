@@ -20,7 +20,6 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/persona/codex/orchestrator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 	coreupdate "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
-	"golang.org/x/sys/unix"
 )
 
 func init() {
@@ -106,7 +105,7 @@ func newCommUpdater(env communicator.UpdaterEnv) *commUpdater {
 		},
 		agents:   func() int { return env.Busy() + len(agentquiet.Busy()) },
 		target:   func() (string, error) { return userExecutable(env.Resident()) },
-		writable: func(path string) bool { return unix.Access(filepath.Dir(path), unix.W_OK) == nil },
+		writable: updaterTargetWritable,
 		apply: func(ctx context.Context, exe string) error {
 			run, cancel := context.WithTimeout(ctx, 12*time.Minute)
 			defer cancel()

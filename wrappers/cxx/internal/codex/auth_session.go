@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 const (
@@ -470,7 +471,7 @@ func HasActiveAuthChild() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0)
+	f, err := posix.OpenFile(path, os.O_RDWR|posix.O_NOFOLLOW, 0)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -478,13 +479,13 @@ func HasActiveAuthChild() (bool, error) {
 		return false, err
 	}
 	defer f.Close()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB); err != nil {
 		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
 			return true, nil
 		}
 		return false, err
 	}
-	return false, syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false, posix.Flock(int(f.Fd()), posix.LOCK_UN)
 }
 
 // AttachAuthLeaseFiles passes duplicate session/child descriptors into an

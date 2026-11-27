@@ -22,11 +22,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 	"unicode"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/residency"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 )
@@ -72,7 +72,7 @@ func runtimeRootSource() (string, string) {
 	}
 	if root := sessionRuntimeRoot(); root != "" {
 		if info, err := os.Lstat(root); err == nil && info.IsDir() && info.Mode().Perm() == 0700 {
-			if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) == os.Getuid() {
+			if stat, ok := info.Sys().(*posix.Stat_t); ok && int(stat.Uid) == os.Getuid() {
 				return root, "logind"
 			}
 		}
@@ -142,7 +142,7 @@ func checkPrivateDir(dir string, create bool) error {
 	if err != nil {
 		return err
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
+	stat, ok := info.Sys().(*posix.Stat_t)
 	if !ok || int(stat.Uid) != os.Getuid() || !info.IsDir() || info.Mode().Perm() != 0700 {
 		return errors.New("unsafe communicator runtime root")
 	}
@@ -168,7 +168,7 @@ func socketPathIn(root, base, scope string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
+	stat, ok := info.Sys().(*posix.Stat_t)
 	if !ok || int(stat.Uid) != os.Getuid() || !info.IsDir() || info.Mode().Perm() != 0700 {
 		return "", errors.New("unsafe communicator runtime directory")
 	}
@@ -447,7 +447,7 @@ func (ep *endpoint) ensure(ctx context.Context) error {
 	}
 	cmd := exec.Command(exe, "communicator", "serve", "--config", path)
 	cmd.Env = communicatorEnvironment(os.Environ())
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = posix.NewSessionAttr()
 	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
 		return err

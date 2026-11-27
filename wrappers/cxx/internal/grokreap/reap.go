@@ -19,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 // Thresholds. A leftover must be older than these before it is touched; the
@@ -533,7 +535,7 @@ func (s *scan) dirInUse(dir string) (string, error) {
 }
 
 func ownedBy(info os.FileInfo, uid uint32) bool {
-	st, ok := info.Sys().(*syscall.Stat_t)
+	st, ok := info.Sys().(*posix.Stat_t)
 	return ok && st.Uid == uid
 }
 

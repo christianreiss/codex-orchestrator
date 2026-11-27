@@ -22,8 +22,6 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/fleetconfig"
@@ -31,6 +29,7 @@ import (
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/housekeeping"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/maintenance"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/signing"
 	coreupdate "github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/update"
 )
@@ -898,7 +897,7 @@ func inferHomeOwner(fallback, home string) string {
 		return fallback
 	}
 	if info, err := os.Stat(home); err == nil {
-		if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		if st, ok := info.Sys().(*posix.Stat_t); ok {
 			if u, lookupErr := user.LookupId(fmt.Sprintf("%d", st.Uid)); lookupErr == nil {
 				return u.Username
 			}
@@ -924,7 +923,7 @@ func ensureCronLog(logFile, home string) error {
 	}
 	if os.Geteuid() == 0 {
 		if info, err := os.Stat(home); err == nil {
-			if st, ok := info.Sys().(*syscall.Stat_t); ok {
+			if st, ok := info.Sys().(*posix.Stat_t); ok {
 				_ = os.Chown(dir, int(st.Uid), int(st.Gid))
 				_ = os.Chown(logFile, int(st.Uid), int(st.Gid))
 			}
@@ -1144,7 +1143,7 @@ func privateInstallSchedule(userName, line, canonical, coveredUser string) bool 
 	if err != nil || !info.Mode().IsRegular() {
 		return false
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
+	st, ok := info.Sys().(*posix.Stat_t)
 	if !ok || fmt.Sprintf("%d", st.Uid) != account.Uid {
 		return false
 	}
@@ -1439,24 +1438,6 @@ func boundedCronCommand(name string, args ...string) (*exec.Cmd, context.CancelF
 	return cmd, cancel
 }
 
-// A canceled maintenance child may have started npm, a shell, or systemctl.
-// Cancel its own process group so descendants cannot keep an installer alive or
-// leave inherited output pipes blocking Wait after the coordinator deadline.
-func boundCommandChildren(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.WaitDelay = time.Second
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return os.ErrProcessDone
-		}
-		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		if errors.Is(err, syscall.ESRCH) {
-			return os.ErrProcessDone
-		}
-		return err
-	}
-}
-
 func crontabCommandSpecFor(euid int, userName string, args ...string) (string, []string) {
 	crontabArgs := append([]string{"-u", userName}, args...)
 	if euid == 0 {
@@ -1567,12 +1548,6 @@ func removeSystemFile(path string) error {
 		return fmt.Errorf("remove %s: %w: %s", path, err, strings.TrimSpace(string(out)))
 	}
 	return nil
-}
-
-func canWriteBinary(path string) bool {
-	// Self-update replaces by same-directory rename; access checks avoid opening
-	// the currently executing inode O_WRONLY (Linux returns ETXTBSY for that).
-	return unix.Access(path, unix.W_OK) == nil && unix.Access(filepath.Dir(path), unix.W_OK) == nil
 }
 
 func passwordlessSudo() bool {

@@ -180,14 +180,14 @@ func ensureCodexBackground(ctx context.Context, target string, enforceExact bool
 		if err := installVerifiedReleaseAsset(ctx, rel, asset, "codex", cli, logger); err != nil {
 			return err
 		}
-		if err := installVerifiedReleaseAsset(ctx, rel, companion, codeModeHostBinName, filepath.Join(dir, codeModeHostBinName), logger); err != nil {
+		if err := installVerifiedReleaseAsset(ctx, rel, companion, codeModeHostBinName, filepath.Join(dir, codeModeHostBinName+exeSuffix), logger); err != nil {
 			return err
 		}
 		if err := os.WriteFile(filepath.Join(dir, standaloneReceipt), []byte("v1\n"), 0600); err != nil {
 			return err
 		}
 	}
-	companionPath := filepath.Join(filepath.Dir(cli), codeModeHostBinName)
+	companionPath := filepath.Join(filepath.Dir(cli), codeModeHostBinName+exeSuffix)
 	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
 	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

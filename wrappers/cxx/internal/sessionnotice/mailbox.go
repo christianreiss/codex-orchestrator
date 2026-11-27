@@ -22,6 +22,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 // Header carries the fields every notice payload has.
@@ -96,10 +98,10 @@ func (m *Mailbox[T]) WithLock(engine string, fn func(string) error) error {
 	defer f.Close()
 	// A notification is best effort. Contention must never delay token syncing,
 	// a content pass or a native hook while another process publishes.
-	if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err = posix.Flock(int(f.Fd()), posix.LOCK_EX|posix.LOCK_NB); err != nil {
 		return err
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	defer posix.Flock(int(f.Fd()), posix.LOCK_UN)
 	return fn(dir)
 }
 
@@ -237,7 +239,7 @@ func (m *Mailbox[T]) Prepare(engine, session string) (*Delivery[T], error) {
 		if err != nil {
 			return err
 		}
-		if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if err = posix.Flock(int(lock.Fd()), posix.LOCK_EX|posix.LOCK_NB); err != nil {
 			lock.Close()
 			return err
 		}
@@ -307,7 +309,7 @@ func (m *Mailbox[T]) PreparePrime(engine, session string) (*Delivery[T], error) 
 			lock.Close()
 		}
 	}()
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err = posix.Flock(int(lock.Fd()), posix.LOCK_EX|posix.LOCK_NB); err != nil {
 		return nil, err
 	}
 	notice, err := m.read(dir)

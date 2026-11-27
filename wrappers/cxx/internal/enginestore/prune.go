@@ -13,10 +13,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/installspace"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 // Uninstall removes one private engine store after the caller has fenced
@@ -241,7 +241,7 @@ type sweepAdmission struct {
 }
 
 func directoryIdentity(info os.FileInfo) string {
-	st, ok := info.Sys().(*syscall.Stat_t)
+	st, ok := info.Sys().(*posix.Stat_t)
 	if !ok {
 		return ""
 	}

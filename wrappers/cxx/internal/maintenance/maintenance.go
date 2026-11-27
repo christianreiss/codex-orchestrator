@@ -11,12 +11,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/buildinfo"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/config"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/posix"
 )
 
 const (
@@ -331,7 +331,7 @@ func spawn(exe, dir string, env []string, due bool) error {
 			return fmt.Errorf("rotate maintenance log: %w", err)
 		}
 	}
-	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
+	log, err := posix.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY|posix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return err
 	}
@@ -347,7 +347,7 @@ func spawn(exe, dir string, env []string, due bool) error {
 	cmd.Args[0] = "cxx" // Preserve global dispatch even when exe was an alias.
 	cmd.Env, cmd.Dir = env, dir
 	cmd.Stdout, cmd.Stderr = log, log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	cmd.SysProcAttr = posix.NewSessionAttr()
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start background maintenance: %w", err)
 	}
