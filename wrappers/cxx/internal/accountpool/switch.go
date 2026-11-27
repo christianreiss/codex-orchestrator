@@ -49,6 +49,9 @@ type bindingFields struct {
 	AccountLabel      string          `json:"account_label"`
 	BindingGeneration *int64          `json:"binding_generation"`
 	AccountSwitch     json.RawMessage `json:"account_switch"`
+	// PauseCapable: the server counts this lease as able to pause (pause.go).
+	// Absent on servers without pause rounds.
+	PauseCapable *bool `json:"pause_capable"`
 }
 
 // observeBindingLocked is the single fencing rule for every response:
@@ -60,6 +63,9 @@ type bindingFields struct {
 //     it); an absent key leaves it untouched. A directive naming the bound
 //     account is nothing to do.
 func (c *Context) observeBindingLocked(f bindingFields, allowAdopt bool) *Adoption {
+	if f.PauseCapable != nil {
+		c.pauseCapable = f.PauseCapable
+	}
 	if f.BindingGeneration == nil {
 		return nil
 	}
@@ -280,6 +286,10 @@ func (c *Context) commitSwitch(ctx context.Context, client Client, d SwitchDirec
 	body := map[string]any{"engine": c.Engine, "session_id": id, "scope_id": c.ScopeID, "account_id": d.AccountID, "binding_generation": d.BindingGeneration}
 	if unfinished {
 		body["credential_write"] = "unfinished"
+	} else if pause, _, ok := c.Pause(time.Now()); ok && pause.Ready {
+		// The commit happens inside a pause round; the server refuses it when
+		// that round is over, because the sessions are then running again.
+		body["pause_round"] = pause.Round
 	}
 	var out LeaseResponse
 	if err := client.JSON(ctx, http.MethodPost, "/auth/sessions/switch", body, &out, 0); err != nil {

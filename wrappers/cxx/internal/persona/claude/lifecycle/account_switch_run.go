@@ -29,10 +29,37 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 		return func() {}
 	}
 	projects := filepath.Join(filepath.Dir(authPath), "projects")
+	// pausedRound is the pause round in which the whole scope is at rest:
+	// the server marked it ready, and the hooks of every live session of the
+	// scope still say so (looked at again here, because a hold can run out
+	// between a session's report and this moment).
+	pausedRound := func() (string, bool) {
+		now := time.Now()
+		command, _, ok := pool.Pause(now)
+		if !ok || !command.Ready {
+			return "", false
+		}
+		if safe, _ := pool.ScopeSafe(command.Round, now); !safe {
+			return "", false
+		}
+		return command.Round, true
+	}
+	// earlyFlush is the flush a supervisor runs when its session is asked to
+	// pause. It still stands when the round becomes ready, unless the
+	// credentials file changed since.
+	var earlyFlush struct {
+		round  string
+		result flushResult
+	}
 	deps := &accountSwitchDeps{
 		pool:      pool,
 		heartbeat: func(c context.Context) error { return pool.Heartbeat(c, client) },
 		idle: func() bool {
+			// A ready pause round is a turn boundary made on purpose: every
+			// thread of every session waits at a hook or runs a tool.
+			if _, paused := pausedRound(); paused {
+				return true
+			}
 			// Hook evidence decides for this session and for every sibling
 			// that publishes its own (session markers). The transcript check
 			// stays on top: it is all there is for a sibling that publishes
@@ -48,9 +75,19 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 		flush: func(c context.Context, relaxed bool) (flushResult, error) {
 			fctx, cancel := context.WithTimeout(c, 30*time.Second)
 			defer cancel()
+			command, _, pausing := pool.Pause(time.Now())
+			if pausing && command.Ready && earlyFlush.round == command.Round {
+				if snap, err := claude.ReadAuthSnapshotContext(fctx, false); err == nil && snap.Generation == earlyFlush.result.Generation {
+					return earlyFlush.result, nil
+				}
+			}
 			flushed, err := flushAccountAuth(fctx, client, logger, relaxed)
 			if bound, _ := pool.Binding(); err == nil && flushed.Bound != nil && flushed.Bound.AccountID == bound {
 				flushed.Bound.AccountLabel = pool.Label()
+			}
+			earlyFlush.round = ""
+			if err == nil && pausing && flushed.Bound == nil {
+				earlyFlush.round, earlyFlush.result = command.Round, flushed
 			}
 			return flushed, err
 		},
@@ -76,6 +113,15 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 			defer release()
 			var generation claude.AuthGeneration
 			var applied bool
+			if _, paused := pausedRound(); paused {
+				// Every session of the scope is held at a hook, this one too,
+				// so there is no turn gate to take: its prompt hook is among
+				// the held ones.
+				wctx, cancel := context.WithTimeout(c, 2*time.Second)
+				defer cancel()
+				generation, applied, err = claude.WriteSwitchedAccountIfCurrent(wctx, res.Auth, res.CanonicalDigest, res.VerificationState, expected)
+				return generation, applied, err
+			}
 			siblingBusy := false
 			ran, _, err := connection.WhileClaudeTurnIdle(func() error {
 				// A sibling's prompt hook publishes its turn before it returns:
@@ -117,6 +163,29 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 			}
 			logger.Info("Claude account switched live", "from", previousID, "to", res.AccountID, "reason", reason)
 		},
+		pauseRound: func() (string, bool) {
+			command, _, ok := pool.Pause(time.Now())
+			if !ok {
+				return "", false
+			}
+			if !command.Ready {
+				return command.Round, false
+			}
+			_, paused := pausedRound()
+			return command.Round, paused
+		},
+		pauseReport: func(c context.Context, round, state, reason string) {
+			rctx, cancel := context.WithTimeout(c, 10*time.Second)
+			defer cancel()
+			if err := pool.ReportPause(rctx, client, round, state, reason); err != nil {
+				logger.Warn("account pause: outcome not reported", "state", state, "err", err)
+			}
+		},
+		reportRepair: func(c context.Context) error {
+			rctx, cancel := context.WithTimeout(c, 20*time.Second)
+			defer cancel()
+			return pool.ReportUnfinishedRepair(rctx, client)
+		},
 		logger:     logger,
 		pollEvery:  accountSwitchPollEvery,
 		gateEvery:  accountSwitchGateEvery,
@@ -150,6 +219,19 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 		defer close(done)
 		runAccountSwitcher(sctx, deps)
 	}()
+	paused := make(chan struct{})
+	go func() {
+		defer close(paused)
+		runPauseAgent(sctx, &pauseAgentDeps{
+			pool: pool,
+			report: func(c context.Context, round, state, reason string) error {
+				rctx, cancel := context.WithTimeout(c, 10*time.Second)
+				defer cancel()
+				return pool.ReportPause(rctx, client, round, state, reason)
+			},
+			logger: logger,
+		})
+	}()
 	stopped := false
 	return func() {
 		if stopped {
@@ -158,6 +240,7 @@ func startAccountSwitcher(ctx context.Context, client *orchestrator.Client, conn
 		stopped = true
 		cancel()
 		<-done
+		<-paused
 		connection.SetClaudeTurnObserver(nil)
 	}
 }

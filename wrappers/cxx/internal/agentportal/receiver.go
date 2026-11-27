@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountgate"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/layout"
 )
 
@@ -61,6 +62,11 @@ func ClaudeAgentArgs(args []string) ([]string, error) {
 	return claudePluginArgs(args, false)
 }
 
+// AccountGateEvents are the Claude Code hook events the account gate listens
+// to: the ones that precede a model request (held while a pause is active)
+// and the ones that tell what a thread is doing.
+var AccountGateEvents = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolBatch", "PreCompact", "SubagentStart", "SubagentStop", "Stop", "StopFailure", "SessionEnd"}
+
 func claudePluginArgs(args []string, receiver bool) ([]string, error) {
 	socket := os.Getenv(envSocket)
 	if socket == "" {
@@ -89,6 +95,15 @@ func claudePluginArgs(args []string, receiver bool) ([]string, error) {
 	hooks := map[string]any{
 		"StopFailure": []any{map[string]any{"hooks": []any{watchdogHook}}},
 		"SessionEnd":  []any{map[string]any{"hooks": []any{watchdogHook}}},
+	}
+	// The account gate holds a session at the hooks that precede a model
+	// request while the server switches the scope's account. Headless launches
+	// share the credentials file too, so every launch gets it. The hook does
+	// nothing without a gate directory in its environment.
+	gateHook := map[string]any{"type": "command", "command": quote(binary) + " agent account-gate", "timeout": accountgate.HookTimeoutSeconds}
+	for _, event := range AccountGateEvents {
+		prior, _ := hooks[event].([]any)
+		hooks[event] = append(prior, map[string]any{"hooks": []any{gateHook}})
 	}
 	if receiver {
 		command := quote(binary) + " agent native-session"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountgate"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/ipc"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/nativewriter"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/testhome"
@@ -14,6 +15,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClaudeReceiverPreservesResumeAndUserSettings(t *testing.T) {
@@ -368,14 +370,31 @@ func TestClaudeHeadlessPluginRetainsFailureHooksWithoutReceiver(t *testing.T) {
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		t.Fatal(err)
 	}
+	runs := func(event, command string) bool {
+		for _, entry := range parsed.Hooks[event] {
+			for _, hook := range entry.Hooks {
+				if strings.HasSuffix(hook.Command, " agent "+command) {
+					return true
+				}
+			}
+		}
+		return false
+	}
 	for _, event := range []string{"StopFailure", "SessionEnd"} {
-		hooks := parsed.Hooks[event]
-		if len(hooks) != 1 || len(hooks[0].Hooks) != 1 || !strings.HasSuffix(hooks[0].Hooks[0].Command, " agent watchdog-event") {
+		if !runs(event, "watchdog-event") {
 			t.Fatalf("missing %s failure forwarding: %s", event, raw)
 		}
 	}
-	if len(parsed.Hooks["SessionStart"]) != 0 {
-		t.Fatal("headless plugin must not pretend to register a channel identity")
+	// A headless launch shares the scope's credentials file, so it is gated
+	// for account switches; it still registers no channel identity and
+	// reports no activity.
+	for event := range parsed.Hooks {
+		if runs(event, "native-session") || runs(event, "activity-event") {
+			t.Fatalf("headless plugin must not pretend to be a receiver (%s): %s", event, raw)
+		}
+	}
+	if !runs("PostToolBatch", "account-gate") || !runs("UserPromptSubmit", "account-gate") {
+		t.Fatalf("headless launch is not gated for account switches: %s", raw)
 	}
 }
 
@@ -421,6 +440,10 @@ func TestClaudePluginHooksCombineActivityAndFailureLifecycle(t *testing.T) {
 				"StopFailure": {"watchdog-event"},
 				"SessionEnd":  {"watchdog-event"},
 			}
+			// Every launch is gated for account switches, headless ones included.
+			for _, event := range AccountGateEvents {
+				expected[event] = append(expected[event], "account-gate")
+			}
 			if receiver {
 				expected["SessionStart"] = []string{"native-session"}
 				for _, event := range []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "Elicitation", "ElicitationResult", "Stop", "StopFailure", "SessionEnd"} {
@@ -442,6 +465,11 @@ func TestClaudePluginHooksCombineActivityAndFailureLifecycle(t *testing.T) {
 					hook := entries[i].Hooks[0]
 					if hook.Type != "command" || !strings.HasSuffix(hook.Command, " agent "+command) || hook.Timeout <= 0 {
 						t.Fatalf("%s lost %s: %s", event, command, raw)
+					}
+					// A gate hook cancelled by its timeout can no longer record
+					// that its thread went on to a model request.
+					if command == "account-gate" && time.Duration(hook.Timeout)*time.Second <= accountgate.MaxHold {
+						t.Fatalf("%s gate hook timeout %ds does not outlast the longest hold", event, hook.Timeout)
 					}
 				}
 			}

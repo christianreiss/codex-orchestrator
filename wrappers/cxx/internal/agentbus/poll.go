@@ -26,7 +26,9 @@ package agentbus
 //     wedges a session is worse than one that misses a call.
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -36,6 +38,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountgate"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/authnotice"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/contentnotice"
 )
@@ -141,7 +144,11 @@ func runPoll(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	// Release first, so the peek below already sees what the receiver will now
 	// deliver on its own (see turn_release.go).
-	end := releaseAtTurnEnd(readHookInput(stdin), 3*time.Second)
+	var payload []byte
+	if stdin != nil {
+		payload, _ = io.ReadAll(io.LimitReader(stdin, 1<<20))
+	}
+	end := releaseAtTurnEnd(readHookInput(bytes.NewReader(payload)), 3*time.Second)
 	box, err := peekMailbox(5 * time.Second)
 	// Hook mode is silent on every failure. A host with messaging disabled, a
 	// session outside a managed lifecycle, an orchestrator that is down -- none
@@ -150,7 +157,48 @@ func runPoll(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil || box == nil {
 		box = &mailbox{}
 	}
-	return emitHook(stdout, event, box, end)
+	if event != hookEventStop {
+		return emitHook(stdout, event, box, end)
+	}
+	spy := &stopBlockSpy{out: stdout}
+	err = emitHook(spy, event, box, end)
+	if err == nil && spy.blocked() {
+		noteStopBlocked(payload)
+	}
+	return err
+}
+
+// stopBlockSpy passes the hook output through and remembers it, so the gate
+// learns that this Stop was answered with "block".
+type stopBlockSpy struct {
+	out io.Writer
+	buf bytes.Buffer
+}
+
+func (s *stopBlockSpy) Write(p []byte) (int, error) {
+	s.buf.Write(p)
+	return s.out.Write(p)
+}
+
+func (s *stopBlockSpy) blocked() bool {
+	var decision struct {
+		Decision string `json:"decision"`
+	}
+	return json.Unmarshal(s.buf.Bytes(), &decision) == nil && decision.Decision == "block"
+}
+
+// noteStopBlocked tells the account gate that the turn goes on: a blocked
+// Stop is followed by a model request without a prompt hook, and a thread
+// recorded as idle would let an account switch count the session as paused.
+func noteStopBlocked(payload []byte) {
+	var input struct {
+		SessionID string `json:"session_id"`
+		AgentID   string `json:"agent_id"`
+	}
+	if json.Unmarshal(payload, &input) != nil {
+		return
+	}
+	accountgate.Continue(os.Getenv(accountgate.EnvDir), input.SessionID, input.AgentID)
 }
 
 func peekMailbox(timeout time.Duration) (*mailbox, error) {

@@ -38,6 +38,11 @@ const (
 	// switch (about five minutes at the retry interval).
 	accountSwitchFinishTries = 20
 	accountAdoptSettle       = 10 * time.Second
+	// accountSwitchBusyWait bounds one wait for a turn that started between
+	// the commit and the write. Without a bound the supervisor sat in that
+	// wait for as long as the scope stayed busy, never counted an attempt and
+	// so never told the server that the credentials were not written.
+	accountSwitchBusyWait = 60 * time.Second
 )
 
 var errTurnBusy = errors.New("a Claude turn started; credentials not written")
@@ -100,10 +105,21 @@ type accountSwitchDeps struct {
 	pauseSync  func()
 	resumeSync func()
 	done       func(previousID int64, previousLabel string, res *accountpool.LeaseResponse, generation claude.AuthGeneration, reason string)
-	logger     *slog.Logger
-	pollEvery  time.Duration
-	gateEvery  time.Duration
-	retryEvery time.Duration
+	// Pause rounds (account_pause.go). All optional.
+	// pauseRound returns the round the server asked this session to pause
+	// for, and whether every session of the scope has reported paused.
+	pauseRound func() (round string, ready bool)
+	// pauseReport tells the server how the switch of a round ended.
+	pauseReport func(ctx context.Context, round, state, reason string)
+	// reportRepair repeats the unfinished report for a binding the file does
+	// not follow, so the server can pause the scope for it.
+	reportRepair func(context.Context) error
+	logger       *slog.Logger
+	pollEvery    time.Duration
+	gateEvery    time.Duration
+	retryEvery   time.Duration
+	// busyWait overrides accountSwitchBusyWait (tests).
+	busyWait time.Duration
 }
 
 // committedSwitch is a switch the server has committed (the directive is
@@ -208,16 +224,27 @@ func writeCommittedSwitch(ctx context.Context, d *accountSwitchDeps, c *committe
 			return flushed.Generation, true
 		}
 	}
+	var busy time.Duration
 	for attempt := 0; attempt < accountSwitchWrites && ctx.Err() == nil; attempt++ {
 		generation, written, err := d.write(ctx, c.res, c.expected)
 		if written {
 			return generation, true
 		}
 		if errors.Is(err, errTurnBusy) {
-			if !sleepContext(ctx, d.gateEvery) {
-				break
+			limit := d.busyWait
+			if limit <= 0 {
+				limit = accountSwitchBusyWait
 			}
-			for !d.idle() && sleepContext(ctx, d.gateEvery) {
+			// Wait for the turn to end, but not for ever: past the limit the
+			// attempt goes back to the caller, which counts it, retries later
+			// and reports a write that never gets its turn.
+			for waiting := true; waiting; waiting = !d.idle() {
+				if busy += d.gateEvery; busy > limit {
+					return claude.AuthGeneration{}, false
+				}
+				if !sleepContext(ctx, d.gateEvery) {
+					return claude.AuthGeneration{}, false
+				}
 			}
 			attempt--
 			continue
@@ -267,6 +294,19 @@ func (c *committedSwitch) reflushed(flushed flushResult) bool {
 	return c.repair
 }
 
+func (d *accountSwitchDeps) currentPauseRound() (string, bool) {
+	if d.pauseRound == nil {
+		return "", false
+	}
+	return d.pauseRound()
+}
+
+func (d *accountSwitchDeps) reportPause(ctx context.Context, round, state, reason string) {
+	if d.pauseReport != nil && round != "" {
+		d.pauseReport(ctx, round, state, reason)
+	}
+}
+
 func sleepContext(ctx context.Context, d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -288,11 +328,26 @@ func runAccountSwitcher(ctx context.Context, d *accountSwitchDeps) {
 	// A committed switch still being written keeps sync paused; at exit the
 	// launch stops the watcher for good and the post-run sync takes over.
 	var committed *committedSwitch
+	var lastRepairReport time.Time
+	// flushedRound is the pause round whose early flush has run.
+	var flushedRound string
 	// repair looks for a binding the credentials file does not follow yet: a
 	// predecessor died between its commit and its write, a sibling's switch
 	// was adopted, or a background sync saw another account's login.
 	repair := func() *committedSwitch {
-		if !d.repairPending() || !d.idle() {
+		if !d.repairPending() {
+			return nil
+		}
+		if !d.idle() {
+			// The scope is busy and the file still belongs to another
+			// account. The server learns that at every poll and can pause
+			// the scope for the write.
+			if d.reportRepair != nil && time.Since(lastRepairReport) >= d.pollEvery {
+				lastRepairReport = time.Now()
+				if err := d.reportRepair(ctx); err != nil {
+					d.logger.Debug("unfinished account repair not reported", "err", err)
+				}
+			}
 			return nil
 		}
 		flushed, err := d.flush(ctx, false)
@@ -326,12 +381,30 @@ func runAccountSwitcher(ctx context.Context, d *accountSwitchDeps) {
 		case <-wake:
 			beat()
 		}
+		// Asked to pause: check the flush now, while the other sessions are
+		// still coming to rest. A flush that cannot succeed ends the round at
+		// once instead of holding every session for the whole budget.
+		if round, ready := d.currentPauseRound(); round != "" && !ready && round != flushedRound && committed == nil {
+			flushedRound = round
+			if pending := d.pool.Pending(); pending != nil || d.repairPending() {
+				relaxed := pending != nil && pending.LeavesUnusableAccount()
+				if _, err := d.flush(ctx, relaxed); err != nil {
+					d.logger.Warn("account pause: credentials cannot be flushed", "err", err)
+					d.reportPause(ctx, round, accountpool.PauseStateFailed, "flush: "+err.Error())
+				}
+			}
+		}
 		if d.pool.Pending() == nil {
 			committed = repair()
 		}
 		for ctx.Err() == nil && (committed != nil || d.pool.Pending() != nil) {
 			var outcome switchOutcome
 			var err error
+			// The round this attempt runs in, if the scope is paused for one.
+			round, ready := d.currentPauseRound()
+			if !ready {
+				round = ""
+			}
 			if committed != nil {
 				outcome, committed, err = finishAccountSwitch(ctx, d, committed)
 			} else {
@@ -339,6 +412,17 @@ func runAccountSwitcher(ctx context.Context, d *accountSwitchDeps) {
 			}
 			if err != nil {
 				d.logger.Warn("live account switch", "outcome", outcome, "err", err)
+			}
+			switch {
+			case round == "":
+			case outcome == switchDone:
+				// Written: the server releases every session of the scope.
+				d.reportPause(ctx, round, accountpool.PauseStateDone, "")
+			case outcome == switchRetry && err != nil:
+				// Flush or commit failed. Nobody else will finish this round,
+				// so it ends now. A commit another session won (dropped) and a
+				// write still being retried are not failures of the round.
+				d.reportPause(ctx, round, accountpool.PauseStateFailed, err.Error())
 			}
 			if outcome != switchRetry && committed == nil {
 				break

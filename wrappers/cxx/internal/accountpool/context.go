@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountgate"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/communicator"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/quotaemulation"
 	"net/http"
@@ -46,6 +47,14 @@ type Context struct {
 	poolKnown bool
 	wake      chan struct{}
 	onAdopt   func(Adoption)
+	// Pause, switch, resume (pause.go). gateDir is this launch's hook gate;
+	// pause is the server's current command with its local deadline;
+	// pauseCapable is what the server last said about this lease.
+	gateDir       string
+	pause         *PauseCommand
+	pauseDeadline time.Time
+	pauseChanged  chan struct{}
+	pauseCapable  *bool
 }
 
 // binding is the scope's binding file. account_label and pool_size are
@@ -356,8 +365,9 @@ func (c *Context) StartWithCredentialCheck(ctx context.Context, client Client, l
 		return nil, nil, fmt.Errorf("save account binding: %w", err)
 	}
 	removeMarker := c.writeSessionMarker(id)
+	removeGate := c.prepareGate(id)
 	unmarkedRelease := release
-	release = func() { removeMarker(); unmarkedRelease() }
+	release = func() { removeGate(); removeMarker(); unmarkedRelease() }
 	var initialState *communicator.StateClient
 	if stateRequired {
 		var stateErr error
@@ -401,12 +411,25 @@ func (c *Context) StartWithCredentialCheck(ctx context.Context, client Client, l
 				continue
 			}
 			connectionOwned, refused = true, 0
-			select {
-			case <-hctx.Done():
-				state.Close()
-				return
-			case <-state.Done():
-				state.Close()
+			// The provider stream also carries the server's pause for this
+			// lease. A lost stream keeps the last command: its local deadline
+			// ends it, and the next snapshot says where the round stands.
+		attached:
+			for {
+				var snapshot providerState
+				_, changed, ok := state.Snapshot(&snapshot)
+				if ok {
+					c.observePause(snapshot.Pause, time.Now())
+				}
+				select {
+				case <-hctx.Done():
+					state.Close()
+					return
+				case <-state.Done():
+					state.Close()
+					break attached
+				case <-changed:
+				}
 			}
 		}
 		// Three renewals per five-minute lease TTL; a missed one re-reserves on 404.
@@ -432,9 +455,11 @@ func (c *Context) ActivateEnvironment() func() {
 		return func() {}
 	}
 	c.mu.Lock()
-	id, session := c.AccountID, c.SessionID
+	id, session, gate := c.AccountID, c.SessionID, c.gateDir
 	c.mu.Unlock()
-	values := map[string]string{"CXX_PROVIDER_ACCOUNT_ID": strconv.FormatInt(id, 10), "CXX_PROVIDER_SESSION_ID": session}
+	// The launch's hooks find their gate through the environment; a launch
+	// without one must not inherit the gate of the launch that started it.
+	values := map[string]string{"CXX_PROVIDER_ACCOUNT_ID": strconv.FormatInt(id, 10), "CXX_PROVIDER_SESSION_ID": session, accountgate.EnvDir: gate}
 	old := map[string]*string{}
 	for key, value := range values {
 		if previous, ok := os.LookupEnv(key); ok {

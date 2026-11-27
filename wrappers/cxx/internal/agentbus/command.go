@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/accountgate"
 	"github.com/christianreiss/codex-orchestrator/wrappers/cxx/internal/clihelp"
 	"io"
 	"strconv"
@@ -52,6 +53,10 @@ func RunCommand(args []string, stdin io.Reader, stdout, stderr io.Writer, versio
 	case "activity-event":
 		// Observation is best effort and must never block a native hook.
 		_ = reportActivityHook(stdin)
+	case "account-gate":
+		// Holds the hook while the scope's account is switched; it reports
+		// nothing and never fails (internal/accountgate).
+		accountgate.RunHook(stdin)
 	case "watchdog-event":
 		err = reportWatchdogEvent(stdin)
 	case "native-session":
