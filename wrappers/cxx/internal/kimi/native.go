@@ -69,12 +69,42 @@ func NativeEnv(env []string) []string {
 }
 func SetEnv(env []string, key, value string) []string { return nativeengine.SetEnv(env, key, value) }
 
+// PlatformPackage returns the manifest platform key. The manifest also lists
+// win32-x64 and win32-arm64 (kimi-code-win32-<arch>.exe); the installer can
+// resolve them, but Windows is not a supported platform yet.
 func PlatformPackage(goos, goarch string) (string, error) {
 	arch := map[string]string{"amd64": "x64", "arm64": "arm64"}[goarch]
-	if (goos != "linux" && goos != "darwin") || arch == "" {
+	if arch == "" {
 		return "", fmt.Errorf("unsupported Kimi platform %s/%s", goos, goarch)
 	}
-	return goos + "-" + arch, nil
+	switch goos {
+	case "linux", "darwin":
+		return goos + "-" + arch, nil
+	case "windows":
+		return "win32-" + arch, nil
+	}
+	return "", fmt.Errorf("unsupported Kimi platform %s/%s", goos, goarch)
+}
+
+// binaryName is the stored executable name.
+func binaryName(goos string) string {
+	if goos == "windows" {
+		return "kimi.exe"
+	}
+	return "kimi"
+}
+
+// manifestAsset selects and sanity-checks the manifest entry for pkg.
+func manifestAsset(raw []byte, pkg string) (filename, checksum string, err error) {
+	var meta binaryManifest
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return "", "", err
+	}
+	asset, ok := meta.Platforms[pkg]
+	if !ok || asset.Filename == "" || filepath.Base(asset.Filename) != asset.Filename || strings.ContainsAny(asset.Filename, "\\?#") {
+		return "", "", errors.New("invalid Kimi manifest platform")
+	}
+	return asset.Filename, asset.Checksum, nil
 }
 
 type binaryManifest struct {
@@ -152,23 +182,19 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 	if err != nil {
 		return "", err
 	}
-	var meta binaryManifest
-	if err := json.Unmarshal(raw, &meta); err != nil {
+	filename, checksum, err := manifestAsset(raw, pkg)
+	if err != nil {
 		return "", err
-	}
-	asset, ok := meta.Platforms[pkg]
-	if !ok || asset.Filename == "" || filepath.Base(asset.Filename) != asset.Filename || strings.ContainsAny(asset.Filename, "\\?#") {
-		return "", errors.New("invalid Kimi manifest platform")
 	}
 	if err := installspace.Check(ctx, "Kimi", installspace.Need{Path: root, Bytes: installspace.Native, Inodes: 128}); err != nil {
 		return "", err
 	}
-	binary, err := download(updateprogress.WithArtifact(ctx, "binary"), client, base+asset.Filename, 512<<20)
+	binary, err := download(updateprogress.WithArtifact(ctx, "binary"), client, base+filename, 512<<20)
 	if err != nil {
 		return "", err
 	}
 	updateprogress.Emit(ctx, updateprogress.Event{Phase: "verifying"})
-	if err := VerifyBinary(binary, asset.Checksum); err != nil {
+	if err := VerifyBinary(binary, checksum); err != nil {
 		return "", err
 	}
 	if err := installspace.Check(ctx, "Kimi", installspace.Need{Path: root, Bytes: uint64(len(binary)), Inodes: 128}); err != nil {
@@ -184,7 +210,7 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 			_ = os.RemoveAll(stage)
 		}
 	}()
-	path := filepath.Join(stage, "kimi")
+	path := filepath.Join(stage, binaryName(runtime.GOOS))
 	if err := os.WriteFile(path, binary, 0o700); err != nil {
 		return "", err
 	}
@@ -193,9 +219,9 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 		return "", errors.New("staged Kimi binary failed version verification")
 	}
 	finalDir := filepath.Join(root, version)
-	finalPath := filepath.Join(finalDir, "kimi")
+	finalPath := filepath.Join(finalDir, binaryName(runtime.GOOS))
 	existing, readErr := os.ReadFile(finalPath)
-	if got, err := ProbeVersion(ctx, finalPath); readErr == nil && VerifyBinary(existing, asset.Checksum) == nil && err == nil && got == version {
+	if got, err := ProbeVersion(ctx, finalPath); readErr == nil && VerifyBinary(existing, checksum) == nil && err == nil && got == version {
 		_ = os.RemoveAll(stage)
 	} else if _, err := os.Stat(finalDir); err == nil {
 		return "", errors.New("existing Kimi version directory failed verification")

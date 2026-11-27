@@ -186,7 +186,10 @@ Process environment for every managed start: `KIMI_CODE_HOME=<private home>`,
 
 `https://code.kimi.com/kimi-code/binaries/<version>/manifest.json` →
 `platforms["<os>-<arch>"]` (`linux-x64`, `linux-arm64`, `darwin-x64`,
-`darwin-arm64`) `.filename` and `.checksum` (sha256 hex). Download
+`darwin-arm64`; the manifest also lists `win32-x64` and `win32-arm64` with
+`kimi-code-win32-<arch>.exe`, which the installer can resolve and store as
+`kimi.exe` although Windows is not a supported platform yet) `.filename` and
+`.checksum` (sha256 hex). Download
 `…/binaries/<version>/<filename>` (bare binary; the host redirects to
 `cdn.kimi.com`), verify sha256, install to `~/.cxx/engines/kimi/<version>/kimi`,
 probe `kimi --version`, prune with `enginestore`. Latest pointer:

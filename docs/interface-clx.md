@@ -471,6 +471,9 @@ The shared background coordinator checks both enabled engines, honors the
 fleet/host auto-update policy, verifies wrapper SHA256, and stages Claude with
 `npm install --prefix <private-stage> --global=false <selected-platform-package>@<target>`
 on Linux (the main `@anthropic-ai/claude-code` package remains the macOS path).
+The native installer can resolve the Windows packages
+(`@anthropic-ai/claude-code-win32-<arch>`, member `package/claude.exe`); Windows
+is not a supported platform yet.
 It validates the runnable version before atomically publishing its cached CLI
 path. The prefix it supersedes under `~/.cxx/engines/claude` survives the
 install itself, so a running session keeps its original files; a later

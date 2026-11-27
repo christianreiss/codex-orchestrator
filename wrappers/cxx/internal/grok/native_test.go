@@ -80,7 +80,7 @@ func TestPlatformPackages(t *testing.T) {
 			t.Fatalf("%s/%s=%q,%v", tt.os, tt.arch, got, err)
 		}
 	}
-	if _, err := PlatformPackage("windows", "amd64"); err == nil {
+	if _, err := PlatformPackage("freebsd", "amd64"); err == nil {
 		t.Fatal("unsupported platform accepted")
 	}
 }

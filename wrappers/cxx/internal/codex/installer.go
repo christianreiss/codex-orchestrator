@@ -70,6 +70,11 @@ func pickAssetFor(rel Release, binName, goos, goarch string) (Asset, error) {
 		if !strings.HasPrefix(a.Name, prefix) {
 			continue
 		}
+		if goos == "windows" && !strings.HasSuffix(a.Name, ".tar.gz") && a.Name != prefix+".exe" {
+			// Windows releases also publish .exe.zip/.exe.zst; only the raw
+			// executable can be installed without unpacking.
+			continue
+		}
 		matched = true
 		if strings.HasSuffix(a.Name, ".tar.gz") {
 			tarball = a
@@ -109,6 +114,13 @@ func archTriple(goos, goarch string) (string, error) {
 		return "aarch64-apple-darwin", nil
 	case "darwin/amd64":
 		return "x86_64-apple-darwin", nil
+	// Windows assets are named codex-<triple>.exe (+ .exe.tar.gz) and
+	// codex-package-<triple>.tar.gz. The installer can resolve them; Windows is
+	// not a supported platform yet.
+	case "windows/amd64":
+		return "x86_64-pc-windows-msvc", nil
+	case "windows/arm64":
+		return "aarch64-pc-windows-msvc", nil
 	default:
 		return "", fmt.Errorf("unsupported platform %s/%s", goos, goarch)
 	}

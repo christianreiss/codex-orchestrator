@@ -2248,7 +2248,9 @@ From cxx 0.9.177:
 Linux background installs prefer an explicit GNU/glibc platform package declared
 by the pinned xAI manifest. The currently published musl distribution remains
 the verified fallback when no compatible GNU package is offered. Same-version
-maintenance still evaluates this selection.
+maintenance still evaluates this selection. The installer can resolve Windows
+packages (`@xai-official/grok-win32-<arch>`, member `package/bin/grok.exe.br`);
+Windows is not a supported platform yet.
 
 The persistent selection receipt, 24-hour fallback recheck, failure backoff,
 explicit-update retry, overrides and live-session retention follow the shared

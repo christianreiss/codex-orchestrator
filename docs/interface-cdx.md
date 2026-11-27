@@ -3236,7 +3236,9 @@ Codex's package detection. GNU package preference and musl fallback use the
 existing libc selection policy. When a release publishes packages, missing
 platform packages fail closed rather than falling back to stripped binaries.
 Releases with no full packages retain the standalone installer. Explicit
-`CDX_CODEX_BIN` overrides are never replaced.
+`CDX_CODEX_BIN` overrides are never replaced. The installer can resolve Windows
+packages (`*-pc-windows-msvc`, `bin/codex.exe` layout); Windows is not a
+supported platform yet.
 
 Before publication, the installer verifies the GitHub release asset SHA-256,
 package version/target/layout, Voice manifest identity and every listed file

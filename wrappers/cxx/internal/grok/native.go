@@ -76,13 +76,34 @@ func NativeEnv(env []string) []string {
 }
 func SetEnv(env []string, key, value string) []string { return nativeengine.SetEnv(env, key, value) }
 
+// PlatformPackage names the npm platform package. The installer can resolve the
+// Windows packages (@xai-official/grok-win32-<arch>); Windows is not a
+// supported platform yet. xAI's own install.ps1 additionally bundles MinGit,
+// which this installer does not stage.
 func PlatformPackage(goos, goarch string) (string, error) {
 	arch := map[string]string{"amd64": "x64", "arm64": "arm64"}[goarch]
-	if (goos != "linux" && goos != "darwin") || arch == "" {
+	if arch == "" {
 		return "", fmt.Errorf("unsupported Grok platform %s/%s", goos, goarch)
 	}
-	return "@xai-official/grok-" + goos + "-" + arch, nil
+	switch goos {
+	case "linux", "darwin":
+		return "@xai-official/grok-" + goos + "-" + arch, nil
+	case "windows":
+		return "@xai-official/grok-win32-" + arch, nil
+	}
+	return "", fmt.Errorf("unsupported Grok platform %s/%s", goos, goarch)
 }
+
+// binaryName is the staged executable name; archiveMember is the one npm
+// package member holding it, brotli-compressed.
+func binaryName(goos string) string {
+	if goos == "windows" {
+		return "grok.exe"
+	}
+	return "grok"
+}
+
+func archiveMember(goos string) string { return "package/bin/" + binaryName(goos) + ".br" }
 
 type packageMetadata struct {
 	Version string `json:"version"`
@@ -98,6 +119,13 @@ func download(ctx context.Context, client *http.Client, location string, limit i
 
 // ExtractBinary verifies the complete npm archive before reading its one allowed member.
 func ExtractBinary(archive []byte, integrity string) ([]byte, error) {
+	return ExtractBinaryFor(runtime.GOOS, archive, integrity)
+}
+
+// ExtractBinaryFor is ExtractBinary for an explicit target OS: the member is
+// package/bin/grok.br, or package/bin/grok.exe.br (a PE image) on Windows.
+func ExtractBinaryFor(goos string, archive []byte, integrity string) ([]byte, error) {
+	member := archiveMember(goos)
 	if !strings.HasPrefix(integrity, "sha512-") {
 		return nil, errors.New("Grok package requires SHA-512 integrity")
 	}
@@ -124,7 +152,7 @@ func ExtractBinary(archive []byte, integrity string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if header.Name != "package/bin/grok.br" {
+		if header.Name != member {
 			continue
 		}
 		if binary != nil || header.Typeflag != tar.TypeReg {
@@ -137,9 +165,12 @@ func ExtractBinary(archive []byte, integrity string) ([]byte, error) {
 		if len(binary) == 0 || len(binary) > 512<<20 {
 			return nil, errors.New("invalid Grok binary size")
 		}
+		if goos == "windows" && !bytes.HasPrefix(binary, []byte("MZ")) {
+			return nil, errors.New("Grok Windows binary is not a PE image")
+		}
 	}
 	if binary == nil {
-		return nil, errors.New("Grok package contains no package/bin/grok.br")
+		return nil, errors.New("Grok package contains no " + member)
 	}
 	return binary, nil
 }
@@ -275,7 +306,7 @@ func installWithClient(ctx context.Context, version string, client *http.Client)
 			_ = os.RemoveAll(stage)
 		}
 	}()
-	path := filepath.Join(stage, "grok")
+	path := filepath.Join(stage, binaryName(runtime.GOOS))
 	if err := os.WriteFile(path, binary, 0o700); err != nil {
 		return "", err
 	}

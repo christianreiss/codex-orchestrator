@@ -35,8 +35,20 @@ var muslLoaderGlob = "/lib/ld-musl-*.so.1"
 // claudePlatformPackage names the @anthropic-ai/claude-code optionalDependency
 // carrying the native CLI for this host, or "" when none is published.
 func claudePlatformPackage() string {
+	musl := false
+	if runtime.GOOS == "linux" {
+		matches, _ := filepath.Glob(muslLoaderGlob)
+		musl = len(matches) > 0
+	}
+	return claudePlatformPackageForOS(runtime.GOOS, runtime.GOARCH, musl)
+}
+
+// claudePlatformPackageForOS is the pure goos/goarch mapping behind
+// claudePlatformPackage. Windows (win32-<arch>) resolves a package but is not a
+// supported platform yet.
+func claudePlatformPackageForOS(goos, goarch string, musl bool) string {
 	var arch string
-	switch runtime.GOARCH {
+	switch goarch {
 	case "amd64":
 		arch = "x64"
 	case "arm64":
@@ -44,12 +56,14 @@ func claudePlatformPackage() string {
 	default:
 		return ""
 	}
-	switch runtime.GOOS {
+	switch goos {
 	case "darwin":
 		return "@anthropic-ai/claude-code-darwin-" + arch
+	case "windows":
+		return "@anthropic-ai/claude-code-win32-" + arch
 	case "linux":
 		name := "@anthropic-ai/claude-code-linux-" + arch
-		if matches, _ := filepath.Glob(muslLoaderGlob); len(matches) > 0 {
+		if musl {
 			name += "-musl"
 		}
 		return name
@@ -104,8 +118,8 @@ func installNativeClaude(ctx context.Context, stage, target string) (string, err
 		return "", fmt.Errorf("download %s@%s: %w", pkg, target, err)
 	}
 	defer os.Remove(tarball)
-	dest := filepath.Join(stage, "bin", "claude")
-	if err := extractClaudeBinary(tarball, dest); err != nil {
+	dest := filepath.Join(stage, "bin", claudeBinaryName(runtime.GOOS))
+	if err := extractClaudeBinaryFor(runtime.GOOS, tarball, dest); err != nil {
 		return "", fmt.Errorf("extract %s@%s: %w", pkg, target, err)
 	}
 	return dest, nil
@@ -166,9 +180,25 @@ func downloadClaudeTarball(ctx context.Context, url, dest string, digest []byte)
 	return nil
 }
 
+// claudeBinaryName is the file name of the native CLI: the tarball member is
+// package/<name> and the staged file is bin/<name>.
+func claudeBinaryName(goos string) string {
+	if goos == "windows" {
+		return "claude.exe"
+	}
+	return "claude"
+}
+
 // extractClaudeBinary writes only package/claude; every other entry is ignored,
 // so the archive can never place a file outside dest.
 func extractClaudeBinary(tarball, dest string) error {
+	return extractClaudeBinaryFor(runtime.GOOS, tarball, dest)
+}
+
+// extractClaudeBinaryFor accepts package/claude, or package/claude.exe on
+// Windows only.
+func extractClaudeBinaryFor(goos, tarball, dest string) error {
+	member := "package/" + claudeBinaryName(goos)
 	f, err := os.Open(tarball)
 	if err != nil {
 		return err
@@ -183,12 +213,12 @@ func extractClaudeBinary(tarball, dest string) error {
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return errors.New("package/claude not found in tarball")
+			return errors.New(member + " not found in tarball")
 		}
 		if err != nil {
 			return err
 		}
-		if hdr.Name != "package/claude" || hdr.Typeflag != tar.TypeReg {
+		if hdr.Name != member || hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		if hdr.Size < 0 || hdr.Size > maxClaudeTarball {

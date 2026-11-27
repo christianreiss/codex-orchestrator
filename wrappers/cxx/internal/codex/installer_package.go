@@ -41,11 +41,15 @@ type voiceManifest struct {
 }
 
 func pickPackageAsset(ctx context.Context, rel Release) (Asset, error) {
-	triple, err := archTriple(runtime.GOOS, runtime.GOARCH)
+	return pickPackageAssetFor(ctx, rel, runtime.GOOS, runtime.GOARCH)
+}
+
+func pickPackageAssetFor(ctx context.Context, rel Release, goos, goarch string) (Asset, error) {
+	triple, err := archTriple(goos, goarch)
 	if err != nil {
 		return Asset{}, err
 	}
-	if libcselect.Requested(ctx) == libcselect.GNU {
+	if libcselect.Requested(ctx) == libcselect.GNU && strings.HasSuffix(triple, "musl") {
 		triple = strings.TrimSuffix(triple, "musl") + "gnu"
 	}
 	name := "codex-package-" + triple + ".tar.gz"
@@ -65,15 +69,62 @@ func pickPackageAsset(ctx context.Context, rel Release) (Asset, error) {
 }
 
 func regularFile(p string, executable bool) bool {
+	return regularFileFor(runtime.GOOS, p, executable)
+}
+
+// regularFileFor reports whether p is a non-empty regular file. Go never
+// reports an exec bit on Windows (executability comes from the .exe name), so
+// the permission check applies to every other platform only.
+func regularFileFor(goos, p string, executable bool) bool {
 	info, err := os.Lstat(p)
-	return err == nil && info.Mode().IsRegular() && info.Size() > 0 && (!executable || info.Mode().Perm()&0111 != 0)
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0 && (!executable || goos == "windows" || info.Mode().Perm()&0111 != 0)
+}
+
+// packageLayout names the platform-dependent members of a full Codex package.
+// Windows packages declare bin/codex.exe and carry .exe/.dll payloads; every
+// other platform keeps the extensionless Unix layout.
+type packageLayout struct {
+	goos       string
+	entrypoint string
+	companion  string
+	execServer string
+	rg         string
+	voiceHost  string
+	voiceLib   string
+}
+
+func packageExeSuffix(goos string) string {
+	if goos == "windows" {
+		return ".exe"
+	}
+	return ""
+}
+
+func packageLayoutFor(goos string) packageLayout {
+	exe := packageExeSuffix(goos)
+	library := "codex-resources/voice/lib/libgstreamer-1.0.so.0"
+	switch goos {
+	case "windows":
+		library = "codex-resources/voice/bin/gstreamer-1.0-0.dll"
+	case "darwin":
+		library = "codex-resources/voice/lib/libgstreamer-1.0.0.dylib"
+	}
+	return packageLayout{
+		goos:       goos,
+		entrypoint: "bin/codex" + exe,
+		companion:  "bin/" + codeModeHostBinName + exe,
+		execServer: "bin/codex-exec-server" + exe,
+		rg:         "codex-path/rg" + exe,
+		voiceHost:  "codex-resources/voice/bin/codex-voice-host" + exe,
+		voiceLib:   library,
+	}
 }
 
 // Maintenance checks the complete inventory without rehashing hundreds of MB on
 // every sync. All hashes are checked before publication. A missing/truncated
 // file invalidates same-version convergence and stages a fresh private prefix.
 func codexInstallationHealthy(cli string) bool {
-	if !regularFile(cli, true) || !regularFile(filepath.Join(filepath.Dir(cli), codeModeHostBinName), true) {
+	if !regularFile(cli, true) || !regularFile(filepath.Join(filepath.Dir(cli), codeModeHostBinName+packageExeSuffix(runtime.GOOS)), true) {
 		return false
 	}
 	if filepath.Base(filepath.Dir(cli)) != "bin" {
@@ -98,6 +149,10 @@ func codexInstallationHealthy(cli string) bool {
 		}
 	}
 	return validateCodexPackage(context.Background(), root, "", "", false) == nil
+}
+
+func (l packageLayout) regular(p string, executable bool) bool {
+	return regularFileFor(l.goos, p, executable)
 }
 
 func packagePath(name string) bool {
@@ -190,16 +245,21 @@ func readPackageJSON(p string, value any) error {
 }
 
 func validateCodexPackage(ctx context.Context, dir, version, target string, hashes bool) error {
+	return validateCodexPackageFor(ctx, runtime.GOOS, dir, version, target, hashes)
+}
+
+func validateCodexPackageFor(ctx context.Context, goos, dir, version, target string, hashes bool) error {
+	layout := packageLayoutFor(goos)
 	bad := func(message string) error { return fmt.Errorf("%w: %s", libcselect.ErrIntegrity, message) }
 	var metadata packageMetadata
 	if err := readPackageJSON(filepath.Join(dir, "codex-package.json"), &metadata); err != nil {
 		return bad("Codex package metadata: " + err.Error())
 	}
-	if metadata.LayoutVersion != 1 || metadata.Entrypoint != "bin/codex" || metadata.ResourcesDir != "codex-resources" || metadata.Version == "" || (version != "" && metadata.Version != version) || (target != "" && metadata.Target != target) {
+	if metadata.LayoutVersion != 1 || metadata.Entrypoint != layout.entrypoint || metadata.ResourcesDir != "codex-resources" || metadata.Version == "" || (version != "" && metadata.Version != version) || (target != "" && metadata.Target != target) {
 		return bad("Codex package identity mismatch")
 	}
-	for _, p := range []string{"bin/codex", "bin/" + codeModeHostBinName, "bin/codex-exec-server", "codex-path/rg"} {
-		if !regularFile(filepath.Join(dir, p), true) {
+	for _, p := range []string{layout.entrypoint, layout.companion, layout.execServer, layout.rg} {
+		if !layout.regular(filepath.Join(dir, p), true) {
 			return bad("missing executable " + p)
 		}
 	}
@@ -214,11 +274,7 @@ func validateCodexPackage(ctx context.Context, dir, version, target string, hash
 	if manifest.SchemaVersion != 1 || manifest.AppVersion != metadata.Version || manifest.AppTarget != metadata.Target || manifest.VoiceTarget != voiceTarget || len(manifest.BuildCommit) != 40 || len(manifest.SHA256) == 0 {
 		return bad("Voice manifest identity mismatch")
 	}
-	library := "codex-resources/voice/lib/libgstreamer-1.0.so.0"
-	if runtime.GOOS == "darwin" {
-		library = "codex-resources/voice/lib/libgstreamer-1.0.0.dylib"
-	}
-	for _, name := range []string{"bin/codex", "codex-resources/voice/bin/codex-voice-host", "codex-resources/voice/runtime.json", library} {
+	for _, name := range []string{layout.entrypoint, layout.voiceHost, "codex-resources/voice/runtime.json", layout.voiceLib} {
 		if _, ok := manifest.SHA256[name]; !ok {
 			return bad("Voice manifest omits " + name)
 		}
@@ -227,14 +283,14 @@ func validateCodexPackage(ctx context.Context, dir, version, target string, hash
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !packagePath(name) || (name != "bin/codex" && !strings.HasPrefix(name, "codex-resources/voice/")) {
+		if !packagePath(name) || (name != layout.entrypoint && !strings.HasPrefix(name, "codex-resources/voice/")) {
 			return bad("invalid Voice inventory path")
 		}
 		if b, err := hex.DecodeString(expected); err != nil || len(b) != 32 {
 			return bad("invalid Voice inventory digest")
 		}
 		p := filepath.Join(dir, filepath.FromSlash(name))
-		if !regularFile(p, name == "codex-resources/voice/bin/codex-voice-host") {
+		if !layout.regular(p, name == layout.voiceHost) {
 			return bad("missing Voice file " + name)
 		}
 		if hashes {
@@ -284,14 +340,14 @@ func installCodexPackage(ctx context.Context, rel Release, asset Asset, dir stri
 		if err := readPackageJSON(filepath.Join(dir, "codex-resources/voice/manifest.json"), &manifest); err != nil {
 			return err
 		}
-		out, err := libcselect.Probe(ctx, filepath.Join(dir, "codex-resources/voice/bin/codex-voice-host"), "--build-commit")
+		out, err := libcselect.Probe(ctx, filepath.Join(dir, filepath.FromSlash(packageLayoutFor(runtime.GOOS).voiceHost)), "--build-commit")
 		if err != nil {
 			return fmt.Errorf("validate Voice host: %w", err)
 		}
 		if strings.TrimSpace(string(out)) != manifest.BuildCommit {
 			return fmt.Errorf("%w: Voice helper build mismatch", libcselect.ErrIntegrity)
 		}
-		if err := probeVoiceRuntime(ctx, filepath.Join(dir, "codex-resources/voice/bin/codex-voice-host"), manifest.BuildCommit); err != nil {
+		if err := probeVoiceRuntime(ctx, filepath.Join(dir, filepath.FromSlash(packageLayoutFor(runtime.GOOS).voiceHost)), manifest.BuildCommit); err != nil {
 			return err
 		}
 	} else {

@@ -82,7 +82,7 @@ func TestKimiVersionFloorAndPlatform(t *testing.T) {
 			t.Fatal(v)
 		}
 	}
-	if _, err := PlatformPackage("windows", "amd64"); err == nil {
+	if _, err := PlatformPackage("freebsd", "amd64"); err == nil {
 		t.Fatal("unsupported platform")
 	}
 	if CoerceVersionToMinimum("2.4.0") != PinnedVersion {
