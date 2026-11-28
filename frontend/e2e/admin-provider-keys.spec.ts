@@ -16,6 +16,8 @@ type Options = {
   disabledEngines?: readonly string[];
   keys?: Key[];
   sources?: Partial<Record<string, "emulated" | "upstream">>;
+  /** The stored key in use per provider; the stub answers like the server's effective value. */
+  current?: Partial<Record<string, number>>;
   /** How `GET /admin/provider-keys` answers; `fail-after-first` serves one list, then fails. */
   list?: "ok" | "hold" | "deny" | "fail" | "fail-after-first";
   createError?: Failure;
@@ -41,6 +43,8 @@ async function providerKeys(page: Page, options: Options = {}) {
   let releaseList: (() => void) | undefined;
   let nextId = 100;
   const disabled = new Set(options.disabledEngines ?? []);
+  const current: Record<string, number | undefined> = { ...options.current };
+  const usableKey = (k: Key) => k.state === "active" && k.verification_state !== "invalid";
   const providers = () =>
     PROVIDER_KEYS_FIXTURE.providers.map((p) => {
       const own = keys.filter((k) => k.provider === p.provider);
@@ -50,6 +54,10 @@ async function providerKeys(page: Page, options: Options = {}) {
         engine_enabled: !disabled.has(p.engine),
         source: options.sources?.[p.provider] ?? p.source,
         counts: { total: own.length, active: active.length, usable: active.filter((k) => k.verification_state !== "invalid").length },
+        current_key_id: (() => {
+          const usable = own.filter(usableKey).sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+          return (usable.find((k) => k.id === current[p.provider]) ?? usable[0])?.id ?? null;
+        })(),
       };
     });
 
@@ -105,6 +113,11 @@ async function providerKeys(page: Page, options: Options = {}) {
         Object.assign(record, options.verdict ?? { verification_state: "valid", verification_reason: null }, { verification_checked_at: "2026-11-26T10:00:00Z" });
         return json(record);
       }
+      if (path.endsWith("/current")) {
+        if (!usableKey(record)) return fail({ status: 409, code: "provider_key_not_usable", message: "Only an active key that is not invalid can be the current key" });
+        current[record.provider] = record.id;
+        return json({ provider: record.provider, current_key_id: record.id });
+      }
       if (path.endsWith("/state")) {
         record.state = String(payload.state);
         return json(record);
@@ -143,6 +156,8 @@ test("lists each provider's keys in failover order with their verdicts", async (
   const openai = region(page, "OpenAI");
   await expect(openai.locator("tr[data-key-id]")).toHaveText([/Primary/, /Backup/, /Old project/]);
   await expect(rowOf(page, "Primary")).toContainText("Verified");
+  await expect(rowOf(page, "Primary")).toContainText("In use");
+  await expect(page.locator("#provider-openai")).toContainText("Requests go to Primary, the key in use.");
   await expect(rowOf(page, "Backup")).toContainText("Paused");
   await expect(rowOf(page, "Backup")).toContainText("Not tried while paused");
   await expect(rowOf(page, "Old project")).toContainText("Rejected");
@@ -365,7 +380,7 @@ test("deleting names the failover consequence before it runs", async ({ page }) 
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Delete Primary?" })).toBeVisible();
   await expect(dialog).toContainText("The OpenAI key sk-…0001 is removed from this server.");
-  await expect(dialog).toContainText("The next key, Second, takes over: requests go to it first.");
+  await expect(dialog).toContainText("It is the key in use. The next key, Second, takes over and stays in use.");
   await dialog.getByRole("button", { name: "Delete key", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(rowOf(page, "Primary")).toHaveCount(0);
@@ -375,6 +390,35 @@ test("deleting names the failover consequence before it runs", async ({ page }) 
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(rowOf(page, "Second")).toBeVisible();
   expect(mutating(state.writes)).toEqual([{ method: "DELETE", path: "/admin/provider-keys/1", body: null }]);
+});
+
+test("marks the key in use and switches it immediately", async ({ page }) => {
+  const state = await providerKeys(page, {
+    keys: [makeKey(1, "openai", "Primary", 0), makeKey(5, "openai", "Second", 1), makeKey(6, "openai", "Paused one", 2, { state: "paused" })],
+  });
+  await page.goto("/admin/provider-keys");
+  const inUse = region(page, "OpenAI").getByText("In use", { exact: true });
+  await expect(inUse).toHaveCount(1);
+  await expect(rowOf(page, "Primary")).toContainText("In use");
+
+  // The key in use and a paused key offer no switch.
+  await page.getByRole("button", { name: "Actions for Primary", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Use this key now", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Actions for Paused one", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Use this key now", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await rowAction(page, "Second", "Use this key now");
+  await expect(rowOf(page, "Second")).toContainText("In use");
+  await expect(rowOf(page, "Primary")).not.toContainText("In use");
+  await expect(page.locator("#provider-openai")).toContainText("Requests go to Second, the key in use.");
+  await expect(page.getByText("Second is now the key in use")).toBeAttached();
+  expect(mutating(state.writes)).toEqual([{ method: "POST", path: "/admin/provider-keys/5/current", body: {} }]);
+
+  // Deleting a key that is not in use says nothing changes for traffic.
+  await rowAction(page, "Primary", "Delete key");
+  await expect(page.getByRole("dialog")).toContainText("It is not the key in use, so requests still go to Second");
 });
 
 test("pausing the last usable key of an upstream API asks first", async ({ page }) => {

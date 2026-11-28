@@ -73,10 +73,11 @@ With the source **API key**, a request goes unchanged to the API's own provider 
 - **Add key** asks for the provider, a name, the key and an optional base URL (https only, and private or reserved addresses are refused, unless the host is listed in `GATEWAY_UPSTREAM_PRIVATE_HOSTS`). The key is stored encrypted, never shown again and never sent to hosts. After saving, the dialog checks the key against the provider's models endpoint and shows the verdict; a key the provider accepts with limited rights is still verified, and endpoints it may not call answer with the provider's error.
 - **Edit key** renames it, replaces the key value (leave the field empty to keep it) or changes the base URL. A new key or base URL is checked again.
 - **Verify key** re-runs the check. **Pause key** takes a key out of the failover order without deleting it.
-- The arrows beside each key change the order. Requests use the first usable key (active and not rejected); when the provider refuses it (401, 403 or 429) or cannot be reached before the answer starts, the next key takes over. Other provider errors are returned as they are.
-- **Delete key** names what changes: the next key taking over, or, for the last usable key of an API on API key, that its requests fail with `503`.
+- One key per provider is **In use**: every request goes to it first. When the provider refuses it (401, 403 or 429) or cannot be reached before the answer starts, the next usable key (active and not rejected) in the list takes over and **stays in use**, even after the first key works again; after the last key the order starts again at the top. Other provider errors are returned as they are.
+- **Use this key now** makes another usable key the key in use at once. The arrows beside each key change the order the keys take over in; they do not move the key in use.
+- **Delete key** names what changes: the next key taking over when it is the key in use, or, for the last usable key of an API on API key, that its requests fail with `503`.
 
-Reading the page needs `auth.read_metadata`; every change needs `keys.manage`. `GET /admin/provider-keys` returns the lists and per-provider counts; a key value is never part of any response.
+Reading the page needs `auth.read_metadata`; every change needs `keys.manage`. `GET /admin/provider-keys` returns the lists, per-provider counts and the key in use (`current_key_id`); `POST /admin/provider-keys/:id/current` chooses it. A key value is never part of any response.
 
 **Backend defaults** — collapsed Claude and Grok sections containing the Claude proxy defaults and the **Grok API gateway** controls (gateway default model and per-model switches), which apply on every API routed to that engine.
 

@@ -1,8 +1,10 @@
 <script lang="ts">
   /**
    * One provider's keys in failover order: the order is the table order, and the
-   * arrows are the non-drag way to change it. Every row action is a separate
-   * control (INT-1); without `keys.manage` the table is read-only.
+   * arrows are the non-drag way to change it. Keys are used sticky round robin:
+   * requests go to the key in use, marked "In use", and a key that fails hands
+   * over to the next one, which then stays in use. Every row action is a
+   * separate control (INT-1); without `keys.manage` the table is read-only.
    */
   import { base } from "$app/paths";
   import ArrowDown from "@lucide/svelte/icons/arrow-down";
@@ -11,6 +13,7 @@
   import Pause from "@lucide/svelte/icons/pause";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Play from "@lucide/svelte/icons/play";
+  import LocateFixed from "@lucide/svelte/icons/locate-fixed";
   import Plus from "@lucide/svelte/icons/plus";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -39,12 +42,14 @@
     onToggle: (key: ProviderKey) => void;
     onDelete: (key: ProviderKey) => void;
     onMove: (key: ProviderKey, delta: -1 | 1) => void;
+    onUse: (key: ProviderKey) => void;
   };
-  let { provider, keys, canManage, verifying, busy, error = null, onAdd, onEdit, onVerify, onToggle, onDelete, onMove }: Props = $props();
+  let { provider, keys, canManage, verifying, busy, error = null, onAdd, onEdit, onVerify, onToggle, onDelete, onMove, onUse }: Props = $props();
 
   const usable = $derived(keys.filter(isUsable).length);
   const upstream = $derived(provider.source === "upstream");
   const api = $derived(provider.base_path ?? "its API");
+  const inUse = $derived(keys.find((k) => k.id === provider.current_key_id) ?? null);
 </script>
 
 <Section id={`provider-${provider.provider}`} title={provider.label} description={`Answers ${api} while its source is API key, billed to your ${provider.label} account.`}>
@@ -54,7 +59,12 @@
       <Badge variant={upstream ? "info" : "secondary"}>{SOURCE_LABEL[provider.source]}</Badge>
       <a class="text-primary underline-offset-2 hover:underline" href={`${base}/api-keys#exposed-apis`}>Change under API keys</a>
     </p>
-    {#if keys.length > 0}<p class="text-body-sm text-muted-foreground">{usable} of {keys.length} {keys.length === 1 ? "key" : "keys"} usable, tried in this order.</p>{/if}
+    {#if keys.length > 0}
+      <p class="text-body-sm text-muted-foreground">
+        {usable} of {keys.length} {keys.length === 1 ? "key" : "keys"} usable.
+        {#if inUse}Requests go to {inUse.label}, the key in use. When the provider refuses it (401, 403, 429) or cannot be reached, the next key in this order takes over and stays in use; after the last key it starts again at the top.{/if}
+      </p>
+    {/if}
     {#if upstream && usable === 0}
       <p role="status" class="text-body-sm text-warning">
         {api} answers with API key, but no {provider.label} key is usable: its requests fail (503) until a key is added or resumed.
@@ -69,7 +79,7 @@
       caption={`${provider.label} keys`}
       emptyIcon={KeySquare}
       emptyTitle={`No ${provider.label} keys`}
-      emptyDescription={`Keys are tried in order: when the provider refuses a key (401, 403, 429) or cannot be reached, the next one takes over. ${api} needs one before its source can be API key.`}
+      emptyDescription={`One key is in use at a time: when the provider refuses it (401, 403, 429) or cannot be reached, the next key in order takes over and stays in use. ${api} needs one before its source can be API key.`}
     >
       {#snippet emptyAction()}
         {#if canManage}<Button variant="outline" onclick={onAdd}><Plus class="h-4 w-4" />Add {provider.label} key</Button>{/if}
@@ -97,7 +107,10 @@
               {/if}
             </div>
           </Table.Cell>
-          <Table.Cell class="min-w-32 break-words font-medium [overflow-wrap:anywhere]">{entry.label}</Table.Cell>
+          <Table.Cell class="min-w-32 break-words font-medium [overflow-wrap:anywhere]">
+            {entry.label}
+            {#if entry.id === provider.current_key_id}<Badge class="ml-1 align-middle">In use</Badge>{/if}
+          </Table.Cell>
           <Table.Cell><code class="whitespace-nowrap font-mono text-caption">{entry.key_hint}</code></Table.Cell>
           <Table.Cell class="min-w-60">
             <code class="block font-mono text-caption [overflow-wrap:anywhere]">{entry.effective_base_url ?? provider.default_base_url}</code>
@@ -137,6 +150,9 @@
               <RowActions
                 label={`Actions for ${entry.label}`}
                 actions={[
+                  ...(isUsable(entry) && entry.id !== provider.current_key_id
+                    ? [{ label: "Use this key now", icon: LocateFixed, disabled: busy, onClick: () => onUse(entry) }]
+                    : []),
                   { label: "Verify key", icon: ShieldCheck, disabled: checking, onClick: () => onVerify(entry) },
                   entry.state === "active"
                     ? { label: "Pause key", icon: Pause, disabled: busy, onClick: () => onToggle(entry) }

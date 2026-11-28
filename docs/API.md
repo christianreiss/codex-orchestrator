@@ -536,6 +536,7 @@ Default spec section: [Admin (admin session cookie)](interface-api.md#admin-admi
 - `POST /admin/provider-keys/{id}/state` — admin session, `keys.manage`: pause or resume a provider key ([spec](interface-api.md#provider-api-key-admin))
 - `POST /admin/provider-keys/{id}/verify` — admin session, `keys.manage`: check a provider key against the provider's model list ([spec](interface-api.md#provider-api-key-admin))
 - `POST /admin/provider-keys/order` — admin session, `keys.manage`: set a provider's complete failover order ([spec](interface-api.md#provider-api-key-admin))
+- `POST /admin/provider-keys/{id}/current` — admin session, `keys.manage`: make a key its provider's key in use (sticky round robin) ([spec](interface-api.md#provider-api-key-admin))
 - `DELETE /admin/provider-keys/{id}` — admin session, `keys.manage`: delete a provider key ([spec](interface-api.md#provider-api-key-admin))
 - `GET /admin/engines/active` — admin session, `admin.read`: engines currently active fleet-wide (needs `admin.read`) ([spec](interface-api.md#engine-master-switches))
 - `GET /admin/engines/state` — admin session, `settings.read`: fleet-wide engine master switches

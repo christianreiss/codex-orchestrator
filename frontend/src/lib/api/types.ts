@@ -1090,6 +1090,12 @@ export interface ProviderKeyProvider {
   base_path: string | null;
   source: ApiSource;
   counts: { total: number; active: number; usable: number };
+  /**
+   * The key the next request starts with (sticky round robin): the key that last
+   * answered while it is usable, otherwise the first usable key in failover order;
+   * null without a usable key.
+   */
+  current_key_id: number | null;
 }
 
 export interface ProviderKeysValue {

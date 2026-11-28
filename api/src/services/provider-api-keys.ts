@@ -9,8 +9,10 @@
  * into an error, a log line, an audit payload or an owner command payload.
  *
  * Writes run through owner commands (`mutateOwnerState`) with an admin audit
- * row each. Reads also have a direct-SQL path for databases without a bound
- * owner (fixture tests).
+ * row each. Each provider's current key (sticky round robin, see
+ * `gateway-upstream/failover.ts`) is the `versions` row
+ * `provider_key_current_<provider>` holding a key id. Reads also have a
+ * direct-SQL path for databases without a bound owner (fixture tests).
  */
 import {
   mutateOwnerState,
@@ -22,7 +24,8 @@ import { stageDelete, stageUpdate } from '../control-plane/state/rows.js';
 import { adminAudit } from '../control-plane/state/admin.js';
 import type { Json } from '../control-plane/commands.js';
 import type { Database } from '../db/client.js';
-import { providerApiKeys, type ProviderApiKey } from '../db/schema.js';
+import { inArray } from 'drizzle-orm';
+import { providerApiKeys, versions, type ProviderApiKey } from '../db/schema.js';
 import { ApiError, ConflictError, NotFoundError } from '../http/errors.js';
 import type { Keyring } from '../security/keyring.js';
 import { decryptOrNull, encrypt as encryptSecret } from '../security/secret-box.js';
@@ -73,6 +76,20 @@ function byOrder(a: ProviderKeyMeta, b: ProviderKeyMeta): number {
     a.id - b.id
   );
 }
+
+/** The `versions` row naming a provider's current key: where sticky round robin starts. */
+export function currentKeySetting(provider: ProviderId): string {
+  return `provider_key_current_${provider}`;
+}
+
+function parseCurrentKeyId(raw: string | null | undefined): number | null {
+  const text = raw?.trim() ?? '';
+  const id = /^\d+$/.test(text) ? Number(text) : NaN;
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+/** `failover`: the forward moved on to a key that answered. `admin`: chosen on the Provider keys page. */
+export type CurrentKeyReason = 'failover' | 'admin';
 
 export function parseProvider(value: unknown): ProviderId {
   if (!isProviderId(value)) throw invalid(`provider must be one of ${PROVIDER_IDS.join(', ')}`, 'provider');
@@ -179,6 +196,87 @@ export class ProviderApiKeyService {
           : [{ id: row.id, sortOrder: row.sortOrder, provider, baseUrl: row.baseUrl ?? PROVIDERS[provider].defaultBaseUrl, key, keyHash: row.keyHash }],
       )
       .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+  }
+
+  /**
+   * The stored current key id per provider, or null. It may name a key that is
+   * no longer a candidate (deleted, paused, invalid); the forward then starts
+   * at the top of the failover order.
+   */
+  async currentKeyIds(): Promise<Record<ProviderId, number | null>> {
+    const owner = ownerRuntimeFor(this.deps.db);
+    let read: (provider: ProviderId) => string | null | undefined;
+    if (owner) {
+      owner.assertOwner();
+      const snapshot = owner.state.snapshot();
+      read = (provider) => snapshot.setting(currentKeySetting(provider));
+    } else {
+      const rows = await this.deps.db
+        .select({ name: versions.name, version: versions.version })
+        .from(versions)
+        .where(inArray(versions.name, PROVIDER_IDS.map(currentKeySetting)));
+      read = (provider) => rows.find((row) => row.name === currentKeySetting(provider))?.version;
+    }
+    return Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, parseCurrentKeyId(read(provider))])) as Record<
+      ProviderId,
+      number | null
+    >;
+  }
+
+  async currentKeyId(provider: ProviderId): Promise<number | null> {
+    return (await this.currentKeyIds())[provider];
+  }
+
+  /**
+   * Make key `id` its provider's current key and audit the switch
+   * (`provider_key.current`). An `admin` choice refuses a key that is not a
+   * candidate (`409 provider_key_not_usable`). A `failover` switch runs in the
+   * background scope as a system principal, silently skips a key that stopped
+   * being a candidate, and applies only while the stored pointer still equals
+   * `expected`, so a slow request that started before another switch cannot
+   * move the pointer back.
+   */
+  async setCurrent(
+    id: number,
+    options: { reason: CurrentKeyReason; expected?: number | null },
+  ): Promise<{ provider: ProviderId | null; changed: boolean }> {
+    const owner = requireOwnerRuntime(this.deps.db);
+    const failover = options.reason === 'failover';
+    let provider: ProviderId | null = null;
+    let changed = false;
+    const run = () =>
+      mutateOwnerState(owner, {
+        kind: 'provider_key.current',
+        ...(failover ? { principal: 'system:provider-key-failover' } : {}),
+        payload: { id, reason: options.reason },
+        prepare: (ctx) => {
+          const current = ctx.snapshot.table('providerApiKeys').get(id);
+          if (!current || !isProviderId(current.provider)) {
+            if (failover) return null;
+            throw new NotFoundError('Provider key not found', 'provider_key_not_found');
+          }
+          provider = current.provider;
+          if (current.state !== 'active' || current.verificationState === 'invalid') {
+            if (failover) return null;
+            throw new ConflictError('Only an active key that is not invalid can be the current key', 'provider_key_not_usable');
+          }
+          const name = currentKeySetting(provider);
+          const previous = parseCurrentKeyId(ctx.snapshot.setting(name));
+          if (previous === id) return null;
+          if (options.expected !== undefined && previous !== options.expected) return null;
+          const row = { name, version: String(id), updatedAt: nowIso() };
+          ctx.draft.upsert('versions', row);
+          ctx.write(async (tx) =>
+            tx.insert(versions).values(row).onDuplicateKeyUpdate({ set: { version: row.version, updatedAt: row.updatedAt } }),
+          );
+          adminAudit(ctx, 'provider_key.current', { key_id: id, provider, previous_key_id: previous, reason: options.reason });
+          changed = true;
+          return null;
+        },
+      });
+    await (failover ? withOwnerBackgroundScope(run) : run());
+    if (changed && provider) this.changed(id, provider, 'current');
+    return { provider, changed };
   }
 
   /** One decrypted key for an admin verification, or null when it does not exist. */

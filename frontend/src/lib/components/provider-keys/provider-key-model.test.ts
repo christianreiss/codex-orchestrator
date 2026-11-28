@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import type { ProviderKey } from "../../api/types";
 
 const mod: string = "./provider-key-model.ts";
-const { errorField, failoverOrder, isUsable, keyErrorText, moveIds, removalConsequence, validateKeyValue, VERIFICATION, SOURCE_LABEL } =
+const { errorField, failoverOrder, isUsable, keyErrorText, moveIds, removalConsequence, rotationFrom, validateKeyValue, VERIFICATION, SOURCE_LABEL } =
   (await import(mod)) as typeof import("./provider-key-model");
 
 const key = (id: number, sort_order: number, patch: Partial<ProviderKey> = {}): ProviderKey => ({
@@ -41,14 +41,24 @@ describe("provider key model", () => {
 
   it("says the next key takes over only while another usable key exists", () => {
     const keys = [key(1, 0), key(2, 1), key(3, 2, { state: "paused" })];
-    assert.match(removalConsequence(keys[0]!, keys, openai).text, /next key, Key 2, takes over/);
-    assert.match(removalConsequence(keys[1]!, keys, openai).text, /still go to Key 1 first/);
+    assert.match(removalConsequence(keys[0]!, keys, openai).text, /key in use\. The next key, Key 2, takes over/);
+    assert.match(removalConsequence(keys[1]!, keys, openai).text, /requests still go to Key 1/);
+    // Key 2 in use: removing it hands over to Key 1 (wrap-around); removing Key 1 changes nothing.
+    assert.match(removalConsequence(keys[1]!, keys, { ...openai, current_key_id: 2 }).text, /The next key, Key 1, takes over/);
+    assert.match(removalConsequence(keys[0]!, keys, { ...openai, current_key_id: 2 }).text, /requests still go to Key 2/);
     assert.match(removalConsequence(keys[2]!, keys, openai).text, /not in the failover order/);
     const last = removalConsequence(keys[0]!, [keys[0]!, keys[2]!], openai);
     assert.equal(last.lastUsable, true);
     assert.match(last.text, /\/v1 answers with API key, so its requests fail \(503\)/);
     const subscription = removalConsequence(keys[0]!, [keys[0]!], { ...openai, source: "emulated" });
     assert.match(subscription.text, /only gateway keys pinned to API key are affected/);
+  });
+
+  it("starts at the key in use and wraps around over usable keys only", () => {
+    const keys = [key(1, 0), key(2, 1, { verification_state: "invalid" }), key(3, 2), key(4, 3)];
+    assert.deepEqual(rotationFrom(keys, 3).map((k) => k.id), [3, 4, 1]);
+    assert.deepEqual(rotationFrom(keys, null).map((k) => k.id), [1, 3, 4]);
+    assert.deepEqual(rotationFrom(keys, 2).map((k) => k.id), [1, 3, 4]);
   });
 
   it("places server rejections beside the field they belong to", () => {
@@ -62,7 +72,7 @@ describe("provider key model", () => {
   });
 
   it("explains every documented failure with a next step", () => {
-    for (const code of ["gateway_key_not_allowed", "provider_key_duplicate", "invalid_base_url", "provider_key_not_found", "provider_key_order_mismatch", "engine_disabled", "provider_key_missing"]) {
+    for (const code of ["gateway_key_not_allowed", "provider_key_duplicate", "invalid_base_url", "provider_key_not_found", "provider_key_order_mismatch", "provider_key_not_usable", "engine_disabled", "provider_key_missing"]) {
       const text = keyErrorText({ code, message: "server text" }, "OpenAI", "Codex");
       assert.ok(text.length > 20, code);
       assert.doesNotMatch(text, /^server text$/, code);

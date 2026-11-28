@@ -221,7 +221,7 @@
       <span class="font-medium text-foreground">Subscription</span>: a subscription account of the default engine answers through the runner. Gateway keys with an assigned engine keep it when the default changes. Limits follow the engine: Grok refuses streaming and images, Codex reports no token usage, and a model id native to the API that the engine does not serve runs on the engine's default model.
     </p>
     <p>
-      <span class="font-medium text-foreground">API key</span>: the request goes unchanged to the API's own provider (OpenAI for /v1, Anthropic for /anthropic/v1, xAI for /grok/v1, Moonshot AI for /kimi/v1) with the keys stored under <a class="text-primary underline-offset-2 hover:underline" href={`${base}/provider-keys`}>Provider keys</a>, tried in their order, and is billed to that provider account. The default engine, model policy and tiers do not apply; the API's own engine switch under Engines still does.
+      <span class="font-medium text-foreground">API key</span>: the request goes unchanged to the API's own provider (OpenAI for /v1, Anthropic for /anthropic/v1, xAI for /grok/v1, Moonshot AI for /kimi/v1) with the key in use under <a class="text-primary underline-offset-2 hover:underline" href={`${base}/provider-keys`}>Provider keys</a> (when it fails, the next key takes over and stays in use), and is billed to that provider account. The default engine, model policy and tiers do not apply; the API's own engine switch under Engines still does.
     </p>
     <p>A gateway key created with its own source keeps it when this default changes.</p>
   </div>

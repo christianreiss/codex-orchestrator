@@ -12,7 +12,9 @@
  *     the surface kill switch and the surface default source on every chunk,
  *     so flipping any of them cuts an open stream.
  *  2. Candidates are the provider's `active`, not-`invalid` keys in failover
- *     order, cooling keys last (503 `upstream_unconfigured` when none).
+ *     order rotated to start at the provider's current key (sticky round
+ *     robin), cooling keys last (503 `upstream_unconfigured` when none). The
+ *     key whose answer is committed becomes the current key.
  *  3. Failover only before the first byte reaches the client, see
  *     `failover.ts`. A buffered body is replayed; a streamed upload gets one
  *     attempt. A header timeout is 504 `upstream_timeout`; a connection lost
@@ -142,6 +144,13 @@ export function createGatewayUpstream(
     })();
   }
 
+  /** Move the provider's current key in the background; never delays or fails the answer. */
+  function stick(id: number, expected: number | null): void {
+    void keys.setCurrent(id, { reason: 'failover', expected }).catch((err) => {
+      options.log?.warn?.({ provider_key_id: id, error: (err as Error)?.name ?? 'Error' }, 'provider key current switch failed');
+    });
+  }
+
   /** Side effects of a key-specific answer, whether it fails over or is the last word. */
   function noteKeyFailure(candidate: ProviderKeyCandidate, cls: Exclude<StatusClass, 'commit'>, response: Dispatcher.ResponseData): void {
     recordProviderKeyError(ctx.db, candidate.id, reasonForStatus(response.statusCode), response.statusCode);
@@ -192,7 +201,8 @@ export function createGatewayUpstream(
         throw new ApiError(`${surface.label} API source changed`, { status: 503, code: 'backend_unavailable', type: 'api_error' });
     });
     const path = upstreamPath(req.raw.url ?? '', surface.basePath);
-    const candidates = orderCandidates(await keys.candidates(provider.id), cooldowns);
+    const currentId = await keys.currentKeyId(provider.id);
+    const candidates = orderCandidates(await keys.candidates(provider.id), cooldowns, Date.now(), currentId);
     if (candidates.length === 0) {
       throw new ApiError(`No usable ${provider.label} API key is configured for the ${surface.label} API`, {
         status: 503,
@@ -244,10 +254,11 @@ export function createGatewayUpstream(
           await response.body.dump().catch(() => undefined);
           continue;
         }
-      } else if (response.statusCode >= 500) {
-        recordProviderKeyError(ctx.db, candidate.id, 'upstream_error', response.statusCode);
       } else {
-        recordProviderKeyUse(ctx.db, candidate.id);
+        if (response.statusCode >= 500) recordProviderKeyError(ctx.db, candidate.id, 'upstream_error', response.statusCode);
+        else recordProviderKeyUse(ctx.db, candidate.id);
+        // This key answered: it becomes the current key (sticky round robin).
+        if (candidate.id !== currentId) stick(candidate.id, currentId);
       }
       if (signal.aborted) {
         response.body.destroy();

@@ -321,6 +321,25 @@ describe('failover policy', () => {
     expect(orderCandidates(keys, cooldowns, now).map((k) => k.id)).toEqual([3, 4, 2, 1]);
     expect(orderCandidates(keys, cooldowns, now + 61_000).map((k) => k.id)).toEqual([1, 2, 3, 4]);
   });
+
+  it('starts at the current key, wraps around, and falls back to the top for an unknown current key', () => {
+    const cooldowns = new KeyCooldowns();
+    const now = 1_000_000;
+    const keys = [
+      { id: 1, sortOrder: 0 },
+      { id: 2, sortOrder: 1 },
+      { id: 3, sortOrder: 2 },
+    ];
+    expect(orderCandidates(keys, cooldowns, now, 2).map((k) => k.id)).toEqual([2, 3, 1]);
+    expect(orderCandidates(keys, cooldowns, now, 3).map((k) => k.id)).toEqual([3, 1, 2]);
+    expect(orderCandidates(keys, cooldowns, now, 99).map((k) => k.id)).toEqual([1, 2, 3]);
+    expect(orderCandidates(keys, cooldowns, now, null).map((k) => k.id)).toEqual([1, 2, 3]);
+    // A cooling current key still moves last; the rotation order holds for the rest.
+    cooldowns.set(3, 30, now);
+    expect(orderCandidates(keys, cooldowns, now, 3).map((k) => k.id)).toEqual([1, 2, 3]);
+    cooldowns.set(1, 10, now);
+    expect(orderCandidates(keys, cooldowns, now, 2).map((k) => k.id)).toEqual([2, 1, 3]);
+  });
 });
 
 describe('reason vocabulary', () => {

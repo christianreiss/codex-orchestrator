@@ -62,6 +62,7 @@
       label: provider?.label ?? key.provider,
       base_path: provider?.base_path ?? null,
       source: provider?.source ?? "emulated",
+      current_key_id: provider?.current_key_id ?? null,
     });
   }
 
@@ -177,6 +178,32 @@
     if (next) $orderMutation.mutate({ provider: key.provider, ids: next, key });
   }
 
+  // Choosing the key in use saves immediately (INT-3); the mark moves only on the server's answer.
+  const useMutation = createMutation<{ provider: ProviderId; current_key_id: number }, Error, ProviderKey>({
+    mutationFn: (key) => providerKeysApi.setCurrent(key.id),
+    onMutate: (key) => {
+      busyProvider = key.provider;
+      actionErrors = { ...actionErrors, [key.provider]: null };
+    },
+    onSuccess: (result, key) => {
+      qc.setQueryData<ProviderKeysValue>(providerKeysQueryKey, (current) =>
+        current && {
+          ...current,
+          providers: current.providers.map((p) => (p.provider === result.provider ? { ...p, current_key_id: result.current_key_id } : p)),
+        },
+      );
+      announcement = `${key.label} is now the key in use`;
+      toast.success(`${key.label} is now in use`);
+    },
+    onError: (err, key) => {
+      actionErrors = { ...actionErrors, [key.provider]: `Could not use ${key.label}. ${describe(err, providerOf(key.provider))}` };
+    },
+    onSettled: () => {
+      busyProvider = null;
+      refresh();
+    },
+  });
+
   const deleteMutation = createMutation<unknown, Error, ProviderKey>({
     mutationFn: (key) => providerKeysApi.remove(key.id),
     onMutate: (key) => {
@@ -241,6 +268,7 @@
         onToggle={toggle}
         onDelete={(key) => { deleteError = null; deleteTarget = key; deleteOpen = true; }}
         onMove={move}
+        onUse={(key) => $useMutation.mutate(key)}
       />
     {/each}
   {/if}

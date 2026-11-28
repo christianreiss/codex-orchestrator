@@ -248,6 +248,7 @@ export const ROUTE_CAPABILITIES: Readonly<Record<string, RouteGuard>> = {
   'POST /admin/provider-keys/:id/state': cap('keys.manage'),
   'POST /admin/provider-keys/:id/verify': cap('keys.manage'),
   'POST /admin/provider-keys/order': cap('keys.manage'),
+  'POST /admin/provider-keys/:id/current': cap('keys.manage'),
   'DELETE /admin/provider-keys/:id': cap('keys.manage'),
   'POST /admin/api/surfaces/:surface/source': cap('keys.manage'),
 

@@ -349,6 +349,68 @@ describe('gateway upstream source', () => {
     expect(provider.seen.map(keyOf)).toEqual([KEY_A, KEY_B, KEY_B]);
   });
 
+  it('stays on the key that answered (sticky round robin), wraps around, and leaves the pointer on a pass-through', async () => {
+    const KEY_C = 'sk-proj-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC';
+    const failing = new Set<string>([KEY_A]);
+    const provider = await fakeProvider((seen, res) => {
+      if (failing.has(keyOf(seen) ?? '')) {
+        res.writeHead(403, { 'content-type': 'application/json' });
+        res.end('{"error":{"type":"forbidden"}}');
+        return;
+      }
+      ok(`{"from":"${keyOf(seen)?.slice(8, 9)}"}`)(seen, res);
+    });
+    const h = await harness();
+    const a = await h.addKey('openai', KEY_A, provider.base);
+    const b = await h.addKey('openai', KEY_B, provider.base);
+    const c = await h.addKey('openai', KEY_C, provider.base);
+    const send = () =>
+      h.app.inject({
+        method: 'POST',
+        url: '/v1/responses',
+        headers: { authorization: `Bearer ${GW_UP}`, 'content-type': 'application/json' },
+        payload: '{}',
+      });
+
+    // Key A fails, B answers and becomes current.
+    expect((await send()).payload).toBe('{"from":"B"}');
+    await vi.waitFor(async () => expect(await h.upstream.keys.currentKeyId('openai')).toBe(b));
+    // A recovers, but the gateway stays on B.
+    failing.clear();
+    provider.seen.length = 0;
+    expect((await send()).payload).toBe('{"from":"B"}');
+    expect(provider.seen.map(keyOf)).toEqual([KEY_B]);
+
+    // B fails: C takes over; C fails: the order wraps around to A.
+    failing.add(KEY_B);
+    expect((await send()).payload).toBe('{"from":"C"}');
+    await vi.waitFor(async () => expect(await h.upstream.keys.currentKeyId('openai')).toBe(c));
+    failing.add(KEY_C);
+    provider.seen.length = 0;
+    expect((await send()).payload).toBe('{"from":"A"}');
+    expect(provider.seen.map(keyOf)).toEqual([KEY_C, KEY_A]);
+    await vi.waitFor(async () => expect(await h.upstream.keys.currentKeyId('openai')).toBe(a));
+
+    // Every key refuses: the last answer passes through and the pointer stays.
+    failing.add(KEY_A);
+    expect((await send()).statusCode).toBe(403);
+    expect(await h.upstream.keys.currentKeyId('openai')).toBe(a);
+  });
+
+  it('moves the pointer only from the value a request started with', async () => {
+    const provider = await fakeProvider(ok());
+    const h = await harness();
+    const a = await h.addKey('openai', KEY_A, provider.base);
+    const b = await h.addKey('openai', KEY_B, provider.base);
+    expect(await h.upstream.keys.setCurrent(b, { reason: 'failover', expected: null })).toEqual({ provider: 'openai', changed: true });
+    // A request that began while A was still current must not move it back.
+    expect(await h.upstream.keys.setCurrent(a, { reason: 'failover', expected: null })).toEqual({ provider: 'openai', changed: false });
+    expect(await h.upstream.keys.currentKeyId('openai')).toBe(b);
+    // A paused key is never made current by a failover.
+    await h.upstream.keys.setState(a, 'paused');
+    expect(await h.upstream.keys.setCurrent(a, { reason: 'failover', expected: b })).toEqual({ provider: 'openai', changed: false });
+  });
+
   it('fails over on a connection failure and reports 502 when no key connects', async () => {
     const provider = await fakeProvider(ok());
     const dead = `http://127.0.0.1:${await closedPort()}/v1`;

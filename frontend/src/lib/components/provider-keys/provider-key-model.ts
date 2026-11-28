@@ -1,6 +1,7 @@
 /**
  * Pure rules for the Provider keys page and the source switch: labels, the
- * failover consequence of removing a key, reordering and error wording.
+ * key in use and the order after it (sticky round robin), the failover
+ * consequence of removing a key, reordering and error wording.
  *
  * Import-free at runtime (type imports are erased) so `node --test` loads it
  * without the `$lib` alias or svelte-query.
@@ -39,6 +40,19 @@ export function moveIds(ids: readonly number[], index: number, delta: -1 | 1): n
 }
 
 /**
+ * The key in use and the one after it, wrapping around: the order the server
+ * tries a provider's usable keys in (sticky round robin), ignoring cooldowns.
+ */
+export function rotationFrom<K extends Pick<ProviderKey, "sort_order" | "id" | "state" | "verification_state">>(
+  keys: readonly K[],
+  currentId: number | null,
+): K[] {
+  const usable = failoverOrder(keys).filter(isUsable);
+  const start = Math.max(0, usable.findIndex((key) => key.id === currentId));
+  return [...usable.slice(start), ...usable.slice(0, start)];
+}
+
+/**
  * What changes for traffic when `key` stops being a candidate (deleted or
  * paused). "The next key takes over" is only true while another usable key
  * exists; for the last one the answer depends on the surface source.
@@ -46,20 +60,20 @@ export function moveIds(ids: readonly number[], index: number, delta: -1 | 1): n
 export function removalConsequence(
   key: ProviderKey,
   siblings: readonly ProviderKey[],
-  provider: Pick<ProviderKeyProvider, "label" | "base_path" | "source">,
+  provider: Pick<ProviderKeyProvider, "label" | "base_path" | "source"> & { current_key_id?: number | null },
 ): { text: string; lastUsable: boolean } {
   const api = provider.base_path ?? "the API";
   if (!isUsable(key)) {
     return { text: "It is not in the failover order now, so no request is answered differently.", lastUsable: false };
   }
-  const usable = failoverOrder(siblings).filter(isUsable);
-  const others = usable.filter((entry) => entry.id !== key.id);
+  const rotation = rotationFrom(siblings, provider.current_key_id ?? null);
+  const others = rotation.filter((entry) => entry.id !== key.id);
   if (others.length > 0) {
-    const first = usable[0]?.id === key.id;
+    const inUse = rotation[0]?.id === key.id;
     return {
-      text: first
-        ? `The next key, ${others[0]!.label}, takes over: requests go to it first.`
-        : `The next key takes over its place in the failover order; requests still go to ${others[0]!.label} first.`,
+      text: inUse
+        ? `It is the key in use. The next key, ${others[0]!.label}, takes over and stays in use.`
+        : `It is not the key in use, so requests still go to ${others[0]!.label}; it only leaves the failover order.`,
       lastUsable: false,
     };
   }
@@ -103,6 +117,8 @@ export function keyErrorText(error: KeyError, providerLabel = "provider", engine
       return `Base URL refused: ${error.message ?? "not an allowed address"}.`;
     case "provider_key_not_found":
       return "This key no longer exists; it was probably deleted elsewhere. The list has been refreshed.";
+    case "provider_key_not_usable":
+      return "Only an active key the provider has not rejected can be the key in use. Resume or verify it first.";
     case "provider_key_order_mismatch":
       return "The keys changed while you were reordering. The list has been refreshed; move the key again.";
     case "engine_disabled":

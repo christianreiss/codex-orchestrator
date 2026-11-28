@@ -8,6 +8,7 @@
  *   POST   /admin/provider-keys/:id/state        {state: "active"|"paused"}
  *   POST   /admin/provider-keys/:id/verify       GET {base_url}/models with the key, record the verdict
  *   POST   /admin/provider-keys/order            {provider, ids}: the provider's complete failover order
+ *   POST   /admin/provider-keys/:id/current      make this key its provider's current key (sticky round robin)
  *   DELETE /admin/provider-keys/:id
  *   POST   /admin/api/surfaces/:surface/source   {source: "emulated"|"upstream"}
  *
@@ -23,7 +24,7 @@ import { API_SURFACES, API_SURFACE_IDS, isApiSource, isApiSurfaceId, listApiSurf
 import { appendAuditLog } from '../../../services/audit-log.js';
 import { assertFleetEngineEnabledForAdmin, readFleetEngineState } from '../../../services/engine-switch.js';
 import { createGatewayUpstream, type GatewayUpstream } from '../../../services/gateway-upstream/index.js';
-import { PROVIDERS, PROVIDER_IDS, isProviderId } from '../../../services/gateway-upstream/providers.js';
+import { PROVIDERS, PROVIDER_IDS, isProviderId, type ProviderId } from '../../../services/gateway-upstream/providers.js';
 import type { ProviderKeyMeta } from '../../../services/provider-api-keys.js';
 import { SettingsService } from '../../../services/settings.js';
 import { nowIso } from '../../../util/timestamp.js';
@@ -70,6 +71,18 @@ export function toAdminProviderKey(row: ProviderKeyMeta) {
   };
 }
 
+/**
+ * The key the next request starts with, ignoring cooldowns: the stored current
+ * key while it is usable (active, not invalid), otherwise the first usable key
+ * in failover order; null without a usable key.
+ */
+export function effectiveCurrentKeyId(rows: readonly ProviderKeyMeta[], provider: ProviderId, stored: number | null): number | null {
+  const usable = rows
+    .filter((row) => row.provider === provider && row.state === 'active' && row.verificationState !== 'invalid')
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
+  return (usable.find((row) => row.id === stored) ?? usable[0])?.id ?? null;
+}
+
 async function recordLog(ctx: RouteContext, action: string, details: Record<string, unknown>): Promise<void> {
   try {
     await appendAuditLog(ctx.db, { hostId: null, action, details: JSON.stringify(details), createdAt: nowIso() });
@@ -94,11 +107,12 @@ export async function registerAdminProviderKeyRoutes(
   };
 
   app.get('/admin/provider-keys', { preHandler: app.requireAdmin }, async () => {
-    const [rows, counts, engines, surfaces] = await Promise.all([
+    const [rows, counts, engines, surfaces, current] = await Promise.all([
       keys.list(),
       keys.counts(),
       readFleetEngineState(ctx.db),
       listApiSurfaces(ctx.db),
+      keys.currentKeyIds(),
     ]);
     return ok({
       providers: PROVIDER_IDS.map((id) => {
@@ -114,6 +128,7 @@ export async function registerAdminProviderKeyRoutes(
           base_path: surface?.base_path ?? null,
           source: surface?.source ?? 'emulated',
           counts: counts[id],
+          current_key_id: effectiveCurrentKeyId(rows, id, current[id]),
         };
       }),
       keys: rows.map(toAdminProviderKey),
@@ -170,6 +185,12 @@ export async function registerAdminProviderKeyRoutes(
   app.post('/admin/provider-keys/order', { preHandler: app.requireAdmin }, async (req: FastifyRequest) => {
     const body = objectBody(req.body);
     return ok({ keys: (await keys.reorder(body.provider, body.ids)).map(toAdminProviderKey) });
+  });
+
+  app.post('/admin/provider-keys/:id/current', { preHandler: app.requireAdmin }, async (req: FastifyRequest) => {
+    const id = parseId(req.params);
+    const { provider } = await keys.setCurrent(id, { reason: 'admin' });
+    return ok({ provider, current_key_id: id });
   });
 
   app.delete('/admin/provider-keys/:id', { preHandler: app.requireAdmin }, async (req: FastifyRequest) => {

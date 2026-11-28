@@ -180,10 +180,10 @@ export const CHATTY_RICH_EVENTS = [
 /** `GET /admin/provider-keys`: one verified OpenAI key, every other provider empty. */
 export const PROVIDER_KEYS_FIXTURE = {
   providers: [
-    { provider: "openai", label: "OpenAI", engine: "codex", engine_enabled: true, default_base_url: "https://api.openai.com/v1", surface: "openai", base_path: "/v1", source: "emulated", counts: { total: 1, active: 1, usable: 1 } },
-    { provider: "anthropic", label: "Anthropic", engine: "claude", engine_enabled: true, default_base_url: "https://api.anthropic.com/v1", surface: "anthropic", base_path: "/anthropic/v1", source: "emulated", counts: { total: 0, active: 0, usable: 0 } },
-    { provider: "xai", label: "xAI", engine: "grok", engine_enabled: true, default_base_url: "https://api.x.ai/v1", surface: "grok", base_path: "/grok/v1", source: "emulated", counts: { total: 0, active: 0, usable: 0 } },
-    { provider: "moonshot", label: "Moonshot AI", engine: "kimi", engine_enabled: true, default_base_url: "https://api.moonshot.ai/v1", surface: "kimi", base_path: "/kimi/v1", source: "emulated", counts: { total: 0, active: 0, usable: 0 } },
+    { provider: "openai", label: "OpenAI", engine: "codex", engine_enabled: true, default_base_url: "https://api.openai.com/v1", surface: "openai", base_path: "/v1", source: "emulated", counts: { total: 1, active: 1, usable: 1 }, current_key_id: 1 },
+    { provider: "anthropic", label: "Anthropic", engine: "claude", engine_enabled: true, default_base_url: "https://api.anthropic.com/v1", surface: "anthropic", base_path: "/anthropic/v1", source: "emulated", counts: { total: 0, active: 0, usable: 0 }, current_key_id: null },
+    { provider: "xai", label: "xAI", engine: "grok", engine_enabled: true, default_base_url: "https://api.x.ai/v1", surface: "grok", base_path: "/grok/v1", source: "emulated", counts: { total: 0, active: 0, usable: 0 }, current_key_id: null },
+    { provider: "moonshot", label: "Moonshot AI", engine: "kimi", engine_enabled: true, default_base_url: "https://api.moonshot.ai/v1", surface: "kimi", base_path: "/kimi/v1", source: "emulated", counts: { total: 0, active: 0, usable: 0 }, current_key_id: null },
   ],
   keys: [
     {

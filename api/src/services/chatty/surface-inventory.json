@@ -480,6 +480,7 @@
       "PATCH /admin/provider-keys/:id",
       "POST /admin/api/surfaces/:surface/source",
       "POST /admin/provider-keys",
+      "POST /admin/provider-keys/:id/current",
       "POST /admin/provider-keys/:id/state",
       "POST /admin/provider-keys/:id/verify",
       "POST /admin/provider-keys/order"

@@ -421,9 +421,20 @@ provider API key stored server-side in `provider_api_keys` (see
   undecompressed; redirects are not followed. Provider error bodies keep the
   provider's own shape, not this gateway's envelope. Usage is not recorded and no
   body is logged; a key keeps `last_used_at` and `last_error_at/status/reason`.
-- **Keys and failover.** Candidates are the provider's `active` keys that are
-  not `verification_state=invalid`, ordered by `sort_order`, then id; keys cooling
-  down move last. Before the first byte reaches the client a failure to connect,
+- **Keys and failover (sticky round robin).** Candidates are the provider's
+  `active` keys that are not `verification_state=invalid`, ordered by
+  `sort_order`, then id, and rotated so the provider's **current key** comes
+  first, followed by the keys after it, wrapping around to the top; keys cooling
+  down then move last. The current key is the `versions` row
+  `provider_key_current_<provider>` (a key id); while it is missing or names a key
+  that is no longer a candidate (deleted, paused, invalid), the order starts at
+  the top. The key whose answer is committed becomes the current key, so the
+  gateway stays on a key that took over until that key fails in turn; a key that
+  recovers is not switched back to. The switch is written in the background
+  (system principal, audit `provider_key.current` with `reason:"failover"`) and
+  only while the stored value still equals the one the request started with, so a
+  slow request cannot move it back. A passed-through 401/403/429 of the last
+  candidate leaves it unchanged. Before the first byte reaches the client a failure to connect,
   `401`, `403` or `429` moves to the next key; the last key's answer is passed
   through. Only a failure to open the connection (refused, DNS, TLS, blocked
   address, connect timeout) counts as a connection failure; any later transport
@@ -473,9 +484,12 @@ provider body.
 
 - `GET /admin/provider-keys` (`auth.read_metadata`) →
   `{providers:[{provider, label, engine, engine_enabled, default_base_url,
-  surface, base_path, source, counts:{total, active, usable}}], keys:[ProviderKey]}`.
+  surface, base_path, source, counts:{total, active, usable}, current_key_id}],
+  keys:[ProviderKey]}`.
   There is one provider row per provider, in surface order. Keys are sorted by
-  provider, then failover order.
+  provider, then failover order. `current_key_id` is the key the next request
+  starts with, ignoring cooldowns: the stored current key while it is usable,
+  otherwise the first usable key in failover order; null without a usable key.
 - `POST /admin/provider-keys` (`keys.manage`) with
   `{provider: "openai"|"anthropic"|"xai"|"moonshot", label, key, base_url?}` →
   `ProviderKey`. The new key is `active` and `unverified`, and goes last in
@@ -512,6 +526,13 @@ provider body.
   `{provider, ids:[id, …]}`, listing every key of that provider exactly once →
   `{keys:[ProviderKey]}` (that provider's keys, in the new order). A
   different set of ids is `409 provider_key_order_mismatch`.
+- `POST /admin/provider-keys/{id}/current` (`keys.manage`, empty body) →
+  `{provider, current_key_id}`: makes the key its provider's current key, so the
+  next request starts with it (audit `provider_key.current` with
+  `reason:"admin"`, WS `provider_key.changed` with `action:"current"`). A paused
+  or invalid key is `409 provider_key_not_usable`; an unknown id is
+  `404 provider_key_not_found`. It makes no provider call and works while the
+  provider's engine is suspended. Reordering keeps the current key.
 - `DELETE /admin/provider-keys/{id}` (`keys.manage`) → `{id, message}`.
 - `POST /admin/api/surfaces/{surface}/source` (`keys.manage`) with
   `{source: "emulated"|"upstream"}` → the surface's `GET /admin/api/surfaces`

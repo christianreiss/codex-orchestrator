@@ -1,9 +1,14 @@
 /**
- * Failover policy for the upstream forward. Failover happens only before the
- * first response byte reaches the client, and only for answers that say "this
- * key, not this request": a connection failure, 401, 403 or 429. The last key's
- * 401/403/429 is passed through unchanged; every other status (including
- * 5xx and Anthropic's 529) is committed as the answer.
+ * Failover policy for the upstream forward. Keys are used sticky round robin:
+ * every request starts at the provider's current key, and a key that answers
+ * after the ones before it failed becomes the new current key, so the gateway
+ * stays on it until it fails in turn (see `orderCandidates`).
+ *
+ * Failover happens only before the first response byte reaches the client, and
+ * only for answers that say "this key, not this request": a connection failure,
+ * 401, 403 or 429. The last key's 401/403/429 is passed through unchanged and
+ * leaves the current key alone; every other status (including 5xx and
+ * Anthropic's 529) is committed as the answer.
  *
  * A 401 does not invalidate a key on the spot: OpenAI answers 401 for a
  * restricted key that lacks one scope, so any gateway client could otherwise
@@ -76,18 +81,25 @@ export class KeyCooldowns {
 }
 
 /**
- * Candidate order: `sort_order`, then id; keys in cooldown move to the end
- * (earliest-ready first) but stay candidates, so a single key in cooldown is
- * still tried rather than refusing the request.
+ * Candidate order is sticky round robin: `sort_order`, then id, rotated so the
+ * provider's current key (the one that last answered) comes first and the
+ * keys after it follow, wrapping around to the top. A current key that is no
+ * longer a candidate (deleted, paused, invalid) or none at all starts at the
+ * top. Keys in cooldown then move to the end (earliest-ready first) but stay
+ * candidates, so a single key in cooldown is still tried rather than refusing
+ * the request.
  */
 export function orderCandidates<T extends { id: number; sortOrder: number }>(
   keys: readonly T[],
   cooldowns: KeyCooldowns,
   now = Date.now(),
+  currentId: number | null = null,
 ): T[] {
   const sorted = [...keys].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
-  const ready = sorted.filter((key) => cooldowns.coolingUntil(key.id, now) === null);
-  const cooling = sorted
+  const start = Math.max(0, sorted.findIndex((key) => key.id === currentId));
+  const rotated = [...sorted.slice(start), ...sorted.slice(0, start)];
+  const ready = rotated.filter((key) => cooldowns.coolingUntil(key.id, now) === null);
+  const cooling = rotated
     .filter((key) => cooldowns.coolingUntil(key.id, now) !== null)
     .sort((a, b) => cooldowns.coolingUntil(a.id, now)! - cooldowns.coolingUntil(b.id, now)!);
   return [...ready, ...cooling];

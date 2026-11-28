@@ -861,3 +861,17 @@ Checked:
 - Screenshots at 1440 px and 320 px.
 
 Not run: other browsers, dark-theme screenshots, contrast tooling, a screen reader and 400 % zoom.
+
+### Provider key in use (2026-11-28)
+
+The upstream forward now uses a provider's keys sticky round robin: requests start with the key in use, and the key that takes over stays in use. `ProviderKeyTable` marks that key with a default (primary) `Badge` "In use" beside its name, since it is the selected item (VIS-4; the word carries the meaning). The summary above the table names it and says how the next key takes over and when the order wraps around. `RowActions` gains **Use this key now** for every usable key that is not in use. It saves immediately (INT-3), and the mark moves only on the server's answer. A failure stays beside the provider's table (INT-5), and success is announced politely. `removalConsequence` and the delete/pause dialogs now name the key in use instead of "the first key". The API keys Source explanation says the same. No new exception.
+
+Rules checked: VIS-4, INT-1/3/5, ACC-1 (a separate labelled menu item, no row click).
+
+Checked:
+
+- `npm run check`: 0 errors and the one known warning; 1083 node tests pass.
+- `e2e/admin-provider-keys.spec.ts` and `e2e/admin-api-access.spec.ts`: 35 of 35 pass, including the new "marks the key in use and switches it immediately".
+- Screenshots of the OpenAI section at 1440 px (light and dark) and 320 px (light).
+
+Not run: the full Playwright suite, other browsers, contrast tooling, a screen reader and 400 % zoom.

@@ -50,6 +50,10 @@ export const providerKeysApi = {
   reorder: (provider: ProviderId, ids: number[]) =>
     api.post<{ keys: ProviderKey[] }>("/admin/provider-keys/order", { provider, ids }),
 
+  /** Make this key its provider's key in use; 409 `provider_key_not_usable` when paused or rejected. */
+  setCurrent: (id: number) =>
+    api.post<{ provider: ProviderId; current_key_id: number }>(`/admin/provider-keys/${id}/current`, {}),
+
   remove: (id: number) => api.delete<{ id: number; message?: string }>(`/admin/provider-keys/${id}`),
 
   /** The surface default source. Lives with the provider keys because `upstream` spends them. */

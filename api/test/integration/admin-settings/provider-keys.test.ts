@@ -175,6 +175,39 @@ describe('/admin/provider-keys', () => {
     ]);
   });
 
+  it('shows and sets the current key of each provider', async () => {
+    const h = await harness();
+    const create = async (key: string) =>
+      (await h.app.inject({ method: 'POST', url: '/admin/provider-keys', payload: { provider: 'openai', label: 'k', key } })).json().data;
+    const currentOf = async () =>
+      (await h.app.inject('/admin/provider-keys')).json().data.providers.map((row: { provider: string; current_key_id: number | null }) => [
+        row.provider,
+        row.current_key_id,
+      ]);
+    expect(await currentOf()).toEqual([['openai', null], ['anthropic', null], ['xai', null], ['moonshot', null]]);
+    const a = await create(KEY);
+    const b = await create(KEY_2);
+    // Nothing stored yet: the first usable key in failover order.
+    expect((await currentOf())[0]).toEqual(['openai', a.id]);
+
+    const set = await h.app.inject({ method: 'POST', url: `/admin/provider-keys/${b.id}/current` });
+    expect(set.statusCode, set.body).toBe(200);
+    expect(set.json().data).toEqual({ provider: 'openai', current_key_id: b.id });
+    expect((await currentOf())[0]).toEqual(['openai', b.id]);
+    expect(persisted(h.fake, schema.adminEvents)).toContainEqual(
+      expect.objectContaining({ type: 'provider_key.current' }),
+    );
+    expect(h.published.at(-1)).toEqual({ type: 'provider_key.changed', payload: { id: b.id, provider: 'openai', action: 'current' } });
+
+    // A paused current key no longer counts; it cannot be chosen either.
+    await h.app.inject({ method: 'POST', url: `/admin/provider-keys/${b.id}/state`, payload: { state: 'paused' } });
+    expect((await currentOf())[0]).toEqual(['openai', a.id]);
+    const refused = await h.app.inject({ method: 'POST', url: `/admin/provider-keys/${b.id}/current` });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().code).toBe('provider_key_not_usable');
+    expect((await h.app.inject({ method: 'POST', url: '/admin/provider-keys/999/current' })).statusCode).toBe(404);
+  });
+
   it('records an invalid key without echoing the provider body', async () => {
     const h = await harness();
     const provider = await fakeProvider(401);
